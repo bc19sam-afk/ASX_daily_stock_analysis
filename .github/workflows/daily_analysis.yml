@@ -11,7 +11,7 @@ on:
       mode:
         description: '运行模式'
         required: true
-        default: 'full'
+        default: 'stocks-only'
         type: choice
         options:
           - full          # 完整分析（股票+大盘）
@@ -187,13 +187,13 @@ jobs:
           echo "=========================================="
           echo ""
           
-          # 执行分析
+          # 执行分析 (修改：强制执行无大盘模式，解决空推送)
           if [ "$MODE" = "market-only" ]; then
             python main.py --market-review
-          elif [ "$MODE" = "stocks-only" ]; then
-            python main.py --no-market-review
           else
-            python main.py
+            # 无论手动选择 full 还是定时任务自动运行，默认都只跑股票
+            # 这样程序不会初始化 A 股大盘模块，从而彻底消除空推送
+            python main.py --no-market-review
           fi
       
       - name: 上传分析报告
