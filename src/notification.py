@@ -179,6 +179,7 @@ class NotificationService:
        
         # Server酱3 配置
         self._serverchan3_sendkey = getattr(config, 'serverchan3_sendkey', None)
+        self._serverchan3_sendkey_2 = getattr(config, 'serverchan3_sendkey_2', None)
 
         # 自定义 Webhook 配置
         self._custom_webhook_urls = getattr(config, 'custom_webhook_urls', []) or []
@@ -2937,79 +2938,64 @@ class NotificationService:
 
     def send_to_serverchan3(self, content: str, title: Optional[str] = None) -> bool:
         """
-        推送消息到 Server酱3
-
-        Server酱3 API 格式：
-        POST https://sctapi.ftqq.com/{sendkey}.send
-        或
-        POST https://{num}.push.ft07.com/send/{sendkey}.send
-        {
-            "title": "消息标题",
-            "desp": "消息内容",
-            "options": {}
-        }
-
-        Server酱3 特点：
-        - 国内推送服务，支持多家国产系统推送通道，可无后台推送
-        - 简单易用的 API 接口
-
-        Args:
-            content: 消息内容（Markdown 格式）
-            title: 消息标题（可选）
-
-        Returns:
-            是否发送成功
+        推送消息到 Server酱3 (支持多账号同时推送)
         """
-        if not self._serverchan3_sendkey:
-            logger.warning("Server酱3 SendKey 未配置，跳过推送")
+        # 获取所有已配置的 Key
+        keys = []
+        if self._serverchan3_sendkey:
+            keys.append(self._serverchan3_sendkey)
+        # 尝试获取你在 __init__ 中新增的第二个变量
+        sckey2 = getattr(self, '_serverchan3_sendkey_2', None)
+        if sckey2:
+            keys.append(sckey2)
+
+        if not keys:
+            logger.warning("Server酱3 所有 SendKey 均未配置，跳过推送")
             return False
 
         # 处理消息标题
         if title is None:
             date_str = datetime.now().strftime('%Y-%m-%d')
-            title = f"📈 股票分析报告 - {date_str}"
+            display_title = f"📈 股票分析报告 - {date_str}"
+        else:
+            display_title = title
 
-        try:
-            # 根据 sendkey 格式构造 URL
-            sendkey = self._serverchan3_sendkey
-            if sendkey.startswith('sctp'):
-                match = re.match(r'sctp(\d+)t', sendkey)
-                if match:
-                    num = match.group(1)
-                    url = f"https://{num}.push.ft07.com/send/{sendkey}.send"
+        overall_success = False
+
+        # 核心逻辑：循环发送给列表里的每一个 Key
+        for sendkey in keys:
+            try:
+                # 根据 sendkey 格式构造 URL
+                if sendkey.startswith('sctp'):
+                    match = re.match(r'sctp(\d+)t', sendkey)
+                    if match:
+                        num = match.group(1)
+                        url = f"https://{num}.push.ft07.com/send/{sendkey}.send"
+                    else:
+                        logger.error(f"Server酱3 Key 格式错误: {sendkey[:10]}...")
+                        continue
                 else:
-                    logger.error("Invalid sendkey format for sctp")
-                    return False
-            else:
-                url = f"https://sctapi.ftqq.com/{sendkey}.send"
+                    url = f"https://sctapi.ftqq.com/{sendkey}.send"
 
-            # 构建请求参数
-            params = {
-                'title': title,
-                'desp': content,
-                'options': {}
-            }
+                params = {
+                    'title': display_title,
+                    'desp': content,
+                    'options': {}
+                }
 
-            # 发送请求
-            headers = {
-                'Content-Type': 'application/json;charset=utf-8'
-            }
-            response = requests.post(url, json=params, headers=headers, timeout=10)
+                headers = {'Content-Type': 'application/json;charset=utf-8'}
+                # 增加到 15 秒超时，防止网络波动影响第二个推送
+                response = requests.post(url, json=params, headers=headers, timeout=15)
 
-            if response.status_code == 200:
-                result = response.json()
-                logger.info(f"Server酱3 消息发送成功: {result}")
-                return True
-            else:
-                logger.error(f"Server酱3 请求失败: HTTP {response.status_code}")
-                logger.error(f"响应内容: {response.text}")
-                return False
+                if response.status_code == 200:
+                    logger.info(f"Server酱3 消息发送成功 (账号: {sendkey[:10]}...)")
+                    overall_success = True
+                else:
+                    logger.error(f"Server酱3 请求失败: HTTP {response.status_code} ({sendkey[:10]}...)")
+            except Exception as e:
+                logger.error(f"发送 Server酱3 消息异常 ({sendkey[:10]}...): {e}")
 
-        except Exception as e:
-            logger.error(f"发送 Server酱3 消息失败: {e}")
-            import traceback
-            logger.debug(traceback.format_exc())
-            return False
+        return overall_success
 
 
    
