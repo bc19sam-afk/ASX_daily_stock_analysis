@@ -483,12 +483,13 @@ class SearchService:
         is_foreign = self._is_foreign_stock(stock_code)
         
         if is_foreign:
+            # 针对外盘（澳股/美股），直接使用 stock_code 搜索，避开中文名干扰
             dims = [
-                {'name': 'latest_news', 'query': f"{stock_name} {stock_code} latest news events", 'desc': '最新消息'},
-                {'name': 'market_analysis', 'query': f"{stock_name} analyst rating target price report", 'desc': '机构分析'},
-                {'name': 'risk_check', 'query': f"{stock_name} risk insider selling lawsuit litigation", 'desc': '风险排查'},
-                {'name': 'earnings', 'query': f"{stock_name} earnings revenue profit growth forecast", 'desc': '业绩预期'},
-                {'name': 'industry', 'query': f"{stock_name} industry competitors market share outlook", 'desc': '行业分析'},
+                {'name': 'latest_news', 'query': f"{stock_code} latest news events", 'desc': '最新消息'},
+                {'name': 'market_analysis', 'query': f"{stock_code} analyst rating target price report", 'desc': '机构分析'},
+                {'name': 'risk_check', 'query': f"{stock_code} risk insider selling lawsuit litigation", 'desc': '风险排查'},
+                {'name': 'earnings', 'query': f"{stock_code} earnings revenue profit growth forecast", 'desc': '业绩预期'},
+                {'name': 'industry', 'query': f"{stock_code} industry competitors market share outlook", 'desc': '行业分析'},
             ]
         else:
             dims = [
