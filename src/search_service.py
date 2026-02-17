@@ -373,9 +373,13 @@ class SearchService:
         tavily_keys: Optional[List[str]] = None,
         brave_keys: Optional[List[str]] = None,
         serpapi_keys: Optional[List[str]] = None,
+        news_max_age_days: int = 3
+        
     ):
         """初始化搜索服务（已针对澳洲股票优化：Tavily 优先）"""
         self._providers: List[BaseSearchProvider] = []
+        
+        self.news_max_age_days = max(1, news_max_age_days)  # <--- 插入这句
 
         # 1. Tavily 优先（针对 ASX 澳洲股票搜索能力强）
         if tavily_keys:
@@ -438,7 +442,12 @@ class SearchService:
     
     def search_stock_news(self, stock_code: str, stock_name: str, max_results: int = 5, focus_keywords: Optional[List[str]] = None) -> SearchResponse:
         today_weekday = datetime.now().weekday()
-        search_days = 3 if today_weekday == 0 else (2 if today_weekday >= 5 else 1)
+    
+        # 1. 先计算常规情况下的建议天数
+        weekday_days = 3 if today_weekday == 0 else (2 if today_weekday >= 5 else 1)
+
+        # 2. 取建议天数和你 .env 配置天数的最小值
+        search_days = min(weekday_days, self.news_max_age_days)
 
         is_foreign = self._is_foreign_stock(stock_code)
         if focus_keywords:
