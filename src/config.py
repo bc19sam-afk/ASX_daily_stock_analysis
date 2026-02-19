@@ -174,10 +174,10 @@ class Config:
 
     # === 回测配置 ===
     backtest_enabled: bool = True
-    backtest_eval_window_days: int = 10
+    backtest_eval_window_days: int = 7
     backtest_min_age_days: int = 14
     backtest_engine_version: str = "v1"
-    backtest_neutral_band_pct: float = 2.0
+    backtest_neutral_band_pct: float = 3.5
     
     # === 日志配置 ===
     log_dir: str = "./logs"  # 日志文件目录
