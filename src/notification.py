@@ -1844,7 +1844,7 @@ class NotificationService:
                 "header": {
                     "title": {
                         "tag": "plain_text",
-                        "content": "A股智能分析报告"
+                        "content": "ASX澳股智能分析报告"
                     }
                 },
                 "elements": [
@@ -3052,7 +3052,7 @@ class NotificationService:
         try:
             payload = {
                 'content': content,
-                'username': 'A股分析机器人',
+                'username': 'ASX分析机器人',
                 'avatar_url': 'https://picsum.photos/200'
             }
             
