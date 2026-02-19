@@ -437,7 +437,7 @@ def main() -> int:
     setup_logging(log_prefix="stock_analysis", debug=args.debug, log_dir=config.log_dir)
 
     logger.info("=" * 60)
-    logger.info("A股自选股智能分析系统 启动")
+    logger.info("ASX澳股自选股智能分析系统 启动")
     logger.info(f"运行时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 60)
 
