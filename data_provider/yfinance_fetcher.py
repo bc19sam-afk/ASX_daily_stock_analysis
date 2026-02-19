@@ -351,11 +351,28 @@ class YfinanceFetcher(BaseFetcher):
             if high is not None and low is not None and prev_close is not None and prev_close > 0:
                 amplitude = ((high - low) / prev_close) * 100
             
-            # 获取股票名称
+            # 获取股票名称与核心基本面（ASX极度依赖股息率）
             try:
-                name = ticker.info.get('shortName', '') or ticker.info.get('longName', '') or symbol
+                info = ticker.info
+                name = info.get('shortName', '') or info.get('longName', '') or symbol
+                
+                # 抓取市盈率、市净率和股息率
+                pe_val = info.get('trailingPE', 'N/A')
+                pb_val = info.get('priceToBook', None)
+                div_yield = info.get('dividendYield', 0)
+                
+                if isinstance(pe_val, float):
+                    pe_val = round(pe_val, 2)
+                if isinstance(pb_val, float):
+                    pb_val = round(pb_val, 2)
+                    
+                # 巧妙利用 pe_ratio 字段将股息率拼接进去，确保 AI 能直接看到
+                pe_str = f"{pe_val} | 💰股息率: {div_yield * 100:.2f}%" if div_yield else str(pe_val)
+                
             except Exception:
                 name = symbol
+                pe_str = None
+                pb_val = None
             
             quote = UnifiedRealtimeQuote(
                 code=symbol,
@@ -373,8 +390,8 @@ class YfinanceFetcher(BaseFetcher):
                 high=high,
                 low=low,
                 pre_close=prev_close,
-                pe_ratio=None,
-                pb_ratio=None,
+                pe_ratio=pe_str,    # <--- 带有股息率的核心数据被传出
+                pb_ratio=pb_val,    # <--- 真实的市净率
                 total_mv=market_cap,
                 circ_mv=None,
             )
