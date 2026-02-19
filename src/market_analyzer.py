@@ -328,31 +328,30 @@ class MarketAnalyzer:
         indices_block = self._build_indices_block(overview)
         sector_block = self._build_sector_block(overview)
 
-        # Inject market stats after "### 一、市场总结" section (before next ###)
+        # 匹配澳洲宏观版的新标题锚点（兼容 AI 遗漏 ### 的情况）
         if stats_block:
-            review = self._insert_after_section(review, r'###\s*一、市场总结', stats_block)
+            review = self._insert_after_section(review, r'(?:#+\s*)?一、宏观与大盘总结', stats_block)
 
-        # Inject indices table after "### 二、指数点评" section
+        # 将核心指数/商品表格插入到第二部分
         if indices_block:
-            review = self._insert_after_section(review, r'###\s*二、指数点评', indices_block)
+            review = self._insert_after_section(review, r'(?:#+\s*)?二、指数与商品点评', indices_block)
 
-        # Inject sector rankings after "### 四、热点解读" section
         if sector_block:
-            review = self._insert_after_section(review, r'###\s*四、热点解读', sector_block)
+            review = self._insert_after_section(review, r'(?:#+\s*)?三、热点与风险解读', sector_block)
 
         return review
 
     @staticmethod
     def _insert_after_section(text: str, heading_pattern: str, block: str) -> str:
-        """Insert a data block at the end of a markdown section (before the next ### heading)."""
+        """Insert a data block at the end of a markdown section."""
         import re
         # Find the heading
         match = re.search(heading_pattern, text)
         if not match:
             return text
         start = match.end()
-        # Find the next ### heading after this one
-        next_heading = re.search(r'\n###\s', text[start:])
+        # Find the next heading after this one (匹配 一、二、三、 等中文序号)
+        next_heading = re.search(r'\n(?:#+\s*)?[一二三四五六]、', text[start:])
         if next_heading:
             insert_pos = start + next_heading.start()
         else:
