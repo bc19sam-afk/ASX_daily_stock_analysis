@@ -1189,10 +1189,10 @@ class GeminiAnalyzer:
 ### 今日行情
 | 指标 | 数值 |
 |------|------|
-| 收盘价 | {today.get('close', 'N/A')} 元 |
-| 开盘价 | {today.get('open', 'N/A')} 元 |
-| 最高价 | {today.get('high', 'N/A')} 元 |
-| 最低价 | {today.get('low', 'N/A')} 元 |
+| 收盘价 | {today.get('close', 'N/A')} AUD |
+| 开盘价 | {today.get('open', 'N/A')} AUD |
+| 最高价 | {today.get('high', 'N/A')} AUD |
+| 最低价 | {today.get('low', 'N/A')} AUD |
 | 涨跌幅 | {today.get('pct_chg', 'N/A')}% |
 | 成交量 | {self._format_volume(today.get('volume'))} |
 | 成交额 | {self._format_amount(today.get('amount'))} |
@@ -1213,7 +1213,7 @@ class GeminiAnalyzer:
 ### 实时行情增强数据
 | 指标 | 数值 | 解读 |
 |------|------|------|
-| 当前价格 | {rt.get('price', 'N/A')} 元 | |
+| 当前价格 | {rt.get('price', 'N/A')} AUD | |
 | **量比** | **{rt.get('volume_ratio', 'N/A')}** | {rt.get('volume_ratio_desc', '')} |
 | **换手率** | **{rt.get('turnover_rate', 'N/A')}%** | |
 | 市盈率(动态) | {rt.get('pe_ratio', 'N/A')} | |
@@ -1232,7 +1232,7 @@ class GeminiAnalyzer:
 | 指标 | 数值 | 健康标准 |
 |------|------|----------|
 | **获利比例** | **{profit_ratio:.1%}** | 70-90%时警惕 |
-| 平均成本 | {chip.get('avg_cost', 'N/A')} 元 | 现价应高于5-15% |
+| 平均成本 | {chip.get('avg_cost', 'N/A')} AUD | 现价应高于5-15% |
 | 90%筹码集中度 | {chip.get('concentration_90', 0):.2%} | <15%为集中 |
 | 70%筹码集中度 | {chip.get('concentration_70', 0):.2%} | |
 | 筹码状态 | {chip.get('chip_status', '未知')} | |
@@ -1333,26 +1333,26 @@ class GeminiAnalyzer:
         return prompt
     
     def _format_volume(self, volume: Optional[float]) -> str:
-        """格式化成交量显示"""
+        """格式化成交量显示 (ASX适配)"""
         if volume is None:
             return 'N/A'
-        if volume >= 1e8:
-            return f"{volume / 1e8:.2f} 亿股"
-        elif volume >= 1e4:
-            return f"{volume / 1e4:.2f} 万股"
+        if volume >= 1e9:
+            return f"{volume / 1e9:.2f} B"
+        elif volume >= 1e6:
+            return f"{volume / 1e6:.2f} M"
         else:
-            return f"{volume:.0f} 股"
+            return f"{volume:.0f}"
     
     def _format_amount(self, amount: Optional[float]) -> str:
-        """格式化成交额显示"""
+        """格式化成交额显示 (ASX适配)"""
         if amount is None:
             return 'N/A'
-        if amount >= 1e8:
-            return f"{amount / 1e8:.2f} 亿元"
-        elif amount >= 1e4:
-            return f"{amount / 1e4:.2f} 万元"
+        if amount >= 1e9:
+            return f"{amount / 1e9:.2f} B AUD"
+        elif amount >= 1e6:
+            return f"{amount / 1e6:.2f} M AUD"
         else:
-            return f"{amount:.0f} 元"
+            return f"{amount:.0f} AUD"
 
     def _format_percent(self, value: Optional[float]) -> str:
         """格式化百分比显示"""
