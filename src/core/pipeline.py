@@ -62,7 +62,7 @@ class StockAnalysisPipeline:
             max_workers: 最大并发线程数（可选，默认从配置读取）
         """
         self.config = config or get_config()
-        self.config.enable_chip_distribution = True
+        self.config.enable_chip_distribution = False
         self.max_workers = max_workers or self.config.max_workers
         self.source_message = source_message
         self.query_id = query_id
