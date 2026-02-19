@@ -113,11 +113,9 @@ class MarketAnalyzer:
         # 1. 获取主要指数行情
         overview.indices = self._get_main_indices()
         
-        # 2. 获取涨跌统计
-        self._get_market_statistics(overview)
-        
-        # 3. 获取板块涨跌榜
-        self._get_sector_rankings(overview)
+        # 澳股暂不支持直接获取全市场涨跌统计和板块榜，直接跳过 A 股的接口
+        # self._get_market_statistics(overview)
+        # self._get_sector_rankings(overview)
         
         # 4. 获取北向资金（可选）
         # self._get_north_flow(overview)
@@ -126,39 +124,41 @@ class MarketAnalyzer:
 
     
     def _get_main_indices(self) -> List[MarketIndex]:
-        """获取主要指数实时行情"""
+        """获取主要指数实时行情 (ASX宏观适配版)"""
         indices = []
-
         try:
-            logger.info("[大盘] 获取主要指数实时行情...")
-
-            # 使用 DataFetcherManager 获取指数行情
-            # Manager 会自动尝试：Akshare -> Tushare -> Yfinance
-            data_list = self.data_manager.get_main_indices()
-
-            if data_list:
-                for item in data_list:
-                    index = MarketIndex(
-                        code=item['code'],
-                        name=item['name'],
-                        current=item['current'],
-                        change=item['change'],
-                        change_pct=item['change_pct'],
-                        open=item['open'],
-                        high=item['high'],
-                        low=item['low'],
-                        prev_close=item['prev_close'],
-                        volume=item['volume'],
-                        amount=item['amount'],
-                        amplitude=item['amplitude']
-                    )
-                    indices.append(index)
-
+            import yfinance as yf
+            logger.info("[大盘] 获取澳洲大盘、美股及大宗商品行情...")
+            
+            # 配置需要抓取的全球核心宏观指标
+            tickers = {
+                '^AXJO': 'ASX 200 (澳股)',
+                '^GSPC': '标普 500 (美股)',
+                'GC=F': '黄金期货',
+                'HG=F': '铜期货'
+            }
+            
+            for code, name in tickers.items():
+                try:
+                    ticker = yf.Ticker(code)
+                    hist = ticker.history(period="2d")
+                    if len(hist) >= 1:
+                        current = float(hist['Close'].iloc[-1])
+                        prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else current
+                        change = current - prev_close
+                        change_pct = (change / prev_close) * 100 if prev_close else 0.0
+                        
+                        indices.append(MarketIndex(
+                            code=code, name=name, current=current, change=change,
+                            change_pct=change_pct, open=float(hist['Open'].iloc[-1]),
+                            high=float(hist['High'].iloc[-1]), low=float(hist['Low'].iloc[-1]),
+                            prev_close=prev_close, volume=float(hist['Volume'].iloc[-1]) if 'Volume' in hist else 0.0
+                        ))
+                except Exception as e:
+                    logger.warning(f"[大盘] 获取 {name} 行情失败: {e}")
+            
             if not indices:
-                logger.warning("[大盘] 所有行情数据源失败，将依赖新闻搜索进行分析")
-            else:
-                logger.info(f"[大盘] 获取到 {len(indices)} 个指数行情")
-
+                logger.warning("[大盘] 所有宏观行情获取失败")
         except Exception as e:
             logger.error(f"[大盘] 获取指数行情失败: {e}")
 
@@ -240,10 +240,11 @@ class MarketAnalyzer:
         date_str = today.strftime('%Y年%m月%d日')
 
         # 多维度搜索
+        # 针对澳洲和全球宏观的英文搜索词
         search_queries = [
-            "A股 大盘 复盘",
-            "股市 行情 分析",
-            "A股 市场 热点 板块",
+            "ASX 200 market summary today",
+            "Wall street overnight S&P 500 impact",
+            "Iron ore copper gold price news",
         ]
         
         try:
@@ -428,61 +429,43 @@ class MarketAnalyzer:
                 snippet = n.get('snippet', '')[:100]
             news_text += f"{i}. {title}\n   {snippet}\n"
         
-        prompt = f"""你是一位专业的A/H/美股市场分析师，请根据以下数据生成一份简洁的大盘复盘报告。
+        prompt = f"""你是一位专业的澳洲 (ASX) 及全球宏观市场分析师，请根据以下数据生成一份简洁的大盘复盘报告。
 
 【重要】输出要求：
 - 必须输出纯 Markdown 文本格式
 - 禁止输出 JSON 格式
 - 禁止输出代码块
-- emoji 仅在标题处少量使用（每个标题最多1个）
 
 ---
 
-# 今日市场数据
+# 今日宏观市场数据
 
 ## 日期
 {overview.date}
 
-## 主要指数
-{indices_text if indices_text else "暂无指数数据（接口异常）"}
+## 核心指数与大宗商品
+{indices_text if indices_text else "暂无行情数据"}
 
-## 市场概况
-- 上涨: {overview.up_count} 家 | 下跌: {overview.down_count} 家 | 平盘: {overview.flat_count} 家
-- 涨停: {overview.limit_up_count} 家 | 跌停: {overview.limit_down_count} 家
-- 两市成交额: {overview.total_amount:.0f} 亿元
-
-## 板块表现
-领涨: {top_sectors_text if top_sectors_text else "暂无数据"}
-领跌: {bottom_sectors_text if bottom_sectors_text else "暂无数据"}
-
-## 市场新闻
+## 宏观市场新闻（通常为英文，请用中文总结）
 {news_text if news_text else "暂无相关新闻"}
-
-{"注意：由于行情数据获取失败，请主要根据【市场新闻】进行定性分析和总结，不要编造具体的指数点位。" if not indices_text else ""}
 
 ---
 
 # 输出格式模板（请严格按此格式输出）
 
-## 📊 {overview.date} 大盘复盘
+## 📊 {overview.date} 澳股及全球宏观复盘
 
-### 一、市场总结
-（2-3句话概括今日市场整体表现，包括指数涨跌、成交量变化）
+### 一、宏观与大盘总结
+（2-3句话概括隔夜美股（标普500）表现及今日 ASX 200 的联动反应）
 
-### 二、指数点评
-（分析上证、深证、创业板等各指数走势特点）
+### 二、指数与商品点评
+（分析大宗商品（黄金、铜等）价格波动对澳洲矿业板块的潜在影响）
 
-### 三、资金动向
-（解读成交额流向的含义）
+### 三、热点与风险解读
+（提炼新闻中的关键信息，如澳洲央行 RBA 动态、核心公司财报或突发宏观风险）
 
-### 四、热点解读
-（分析领涨领跌板块背后的逻辑和驱动因素）
-
-### 五、后市展望
-（结合当前走势和新闻，给出明日市场预判）
-
-### 六、风险提示
-（需要关注的风险点）
+### 四、后市展望
+（结合当前全球宏观环境，给出明日澳股市场的预判）
 
 ---
 
