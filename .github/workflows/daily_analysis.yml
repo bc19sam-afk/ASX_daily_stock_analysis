@@ -188,13 +188,14 @@ jobs:
           echo "=========================================="
           echo ""
           
-          # 执行分析 (修改：强制执行无大盘模式，解决空推送)
+          # 执行分析
           if [ "$MODE" = "market-only" ]; then
             python main.py --market-review
-          else
-            # 无论手动选择 full 还是定时任务自动运行，默认都只跑股票
-            # 这样程序不会初始化 A 股大盘模块，从而彻底消除空推送
+          elif [ "$MODE" = "stocks-only" ]; then
             python main.py --no-market-review
+          else
+            # 恢复默认运行模式：同时生成【股票分析】与【大盘复盘】
+            python main.py
           fi
       
       - name: 上传分析报告
