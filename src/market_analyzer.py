@@ -132,7 +132,7 @@ class MarketAnalyzer:
             
             # 配置需要抓取的全球核心宏观指标
             tickers = {
-                '^AXJO': 'ASX 200 (澳股)',
+                'VAS.AX': '澳洲大盘ETF(VAS)',  # <-- 修改这一行
                 '^GSPC': '标普 500 (美股)',
                 'GC=F': '黄金期货',
                 'HG=F': '铜期货'
