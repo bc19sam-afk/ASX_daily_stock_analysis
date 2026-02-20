@@ -280,27 +280,33 @@ class StockTrendAnalyzer:
         # === [最后一步：装填量化数据与历史表] ===
         # 1. 提取最新指标数值
         latest = df.iloc[-1]
-        result.atr = float(latest.get('ATR', 0))
-        # 建议也填入 RSI，这里用你原有的 RSI_12 即可
-        result.rsi_14 = float(latest.get('RSI_12', 0)) 
-
-        # 2. 生成最近 30 天的历史表格字符串 (AI 复盘的核心)
-        # 取最后 30 个交易日，并倒序排列（最新的在最上面）
-        history_df = df.tail(30).iloc[::-1] 
-        table_lines = []
-        for _, row in history_df.iterrows():
-            # 格式化日期和数值
-            d_str = row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date'])
-            # 拼成一行：| 日期 | 收盘 | 涨跌幅 | 成交量 |
-            # 注意：如果 df 里没有 pct_chg，代码会自动报错，这里建议用 get 确保安全
-            chg = row.get('pct_chg', 0)
-            line = f"| {d_str} | {row['close']:.2f} | {chg:+.2f}% | {int(row['volume'])} |"
-            table_lines.append(line)
+        # 如果你的 _calculate_atr 算出来的列名叫 ATR，这里就能成功取到；取不到就默认给 0.0
+        result.atr = float(latest.get('ATR', 0.0)) 
+        result.rsi_14 = float(latest.get('RSI_12', 0.0)) 
         
-        # 将拼好的列表合成一个大字符串
-        result.price_history_table = "\n".join(table_lines)
+        # 2. 截取过去 30 天的价格表格 (生成 Markdown 格式)
+        recent_30 = df.tail(30).copy()
+        
+        # 格式化日期，只保留 月-日 (方便 AI 阅读)
+        if 'date' in recent_30.columns:
+            recent_30['date'] = pd.to_datetime(recent_30['date']).dt.strftime('%m-%d')
+            
+        # 逐行拼装表格字符串
+        table_str = ""
+        for _, row in recent_30.iterrows():
+            close_val = round(row.get('close', 0), 2)
+            pct_val = round(row.get('pct_chg', 0), 2) if pd.notnull(row.get('pct_chg')) else "0.00"
+            vol_val = row.get('volume', 0)
+            vol_m = f"{vol_val/1000000:.2f}M" if pd.notnull(vol_val) else "N/A"
+            date_val = row.get('date', 'N/A')
+            
+            table_str += f"| {date_val} | {close_val} | {pct_val}% | {vol_m} |\n"
+            
+        result.price_history_table = table_str
 
+        # 确保函数最后返回 result
         return result
+        
     
     def _calculate_mas(self, df: pd.DataFrame) -> pd.DataFrame:
         """计算均线"""
