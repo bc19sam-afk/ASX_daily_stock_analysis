@@ -1297,8 +1297,8 @@ class GeminiAnalyzer:
 ---
 ## 💰 第四阶段：风险仓位控制 (Risk Control)
 **量化要求**：
-1. **本金基数**：当前账户总本金为 {self.config.total_assets} AUD。
-2. **风险红线**：单笔交易最大允许亏损为总本金的 1%（即 {self.config.total_assets * 0.01} AUD）。
+1. **本金基数**：当前账户总本金为 {get_config().total_assets} AUD。
+2. **风险红线**：单笔交易最大允许亏损为总本金的 1%（即 {get_config().total_assets * 0.01} AUD）。
 3. **仓位计算**：计算 1.5 倍 ATR 的止损空间。
 4. **具体指令**：请根据上述数据，给出精确的【建议买入股数】（公式：单笔风险金额 / 止损空间）。
 
