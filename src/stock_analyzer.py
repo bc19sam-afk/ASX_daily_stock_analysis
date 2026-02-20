@@ -131,6 +131,10 @@ class TrendAnalysisResult:
     signal_score: int = 0            # 综合评分 0-100
     signal_reasons: List[str] = field(default_factory=list)
     risk_factors: List[str] = field(default_factory=list)
+
+    atr: float = 0.0                
+    rsi_14: float = 0.0             
+    price_history_table: str = ""
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -229,6 +233,7 @@ class StockTrendAnalyzer:
         # 计算 MACD 和 RSI
         df = self._calculate_macd(df)
         df = self._calculate_rsi(df)
+        df = self._calculate_atr(df)
 
         # 获取最新数据
         latest = df.iloc[-1]
@@ -257,7 +262,31 @@ class StockTrendAnalyzer:
         self._analyze_rsi(df, result)
 
         # 7. 生成买入信号
+        # ... 前面的分析逻辑保持不变 ...
         self._generate_signal(result)
+
+        # === [最后一步：装填量化数据与历史表] ===
+        # 1. 提取最新指标数值
+        latest = df.iloc[-1]
+        result.atr = float(latest.get('ATR', 0))
+        # 建议也填入 RSI，这里用你原有的 RSI_12 即可
+        result.rsi_14 = float(latest.get('RSI_12', 0)) 
+
+        # 2. 生成最近 30 天的历史表格字符串 (AI 复盘的核心)
+        # 取最后 30 个交易日，并倒序排列（最新的在最上面）
+        history_df = df.tail(30).iloc[::-1] 
+        table_lines = []
+        for _, row in history_df.iterrows():
+            # 格式化日期和数值
+            d_str = row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date'])
+            # 拼成一行：| 日期 | 收盘 | 涨跌幅 | 成交量 |
+            # 注意：如果 df 里没有 pct_chg，代码会自动报错，这里建议用 get 确保安全
+            chg = row.get('pct_chg', 0)
+            line = f"| {d_str} | {row['close']:.2f} | {chg:+.2f}% | {int(row['volume'])} |"
+            table_lines.append(line)
+        
+        # 将拼好的列表合成一个大字符串
+        result.price_history_table = "\n".join(table_lines)
 
         return result
     
@@ -334,6 +363,19 @@ class StockTrendAnalyzer:
             col_name = f'RSI_{period}'
             df[col_name] = rsi
 
+        return df
+
+    def _calculate_atr(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+        """
+        计算 ATR (平均真实波幅)
+        """
+        df = df.copy()
+        high_low = df['high'] - df['low']
+        high_cp = (df['high'] - df['close'].shift()).abs()
+        low_cp = (df['low'] - df['close'].shift()).abs()
+        
+        df['TR'] = pd.concat([high_low, high_cp, low_cp], axis=1).max(axis=1)
+        df['ATR'] = df['TR'].rolling(window=period).mean()
         return df
     
     def _analyze_trend(self, df: pd.DataFrame, result: TrendAnalysisResult) -> None:
