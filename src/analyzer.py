@@ -245,6 +245,9 @@ class AnalysisResult:
             'error_message': self.error_message,
             'current_price': self.current_price,
             'change_pct': self.change_pct,
+            'atr': self.atr,
+            'rsi_14': self.rsi_14,
+            'price_history_table': self.price_history_table,
         }
 
     def get_core_conclusion(self) -> str:
