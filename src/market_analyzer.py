@@ -375,17 +375,18 @@ class MarketAnalyzer:
         return "\n".join(lines)
 
     def _build_indices_block(self, overview: MarketOverview) -> str:
-        """Build indices table block (without amplitude)."""
+        """Build indices table block (替换无效的成交额，改为日内振幅)"""
         if not overview.indices:
             return ""
         lines = [
-            "| 指数 | 最新 | 涨跌幅 | 成交额(亿) |",
-            "|------|------|--------|-----------|"]
+            "| 指数/商品 | 最新价 | 涨跌幅 | 日内振幅 |",
+            "|-----------|--------|--------|----------|"]
         for idx in overview.indices:
             arrow = "🔴" if idx.change_pct < 0 else "🟢" if idx.change_pct > 0 else "⚪"
-            amount_raw = idx.amount or 0.0
-            amount_yi = amount_raw / 1e8 if amount_raw > 1e6 else amount_raw
-            lines.append(f"| {idx.name} | {idx.current:.2f} | {arrow} {idx.change_pct:+.2f}% | {amount_yi:.0f} |")
+            # 计算真实的日内振幅 (最高价 - 最低价) / 昨收
+            amplitude = ((idx.high - idx.low) / idx.prev_close * 100) if idx.prev_close else 0.0
+            
+            lines.append(f"| {idx.name} | {idx.current:.2f} | {arrow} {idx.change_pct:+.2f}% | {amplitude:.2f}% |")
         return "\n".join(lines)
 
     def _build_sector_block(self, overview: MarketOverview) -> str:
@@ -407,11 +408,12 @@ class MarketAnalyzer:
 
     def _build_review_prompt(self, overview: MarketOverview, news: List) -> str:
         """构建复盘报告 Prompt"""
-        # 指数行情信息（简洁格式，不用emoji）
+        # 指数行情信息（加入振幅，供 AI 深度分析情绪）
         indices_text = ""
         for idx in overview.indices:
             direction = "↑" if idx.change_pct > 0 else "↓" if idx.change_pct < 0 else "-"
-            indices_text += f"- {idx.name}: {idx.current:.2f} ({direction}{abs(idx.change_pct):.2f}%)\n"
+            amplitude = ((idx.high - idx.low) / idx.prev_close * 100) if idx.prev_close else 0.0
+            indices_text += f"- {idx.name}: 最新 {idx.current:.2f} | 涨跌 {direction}{abs(idx.change_pct):.2f}% | 振幅 {amplitude:.2f}%\n"
         
         # 板块信息
         top_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.top_sectors[:3]])
