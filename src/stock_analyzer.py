@@ -137,38 +137,50 @@ class TrendAnalysisResult:
     price_history_table: str = ""
     
     def to_dict(self) -> Dict[str, Any]:
+        """转换为字典以便 AI 分析层读取 (量化 4.0 升级版)"""
         return {
+            # === [核心适配] 将今日实时行情打包，给大脑使用 ===
+            'today': {
+                'close': self.current_price,
+                'ma5': self.ma5,
+                'ma10': self.ma10,
+                'ma20': self.ma20,
+                'ma60': getattr(self, 'ma60', 0.0),
+            },
+
+            # === [量化核心] 必须传给大脑的新数据 ===
+            'atr': getattr(self, 'atr', 0.0),
+            'rsi_14': getattr(self, 'rsi_14', 0.0),
+            'price_history_table': getattr(self, 'price_history_table', ""),
+
+            # === 下面是你原来的数据，保持原样传出 ===
             'code': self.code,
-            'trend_status': self.trend_status.value,
+            'trend_status': self.trend_status.value if hasattr(self.trend_status, 'value') else str(self.trend_status),
             'ma_alignment': self.ma_alignment,
             'trend_strength': self.trend_strength,
-            'ma5': self.ma5,
-            'ma10': self.ma10,
-            'ma20': self.ma20,
-            'ma60': self.ma60,
             'current_price': self.current_price,
             'bias_ma5': self.bias_ma5,
             'bias_ma10': self.bias_ma10,
             'bias_ma20': self.bias_ma20,
-            'volume_status': self.volume_status.value,
+            'volume_status': self.volume_status.value if hasattr(self.volume_status, 'value') else str(self.volume_status),
             'volume_ratio_5d': self.volume_ratio_5d,
             'volume_trend': self.volume_trend,
             'support_ma5': self.support_ma5,
             'support_ma10': self.support_ma10,
-            'buy_signal': self.buy_signal.value,
+            'buy_signal': self.buy_signal.value if hasattr(self.buy_signal, 'value') else str(self.buy_signal),
             'signal_score': self.signal_score,
             'signal_reasons': self.signal_reasons,
             'risk_factors': self.risk_factors,
-            'macd_dif': self.macd_dif,
-            'macd_dea': self.macd_dea,
-            'macd_bar': self.macd_bar,
-            'macd_status': self.macd_status.value,
-            'macd_signal': self.macd_signal,
-            'rsi_6': self.rsi_6,
-            'rsi_12': self.rsi_12,
-            'rsi_24': self.rsi_24,
-            'rsi_status': self.rsi_status.value,
-            'rsi_signal': self.rsi_signal,
+            'macd_dif': getattr(self, 'macd_dif', 0.0),
+            'macd_dea': getattr(self, 'macd_dea', 0.0),
+            'macd_bar': getattr(self, 'macd_bar', 0.0),
+            'macd_status': self.macd_status.value if hasattr(self.macd_status, 'value') else str(getattr(self, 'macd_status', '')),
+            'macd_signal': getattr(self, 'macd_signal', ''),
+            'rsi_6': getattr(self, 'rsi_6', 0.0),
+            'rsi_12': getattr(self, 'rsi_12', 0.0),
+            'rsi_24': getattr(self, 'rsi_24', 0.0),
+            'rsi_status': self.rsi_status.value if hasattr(self.rsi_status, 'value') else str(getattr(self, 'rsi_status', '')),
+            'rsi_signal': getattr(self, 'rsi_signal', ''),
         }
 
 
