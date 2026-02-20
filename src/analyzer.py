@@ -212,37 +212,16 @@ class AnalysisResult:
     change_pct: Optional[float] = None     # 分析时的涨跌幅(%)
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        转换为字典以便 AI 分析层读取
-        适配逻辑：将今日核心数据封装在 'today' 键下，确保 analyzer.py 能够正确提取
-        """
+        """转换为字典以便最终推送"""
         return {
             'code': self.code,
             'name': self.name,
-            
-            # === [核心适配] 将今日实时行情打包，对接 analyzer.py 的 context.get('today') 逻辑 ===
-            'today': {
-                'close': self.current_price,
-                'pct_chg': self.change_pct,
-                'ma5': self.ma5,
-                'ma10': self.ma10,
-                'ma20': self.ma20,
-                'ma60': self.ma60,
-                'volume': getattr(self, 'volume', 0),  # 如果类里没有 volume 属性，则默认为 0
-            },
-
-            # === [量化 4.0 核心] 直接传给 AI 分析层的新口袋变量 ===
-            'atr': self.atr,
-            'rsi_14': self.rsi_14,
-            'price_history_table': self.price_history_table,
-
-            # === 原有分析字段（保持平铺，供 AI 生成摘要使用） ===
             'sentiment_score': self.sentiment_score,
             'trend_prediction': self.trend_prediction,
             'operation_advice': self.operation_advice,
             'decision_type': self.decision_type,
             'confidence_level': self.confidence_level,
-            'dashboard': self.dashboard,            # 决策仪表盘数据
+            'dashboard': self.dashboard,
             'trend_analysis': self.trend_analysis,
             'short_term_outlook': self.short_term_outlook,
             'medium_term_outlook': self.medium_term_outlook,
