@@ -213,7 +213,7 @@ def run_full_analysis(
     stock_codes: Optional[List[str]] = None
 ):
     """
-    执行完整的分析流程（个股 + 大盘复盘）
+    执行完整的分析流程（个股 + 大盘复盘 + 潜力股猎手）
 
     这是定时任务调用的主函数
     """
@@ -232,7 +232,7 @@ def run_full_analysis(
 
         # 创建调度器
         save_context_snapshot = None
-        if getattr(args, 'no_context_snapshot', False):
+        if getattr(args, 'no_context-snapshot', False):
             save_context_snapshot = False
         query_id = uuid.uuid4().hex
         pipeline = StockAnalysisPipeline(
@@ -271,20 +271,43 @@ def run_full_analysis(
             # 如果有结果，赋值给 market_report 用于后续飞书文档生成
             if review_result:
                 market_report = review_result
+        
+        # 3. [新增] 运行潜力股猎手 (Screener)
+        screener_report = ""
+        try:
+            from src.screener import run_screener_analysis
+            # 只有在合并推送模式下，或者显式要求时才运行，避免重复
+            if not args.dry_run:
+                screener_report = run_screener_analysis()
+                # 如果有大盘报告，把潜力股追加到大盘报告后面保存（为了飞书文档等一致性）
+                if market_report:
+                     market_report += screener_report
+        except ImportError:
+            logger.warning("未找到 src.screener 模块，跳过潜力股筛选")
+        except Exception as e:
+            logger.error(f"潜力股筛选运行失败: {e}")
 
-        # Issue #190: 合并推送（个股+大盘复盘）
+        # Issue #190: 合并推送（个股 + 大盘复盘 + 潜力股）
+        # 只要有任何一项内容，就尝试推送
         if merge_notification and (results or market_report) and not args.no_notify:
             parts = []
             if market_report:
-                parts.append(f"# 📈 大盘复盘\n\n{market_report}")
+                parts.append(f"# 📈 大盘复盘 & 猎手雷达\n\n{market_report}")
+            
+            # 注意：screener_report 已经追加到 market_report 里了，所以这里不用单独 append
+            # 如果没有 market_report 但有 screener_report (极端情况)，单独处理
+            elif screener_report:
+                parts.append(f"# 🦅 猎手雷达\n\n{screener_report}")
+
             if results:
                 dashboard_content = pipeline.notifier.generate_dashboard_report(results)
                 parts.append(f"# 🚀 个股决策仪表盘\n\n{dashboard_content}")
+                
             if parts:
                 combined_content = "\n\n---\n\n".join(parts)
                 if pipeline.notifier.is_available():
                     if pipeline.notifier.send(combined_content, email_send_to_all=True):
-                        logger.info("已合并推送（个股+大盘复盘）")
+                        logger.info("已合并推送（个股 + 大盘 + 潜力股）")
                     else:
                         logger.warning("合并推送失败")
 
@@ -318,7 +341,7 @@ def run_full_analysis(
 
                 # 添加大盘复盘内容（如果有）
                 if market_report:
-                    full_content += f"# 📈 大盘复盘\n\n{market_report}\n\n---\n\n"
+                    full_content += f"# 📈 大盘复盘 & 猎手雷达\n\n{market_report}\n\n---\n\n"
 
                 # 添加个股决策仪表盘（使用 NotificationService 生成）
                 if results:
@@ -546,12 +569,35 @@ def main() -> int:
             else:
                 logger.warning("未检测到 API Key (Gemini/OpenAI)，将仅使用模板生成报告")
 
-            run_market_review(
+            # === 修改点：大盘复盘模式也要调用 Screener ===
+            review_result = run_market_review(
                 notifier=notifier,
                 analyzer=analyzer,
                 search_service=search_service,
-                send_notification=not args.no_notify
+                send_notification=False # 先不发，等合并
             )
+            
+            # 调用 Screener
+            screener_report = ""
+            try:
+                from src.screener import run_screener_analysis
+                if not args.dry_run:
+                    screener_report = run_screener_analysis()
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.error(f"Screener failed: {e}")
+                
+            # 合并推送
+            final_content = ""
+            if review_result:
+                final_content += f"# 📈 大盘复盘\n\n{review_result}\n\n"
+            if screener_report:
+                final_content += f"# 🦅 猎手雷达\n\n{screener_report}"
+                
+            if final_content and not args.no_notify:
+                notifier.send(final_content, email_send_to_all=True)
+
             return 0
 
         # 模式2: 定时任务模式
