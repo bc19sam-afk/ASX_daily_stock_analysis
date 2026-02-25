@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-澳股自选股智能分析系统 - 主调度程序
+A股自选股智能分析系统 - 主调度程序
 ===================================
 
 职责：
@@ -47,12 +47,6 @@ from typing import List, Optional
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.market_review import run_market_review
 
-# === [新增插入] 引入量化筛选器模块 ===
-try:
-    from src.screener import run_screener_analysis
-except ImportError:
-    run_screener_analysis = None
-
 from src.config import get_config, Config
 from src.logging_config import setup_logging
 
@@ -63,7 +57,7 @@ logger = logging.getLogger(__name__)
 def parse_arguments() -> argparse.Namespace:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
-        description='澳股自选股智能分析系统',
+        description='A股自选股智能分析系统',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 示例:
@@ -219,7 +213,7 @@ def run_full_analysis(
     stock_codes: Optional[List[str]] = None
 ):
     """
-    执行完整的分析流程（个股 + 大盘复盘 + 潜力股猎手）
+    执行完整的分析流程（个股 + 大盘复盘）
 
     这是定时任务调用的主函数
     """
@@ -228,8 +222,13 @@ def run_full_analysis(
         if getattr(args, 'single_notify', False):
             config.single_stock_notify = True
 
-        # [逻辑调整] 强制个股独立发送，不在此处合并大盘
-        merge_notification = False
+        # Issue #190: 个股与大盘复盘合并推送
+        merge_notification = (
+            getattr(config, 'merge_email_notification', False)
+            and config.market_review_enabled
+            and not getattr(args, 'no_market_review', False)
+            and not config.single_stock_notify
+        )
 
         # 创建调度器
         save_context_snapshot = None
@@ -244,12 +243,12 @@ def run_full_analysis(
             save_context_snapshot=save_context_snapshot
         )
 
-        # 1. 运行个股分析 (个股通知独立发出)
+        # 1. 运行个股分析
         results = pipeline.run(
             stock_codes=stock_codes,
             dry_run=args.dry_run,
             send_notification=not args.no_notify,
-            merge_notification=False 
+            merge_notification=merge_notification
         )
 
         # Issue #128: 分析间隔 - 在个股分析和大盘分析之间添加延迟
@@ -258,42 +257,38 @@ def run_full_analysis(
             logger.info(f"等待 {analysis_delay} 秒后执行大盘复盘（避免API限流）...")
             time.sleep(analysis_delay)
 
-        # 2. 运行大盘复盘
+        # 2. 运行大盘复盘（如果启用且不是仅个股模式）
         market_report = ""
         if config.market_review_enabled and not args.no_market_review:
-            # [关键修改] send_notification 设为 False，不要在函数内部单独发信
+            # 只调用一次，并获取结果
             review_result = run_market_review(
                 notifier=pipeline.notifier,
                 analyzer=pipeline.analyzer,
                 search_service=pipeline.search_service,
-                send_notification=False 
+                send_notification=not args.no_notify,
+                merge_notification=merge_notification
             )
+            # 如果有结果，赋值给 market_report 用于后续飞书文档生成
             if review_result:
                 market_report = review_result
-        
-        # [插入点 2] 运行潜力股猎手 (Screener)
-        screener_report = ""
-        if run_screener_analysis and not args.dry_run:
-            try:
-                screener_report = run_screener_analysis()
-            except Exception as e:
-                logger.error(f"Screener 运行失败: {e}")
 
-        # [插入点 3] 合并并发送 [大盘复盘 + 潜力股推荐]
-        if (market_report or screener_report) and not args.no_notify:
-            combined_parts = []
+        # Issue #190: 合并推送（个股+大盘复盘）
+        if merge_notification and (results or market_report) and not args.no_notify:
+            parts = []
             if market_report:
-                combined_parts.append(f"# 📈 今日大盘复盘报告\n\n{market_report}")
-            if screener_report:
-                combined_parts.append(f"# 🦅 猎手雷达 (全市场潜力股推荐)\n\n{screener_report}")
-            
-            if combined_parts:
-                final_content = "\n\n---\n\n".join(combined_parts)
+                parts.append(f"# 📈 大盘复盘\n\n{market_report}")
+            if results:
+                dashboard_content = pipeline.notifier.generate_dashboard_report(results)
+                parts.append(f"# 🚀 个股决策仪表盘\n\n{dashboard_content}")
+            if parts:
+                combined_content = "\n\n---\n\n".join(parts)
                 if pipeline.notifier.is_available():
-                    pipeline.notifier.send(final_content, email_send_to_all=True)
-                    logger.info("已成功推送合并后的市场研报（大盘+潜力股）")
+                    if pipeline.notifier.send(combined_content, email_send_to_all=True):
+                        logger.info("已合并推送（个股+大盘复盘）")
+                    else:
+                        logger.warning("合并推送失败")
 
-        # 输出个股摘要到控制台
+        # 输出摘要
         if results:
             logger.info("\n===== 分析结果摘要 =====")
             for r in sorted(results, key=lambda x: x.sentiment_score, reverse=True):
@@ -305,7 +300,7 @@ def run_full_analysis(
 
         logger.info("\n任务执行完成")
 
-        # === 飞书云文档生成逻辑 (100% 完整保留) ===
+        # === 新增：生成飞书云文档 ===
         try:
             from src.feishu_doc import FeishuDocManager
 
@@ -323,7 +318,7 @@ def run_full_analysis(
 
                 # 添加大盘复盘内容（如果有）
                 if market_report:
-                    full_content += f"# 📈 大盘复盘 & 猎手雷达\n\n{market_report}\n\n---\n\n"
+                    full_content += f"# 📈 大盘复盘\n\n{market_report}\n\n---\n\n"
 
                 # 添加个股决策仪表盘（使用 NotificationService 生成）
                 if results:
@@ -341,7 +336,7 @@ def run_full_analysis(
         except Exception as e:
             logger.error(f"飞书文档生成失败: {e}")
 
-        # === 自动回测逻辑 (100% 完整保留) ===
+        # === Auto backtest ===
         try:
             if getattr(config, 'backtest_enabled', False):
                 from src.services.backtest_service import BacktestService
@@ -366,7 +361,14 @@ def run_full_analysis(
 
 
 def start_api_server(host: str, port: int, config: Config) -> None:
-    """在后台线程启动 FastAPI 服务 (100% 完整保留)"""
+    """
+    在后台线程启动 FastAPI 服务
+    
+    Args:
+        host: 监听地址
+        port: 监听端口
+        config: 配置对象
+    """
     import threading
     import uvicorn
 
@@ -386,7 +388,7 @@ def start_api_server(host: str, port: int, config: Config) -> None:
 
 
 def start_bot_stream_clients(config: Config) -> None:
-    """启动机器人客户端 (100% 完整保留)"""
+    """Start bot stream clients when enabled in config."""
     # 启动钉钉 Stream 客户端
     if config.dingtalk_stream_enabled:
         try:
@@ -419,7 +421,12 @@ def start_bot_stream_clients(config: Config) -> None:
 
 
 def main() -> int:
-    """主入口函数 (100% 完整保留所有逻辑分支)"""
+    """
+    主入口函数
+
+    Returns:
+        退出码（0 表示成功）
+    """
     # 解析命令行参数
     args = parse_arguments()
 
@@ -448,7 +455,7 @@ def main() -> int:
     # === 处理 --webui / --webui-only 参数，映射到 --serve / --serve-only ===
     if args.webui:
         args.serve = True
-    if getattr(args, 'webui_only', False):
+    if args.webui_only:
         args.serve_only = True
 
     # 兼容旧版 WEBUI_ENABLED 环境变量
@@ -477,7 +484,7 @@ def main() -> int:
         start_bot_stream_clients(config)
 
     # === 仅 Web 服务模式：不自动执行分析 ===
-    if getattr(args, 'serve_only', False):
+    if args.serve_only:
         logger.info("模式: 仅 Web 服务")
         logger.info(f"Web 服务运行中: http://{args.host}:{args.port}")
         logger.info("通过 /api/v1/analysis/stock/{code} 接口触发分析")
@@ -508,38 +515,43 @@ def main() -> int:
             )
             return 0
 
-        # 模式1: 仅大盘复盘 (这里同样执行合并逻辑)
+        # 模式1: 仅大盘复盘
         if args.market_review:
             from src.analyzer import GeminiAnalyzer
             from src.core.market_review import run_market_review
             from src.notification import NotificationService
             from src.search_service import SearchService
 
-            logger.info("模式: 仅大盘复盘 + 猎手雷达")
+            logger.info("模式: 仅大盘复盘")
             notifier = NotificationService()
 
-            # 初始化搜索服务和分析器
-            search_service = SearchService(
-                bocha_keys=config.bocha_api_keys,
-                tavily_keys=config.tavily_api_keys,
-                brave_keys=config.brave_api_keys,
-                serpapi_keys=config.serpapi_keys,
-                news_max_age_days=config.news_max_age_days
-            )
-            analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+            # 初始化搜索服务和分析器（如果有配置）
+            search_service = None
+            analyzer = None
 
-            # 获取大盘结果，不发信
-            m_report = run_market_review(
-                notifier=notifier, analyzer=analyzer, search_service=search_service, send_notification=False
+            if config.bocha_api_keys or config.tavily_api_keys or config.brave_api_keys or config.serpapi_keys:
+                search_service = SearchService(
+                    bocha_keys=config.bocha_api_keys,
+                    tavily_keys=config.tavily_api_keys,
+                    brave_keys=config.brave_api_keys,
+                    serpapi_keys=config.serpapi_keys,
+                    news_max_age_days=config.news_max_age_days
+                )
+
+            if config.gemini_api_key or config.openai_api_key:
+                analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+                if not analyzer.is_available():
+                    logger.warning("AI 分析器初始化后不可用，请检查 API Key 配置")
+                    analyzer = None
+            else:
+                logger.warning("未检测到 API Key (Gemini/OpenAI)，将仅使用模板生成报告")
+
+            run_market_review(
+                notifier=notifier,
+                analyzer=analyzer,
+                search_service=search_service,
+                send_notification=not args.no_notify
             )
-            
-            # 获取推荐结果
-            s_report = run_screener_analysis() if run_screener_analysis else ""
-            
-            # 合并发信
-            final_md = f"# 📈 今日大盘行情复盘\n\n{m_report}\n\n---\n\n# 🦅 猎手雷达 (潜力股扫描)\n\n{s_report}"
-            if not args.no_notify:
-                notifier.send(final_md, email_send_to_all=True)
             return 0
 
         # 模式2: 定时任务模式
@@ -548,6 +560,8 @@ def main() -> int:
             logger.info(f"每日执行时间: {config.schedule_time}")
 
             # Determine whether to run immediately:
+            # Command line arg --no-run-immediately overrides config if present.
+            # Otherwise use config (defaults to True).
             should_run_immediately = config.schedule_run_immediately
             if getattr(args, 'no_run_immediately', False):
                 should_run_immediately = False
@@ -571,7 +585,7 @@ def main() -> int:
 
         logger.info("\n程序执行完成")
 
-        # 保持运行 (如果开启了 Web 服务)
+        # 如果启用了服务且是非定时任务模式，保持程序运行
         keep_running = start_serve and not (args.schedule or config.schedule_enabled)
         if keep_running:
             logger.info("API 服务运行中 (按 Ctrl+C 退出)...")
