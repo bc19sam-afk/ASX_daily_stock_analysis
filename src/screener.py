@@ -1,105 +1,148 @@
 # -*- coding: utf-8 -*-
 """
-src/screener.py - 首席量化分析模块 (机构专用版)
-职责：只负责执行复杂的 Minervini 筛选与风控，返回分析结果供主程序调用。
+src/screener.py - ASX 200 全市场扫描器 (真·量化版)
+职责：遍历 ASX 200 成分股，基于纯数据(价格/成交量)筛选出强势股。
 """
 import yfinance as yf
 import pandas as pd
+import logging
 
-# === 1. 机构级股票池与行业映射 ===
-SECTOR_MAP = {
-    # 银行金融
-    "CBA.AX": "金融", "WBC.AX": "金融", "NAB.AX": "金融", "ANZ.AX": "金融", "MQG.AX": "投行", "QBE.AX": "保险", "SUN.AX": "保险", 
-    # 矿业能源
-    "BHP.AX": "铁矿", "RIO.AX": "铁矿", "FMG.AX": "铁矿", "WDS.AX": "油气", "STO.AX": "油气", "PLS.AX": "锂矿", "MIN.AX": "锂矿", "NST.AX": "黄金", "EVN.AX": "黄金",
-    # 科技成长
-    "XRO.AX": "SaaS", "WTC.AX": "物流科技", "PME.AX": "医疗AI", "NXT.AX": "数据中心", "TNE.AX": "科技", "CAR.AX": "平台", 
-    # 消费医疗
-    "WES.AX": "零售", "WOW.AX": "零售", "COL.AX": "零售", "JBH.AX": "消费", "CSL.AX": "医药", "COH.AX": "器械", "RMD.AX": "呼吸机",
-    # 蓝筹公用
-    "TLS.AX": "通讯", "TCL.AX": "基建", "GMG.AX": "地产", "QAN.AX": "航空", "ORG.AX": "电力"
-}
-ASX_WATCHLIST = list(SECTOR_MAP.keys())
+logger = logging.getLogger(__name__)
+
+# === ASX 200 成分股名单 (覆盖全市场核心流动性) ===
+# 这是一个纯粹的扫描范围，不代表推荐，系统会从中筛选
+ASX_200_LIST = [
+    "360.AX", "A2M.AX", "ABC.AX", "ABP.AX", "AGL.AX", "ALD.AX", "ALL.AX", "ALQ.AX", "ALX.AX", "AMC.AX",
+    "AMP.AX", "ANN.AX", "ANZ.AX", "APA.AX", "APE.AX", "ARB.AX", "ARF.AX", "ARG.AX", "ASX.AX", "AUB.AX",
+    "AWC.AX", "AZJ.AX", "BAP.AX", "BEN.AX", "BGA.AX", "BHP.AX", "BKL.AX", "BKW.AX", "BLD.AX", "BOE.AX",
+    "BPT.AX", "BRG.AX", "BSL.AX", "BWP.AX", "BXB.AX", "CAR.AX", "CBA.AX", "CCP.AX", "CDR.AX", "CGF.AX",
+    "CHC.AX", "CHN.AX", "CIA.AX", "CIP.AX", "CLW.AX", "CNEW.AX", "COH.AX", "COL.AX", "CPU.AX", "CQR.AX",
+    "CSL.AX", "CSR.AX", "CTD.AX", "CU6.AX", "CWY.AX", "CXL.AX", "DEG.AX", "DJW.AX", "DMP.AX", "DOW.AX",
+    "DRR.AX", "DXI.AX", "DXS.AX", "EBO.AX", "EDV.AX", "ELD.AX", "EMR.AX", "EVN.AX", "EVT.AX", "FBU.AX",
+    "FCL.AX", "FLT.AX", "FMG.AX", "FPH.AX", "GEM.AX", "GNC.AX", "GOZ.AX", "GPT.AX", "GUD.AX", "GWA.AX",
+    "HCLS.AX", "HDN.AX", "HLS.AX", "HUB.AX", "HVN.AX", "IAG.AX", "IEL.AX", "IFL.AX", "IFT.AX", "IGO.AX",
+    "ILU.AX", "INA.AX", "ING.AX", "IPH.AX", "IPL.AX", "IRE.AX", "IVC.AX", "JBH.AX", "JDO.AX", "JHX.AX",
+    "KAR.AX", "KLS.AX", "LIC.AX", "LIN.AX", "LLC.AX", "LNK.AX", "LOV.AX", "LTR.AX", "LYC.AX", "MFG.AX",
+    "MGR.AX", "MIN.AX", "MND.AX", "MP1.AX", "MPL.AX", "MQG.AX", "MTS.AX", "MYX.AX", "NAB.AX", "NAN.AX",
+    "NCM.AX", "NEC.AX", "NHC.AX", "NHF.AX", "NIC.AX", "NSR.AX", "NST.AX", "NUF.AX", "NWL.AX", "NXT.AX",
+    "ORA.AX", "ORG.AX", "ORI.AX", "OSH.AX", "OZL.AX", "PBH.AX", "PDN.AX", "PLS.AX", "PME.AX", "PMV.AX",
+    "PNI.AX", "PPC.AX", "PPT.AX", "PRN.AX", "PRU.AX", "PXA.AX", "QAN.AX", "QBE.AX", "QUB.AX", "REA.AX",
+    "RHC.AX", "RIO.AX", "RMD.AX", "RRL.AX", "RWC.AX", "S32.AX", "SCG.AX", "SCP.AX", "SDF.AX", "SEK.AX",
+    "SGM.AX", "SGP.AX", "SGR.AX", "SHL.AX", "SIQ.AX", "SKC.AX", "SKI.AX", "SLR.AX", "SNZ.AX", "SOL.AX",
+    "SPK.AX", "STO.AX", "STX.AX", "SUN.AX", "SVW.AX", "SYA.AX", "SYD.AX", "TAH.AX", "TCL.AX", "THO.AX",
+    "TLX.AX", "TNE.AX", "TPG.AX", "TWE.AX", "TYR.AX", "UNI.AX", "VCX.AX", "VEA.AX", "VNT.AX", "VUK.AX",
+    "WBC.AX", "WEB.AX", "WES.AX", "WGX.AX", "WHC.AX", "WOR.AX", "WOW.AX", "WPR.AX", "WTC.AX", "XRO.AX",
+    "YAL.AX", "ZIM.AX", "ZIP.AX"
+]
 
 def run_screener_analysis():
     """
-    执行机构级筛选逻辑
-    返回: Markdown 格式的分析报告字符串
+    对 ASX 200 进行全量扫描
     """
-    print("🚀 [Screener] 正在启动量化筛选模型...")
+    logger.info(f"🚀 [Screener] 启动全市场扫描，目标池: ASX 200 ({len(ASX_200_LIST)} 只)...")
     candidates = []
     
     try:
-        # 下载数据
-        data = yf.download(ASX_WATCHLIST, period="1y", interval="1d", group_by='ticker', progress=False)
+        # 1. 批量下载数据 (这是真正的数据获取步骤)
+        # 即使下载 200 只，yfinance 也能在 10-20 秒内搞定
+        data = yf.download(ASX_200_LIST, period="1y", interval="1d", group_by='ticker', progress=False)
         
-        for code in ASX_WATCHLIST:
+        # 2. 逐个分析
+        for code in ASX_200_LIST:
             try:
-                df = data[code]
-                if len(df) < 200: continue
+                # 兼容性处理：如果某只股票退市或改名，没下载到数据，直接跳过
+                try:
+                    df = data[code]
+                except KeyError:
+                    continue
                 
-                # 提取核心数据
-                closes = df['Close']
-                curr = float(closes.iloc[-1])
-                ma50 = closes.rolling(50).mean().iloc[-1]
-                ma150 = closes.rolling(150).mean().iloc[-1]
-                ma200 = closes.rolling(200).mean().iloc[-1]
+                if df.empty or len(df) < 200: continue
                 
-                # === 核心策略: Minervini 趋势模板 ===
-                # 必须满足多头排列，且处于长期上升通道
-                if curr > ma50 > ma150 > ma200:
-                    
-                    # 动能指标
-                    vol_ratio = float(df['Volume'].iloc[-1]) / df['Volume'].rolling(20).mean().iloc[-1]
-                    pct_chg = (curr - float(closes.iloc[-2])) / float(closes.iloc[-2]) * 100
-                    year_high = float(df['High'].rolling(250).max().iloc[-1])
-                    
-                    # 信号捕捉
-                    signals = []
-                    if vol_ratio > 1.5 and pct_chg > 1.0: signals.append("🔥机构抢筹")
-                    if curr >= year_high * 0.98: signals.append("🚀逼近新高")
-                    if abs(pct_chg) < 1.0 and vol_ratio < 0.6 and curr > ma50: signals.append("👀缩量洗盘")
-                    
-                    # 只有出现信号才入选
-                    if signals:
-                        rs_rating = (curr / float(closes.iloc[-60])) * 100 # 相对强度简算
-                        candidates.append({
-                            "code": code,
-                            "name": SECTOR_MAP.get(code, "其他"),
-                            "p": curr,
-                            "chg": pct_chg,
-                            "s": " ".join(signals),
-                            "rs": rs_rating
-                        })
-            except: continue
-            
-    except Exception as e:
-        return f"\n\n**筛选器运行错误:** {str(e)}\n"
+                # --- 核心数据提取 ---
+                # 处理 MultiIndex 问题
+                try:
+                    closes = df['Close']
+                    volumes = df['Volume']
+                    highs = df['High']
+                except Exception:
+                    continue # 数据格式不对就跳过
 
-    # === 生成专业报告 ===
-    md = "\n\n---\n\n## 🦅 猎手雷达：明日潜力股\n"
-    md += "> **筛选模型**：Minervini 趋势模板 + 机构异动信号 + 行业分散风控\n\n"
+                curr = float(closes.iloc[-1])
+                
+                # --- 过滤逻辑 1: 必须是上升趋势 (价格在年线之上) ---
+                # 我们放宽一点标准，只要价格站上 MA200 就算进入多头区域，不漏掉启动初期的票
+                ma200 = closes.rolling(200).mean().iloc[-1]
+                if curr < ma200:
+                    continue # 还在走熊的股票，直接扔掉，看都不看
+
+                # --- 过滤逻辑 2: 具体的强势形态 ---
+                ma50 = closes.rolling(50).mean().iloc[-1]
+                
+                # 计算指标
+                vol_ma20 = float(volumes.rolling(20).mean().iloc[-1])
+                vol_ratio = (float(volumes.iloc[-1]) / vol_ma20) if vol_ma20 > 0 else 0
+                pct_chg = (curr - float(closes.iloc[-2])) / float(closes.iloc[-2]) * 100
+                year_high = float(highs.rolling(250).max().iloc[-1])
+                
+                signals = []
+                
+                # 信号 A: 突破年线/半年线 (趋势反转)
+                if curr > ma200 and float(closes.iloc[-2]) < ma200 and vol_ratio > 1.2:
+                    signals.append("⚡突破年线")
+                
+                # 信号 B: 机构抢筹 (放量大涨)
+                if vol_ratio > 1.8 and pct_chg > 1.5:
+                    signals.append("🔥主力进场")
+                
+                # 信号 C: 逼近历史新高 (最强音)
+                if curr >= year_high * 0.98:
+                    signals.append("🚀逼近新高")
+                
+                # 信号 D: 缩量回踩 (买点)
+                # 价格在 MA50 之上，但是最近跌了，且成交量很小
+                if curr > ma50 and -2.0 < pct_chg < 0 and vol_ratio < 0.6:
+                    signals.append("👀缩量回踩")
+
+                # 只有出现了上述明确信号的，才入选
+                if signals:
+                    # 计算相对强度 RS (过去3个月涨幅)
+                    rs_score = (curr / float(closes.iloc[-60])) * 100
+                    
+                    candidates.append({
+                        "code": code,
+                        "p": curr,
+                        "chg": pct_chg,
+                        "s": " ".join(signals),
+                        "rs": rs_score,
+                        "vol": vol_ratio
+                    })
+                    
+            except Exception:
+                continue
+
+    except Exception as e:
+        logger.error(f"扫描过程出错: {e}")
+        return f"\n\n**Screener Error:** 扫描部分失败 - {str(e)}\n"
+
+    # === 生成报告 ===
+    md = "\n\n---\n\n## 🦅 全市场猎手 (ASX 200)\n"
+    md += "> **扫描范围**：ASX Top 200 | **筛选标准**：站稳年线 + 资金异动\n\n"
     
     if not candidates:
-        md += "今日市场情绪低迷，模型未扫描到高置信度标的。\n"
+        md += "今日市场普跌，ASX 200 中未发现符合强势特征的标的。\n"
     else:
-        # 1. 强者恒强排序 (RS Rating)
+        # 按相对强度排序，只看最强的
         candidates.sort(key=lambda x: x['rs'], reverse=True)
         
-        # 2. 行业风控 (熔断机制: 同板块最多2只)
-        final_list = []
-        sector_count = {}
+        # 只展示前 10 只，贵精不贵多
+        top_picks = candidates[:10]
         
-        for c in candidates:
-            sec = c['name']
-            if sector_count.get(sec, 0) >= 2: continue # 触发熔断，跳过
-            final_list.append(c)
-            sector_count[sec] = sector_count.get(sec, 0) + 1
-            if len(final_list) >= 8: break # 每日精选不超过8只
+        md += "| 代码 | 现价 | 涨跌幅 | 量比 | 信号 | 强度 |\n"
+        md += "|---|---|---|---|---|---|\n"
+        for c in top_picks:
+            # 简单把信号里的空格去掉，防止表格换行
+            sig_str = c['s'].replace(" ", "/")
+            md += f"| **{c['code']}** | {c['p']:.2f} | {c['chg']:+.2f}% | {c['vol']:.1f}x | {sig_str} | {c['rs']:.0f} |\n"
             
-        md += "| 代码 | 板块 | 现价 | 涨跌 | 信号 |\n|---|---|---|---|---|\n"
-        for c in final_list:
-            md += f"| **{c['code']}** | {c['name']} | {c['p']:.2f} | {c['chg']:+.2f}% | {c['s']} |\n"
-            
-    print(f"✅ [Screener] 模型计算完成，选出 {len(final_list) if candidates else 0} 只标的")
+    logger.info(f"✅ [Screener] 全市场扫描完成，从 {len(ASX_200_LIST)} 只中选出 {len(candidates)} 只")
     return md
