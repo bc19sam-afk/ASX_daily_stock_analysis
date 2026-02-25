@@ -1066,6 +1066,7 @@ class GeminiAnalyzer:
                     model_name = self._model.model_name
             
             logger.info(f"========== AI 分析 {name}({code}) ==========")
+            time.sleep(30)
             logger.info(f"[LLM配置] 模型: {model_name}")
             logger.info(f"[LLM配置] Prompt 长度: {len(prompt)} 字符")
             logger.info(f"[LLM配置] 是否包含新闻: {'是' if news_context else '否'}")
@@ -1196,17 +1197,21 @@ class GeminiAnalyzer:
             
         today = context.get('today', {})
 
-        # >>>>>> [核心修复点] >>>>>>
-        # 智能获取历史走势表格
+        # >>>>>> [修改：暴力查找数据] >>>>>>
         price_table = context.get('price_history_table')
         
-        # 如果没有预制表格，或者表格是无效的，则调用新函数现场生成
+        # 如果没有现成表格，尝试从原始数据生成
         if not price_table or price_table == 'N/A':
-            if 'history_data' in context and context['history_data']:
-                price_table = self._generate_history_table(context['history_data'])
+            # 尝试所有可能的字段名 (history_data, kline, history)
+            raw_data = context.get('history_data') or context.get('kline') or context.get('history')
+            
+            if raw_data:
+                price_table = self._generate_history_table(raw_data)
             else:
-                price_table = 'N/A (数据源未提供历史K线数据)'
-        # <<<<<< [核心修复点] <<<<<<
+                # 打印一下有哪些 key，方便调试
+                keys_str = ",".join(list(context.keys()))
+                price_table = f'N/A (无数据, 可用字段: {keys_str})'
+        # <<<<<< [修改结束] <<<<<<
         
         # ========== 构建决策仪表盘格式的输入 ==========
         prompt = f"""# 决策仪表盘分析请求
