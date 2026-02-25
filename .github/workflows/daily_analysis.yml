@@ -197,17 +197,6 @@ jobs:
             # 恢复默认运行模式：同时生成【股票分析】与【大盘复盘】
             python main.py
           fi
-
-          # [新增] 运行潜力股筛选器（并追加到报告）
-      - name: Run ASX Screener
-        if: always()  # 即使前面分析出错，这个也会跑
-        run: |
-          echo "========== 启动 ASX 潜力股猎手 =========="
-          # 安装必要的库（如果有的话，通常 setup-python 步骤已经有了，保险起见）
-          pip install yfinance pandas
-          # 运行筛选器
-          python src/screener.py
-          echo "=========================================="
       
       - name: 上传分析报告
         uses: actions/upload-artifact@v4
