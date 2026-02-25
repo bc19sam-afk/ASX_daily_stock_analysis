@@ -1,126 +1,192 @@
 # -*- coding: utf-8 -*-
 """
-src/screener.py - ASX 潜力股猎手 (自动追加报告版)
+src/screener.py - ASX 潜力股雷达 (机构风控版)
+核心策略：Minervini 趋势模板 + 相对强度(RS) + 板块熔断风控
 """
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import datetime
 import os
 import sys
 
-# === 核心关注名单 (流动性好的热门股) ===
-ASX_WATCHLIST = [
-    # 银行/金融
-    "CBA.AX", "WBC.AX", "NAB.AX", "ANZ.AX", "MQG.AX", "QBE.AX", "SUN.AX",
-    # 矿业/能源
-    "BHP.AX", "RIO.AX", "FMG.AX", "WDS.AX", "STO.AX", "PLS.AX", "MIN.AX", "NST.AX", "EVN.AX", "LYC.AX",
-    # 科技/成长
-    "WTC.AX", "XRO.AX", "CPU.AX", "REA.AX", "CAR.AX", "NXT.AX", "TNE.AX", "360.AX",
-    # 消费/零售
-    "WES.AX", "WOW.AX", "COL.AX", "JBH.AX", "DMP.AX", "HVN.AX",
-    # 医疗
-    "CSL.AX", "COH.AX", "RMD.AX", "FPH.AX", "SHL.AX", "PME.AX",
-    # 其他蓝筹
-    "TLS.AX", "TCL.AX", "GMG.AX", "SCG.AX", "ALL.AX", "QAN.AX", "BXB.AX"
-]
+# === 1. 股票池与行业映射 (用于风控) ===
+SECTOR_MAP = {
+    # --- 🏦 金融银行 ---
+    "CBA.AX": "金融", "WBC.AX": "金融", "NAB.AX": "金融", "ANZ.AX": "金融", "MQG.AX": "金融", 
+    "QBE.AX": "保险", "SUN.AX": "保险", "ZIP.AX": "金融科技", "TYR.AX": "金融科技", "HUB.AX": "金融科技", "NWL.AX": "金融科技",
+    
+    # --- ⛏️ 矿产能源 ---
+    "BHP.AX": "铁矿", "RIO.AX": "铁矿", "FMG.AX": "铁矿", "WDS.AX": "能源", "STO.AX": "能源", 
+    "PLS.AX": "锂矿", "MIN.AX": "锂矿", "NST.AX": "黄金", "EVN.AX": "黄金", "LYC.AX": "稀土", 
+    "PDN.AX": "铀矿", "BOE.AX": "铀矿", "NXG.AX": "铀矿", "CU6.AX": "铜矿", "WA1.AX": "稀有金属",
+    
+    # --- 💻 科技成长 ---
+    "XRO.AX": "SaaS", "WTC.AX": "物流科技", "PME.AX": "医疗AI", "ALU.AX": "软件", "NXT.AX": "数据中心", 
+    "TNE.AX": "科技", "CAR.AX": "平台", "REA.AX": "平台", "SEK.AX": "平台", "LOV.AX": "零售科技",
+    "DRO.AX": "军工", "SDR.AX": "电子", "MP1.AX": "网络",
+    
+    # --- 🛒 消费医疗 ---
+    "WES.AX": "零售", "WOW.AX": "零售", "COL.AX": "零售", "JBH.AX": "消费电子", "HVN.AX": "消费",
+    "CSL.AX": "生物医药", "COH.AX": "医疗器械", "RMD.AX": "呼吸机", "FPH.AX": "医疗", "SHL.AX": "医疗", "TLX.AX": "放射药",
+    "WEB.AX": "旅游", "FLT.AX": "旅游",
+    
+    # --- 🏭 工业公用 ---
+    "TLS.AX": "通讯", "TCL.AX": "基建", "GMG.AX": "地产", "SCG.AX": "地产", "QAN.AX": "航空", 
+    "BXB.AX": "物流", "ORG.AX": "电力", "AGL.AX": "电力", "GUD.AX": "工业"
+}
+
+# 提取代码列表用于下载
+ASX_WATCHLIST = list(SECTOR_MAP.keys())
 
 def get_report_path():
-    """找到今天的大盘复盘报告路径"""
+    """获取今日报告路径"""
     today_str = datetime.datetime.now().strftime("%Y%m%d")
-    # 假设报告在 reports 目录下，文件名格式为 market_review_YYYYMMDD.md
-    # 根据你的日志，路径是 reports/market_review_20260224.md
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     report_dir = os.path.join(base_dir, "reports")
-    filename = f"market_review_{today_str}.md"
-    return os.path.join(report_dir, filename)
+    # 优先找大盘报告，其次找个股报告
+    for prefix in ["market_review_", "report_"]:
+        filename = f"{prefix}{today_str}.md"
+        path = os.path.join(report_dir, filename)
+        if os.path.exists(path): return path
+    # 如果都找不到，返回一个默认路径防止报错
+    return os.path.join(report_dir, f"market_review_{today_str}.md")
 
-def scan_and_append():
-    print(f"🚀 [ASX Hunter] 开始扫描 {len(ASX_WATCHLIST)} 只热门股票...")
-    
-    results = []
-    
-    # 批量下载数据 (最近30天)
+def calculate_rs_rating(data_df):
+    """计算相对强度 (RS Rating)"""
     try:
-        data = yf.download(ASX_WATCHLIST, period="30d", interval="1d", group_by='ticker', progress=False)
+        p_now = data_df['Close'].iloc[-1]
+        p_3m = data_df['Close'].iloc[-63] if len(data_df) > 63 else data_df['Close'].iloc[0]
+        p_6m = data_df['Close'].iloc[-126] if len(data_df) > 126 else data_df['Close'].iloc[0]
+        # 权重：近3个月权重更高
+        rs_score = 0.4 * (p_now/p_3m) + 0.2 * (p_now/p_6m)
+        return rs_score * 100
+    except:
+        return 0
+
+def scan_market():
+    print(f"🚀 [ASX Hunter Pro] 启动风控扫描 | 监控标的: {len(ASX_WATCHLIST)} 只")
+    print("-" * 75)
+    
+    candidates = []
+    
+    # 批量下载数据
+    try:
+        data = yf.download(ASX_WATCHLIST, period="1y", interval="1d", group_by='ticker', progress=False)
     except Exception as e:
-        print(f"数据下载失败: {e}")
+        print(f"❌ 数据下载失败: {e}")
         return
 
     for code in ASX_WATCHLIST:
         try:
             df = data[code]
-            if df.empty or len(df) < 20: continue
+            if df.empty or len(df) < 200: continue
             
-            # 提取数据
             closes = df['Close']
             volumes = df['Volume']
+            highs = df['High']
+            lows = df['Low']
             
             curr_p = float(closes.iloc[-1])
-            prev_p = float(closes.iloc[-2])
-            pct = (curr_p - prev_p) / prev_p * 100
-            
-            ma5 = closes.rolling(5).mean().iloc[-1]
-            ma20 = closes.rolling(20).mean().iloc[-1]
-            
             curr_v = float(volumes.iloc[-1])
-            avg_v = volumes.rolling(5).mean().iloc[-1]
-            v_ratio = curr_v / avg_v if avg_v > 0 else 0
             
-            # === 筛选逻辑 ===
-            reasons = []
+            # --- 1. 趋势过滤 (Minervini Template) ---
+            ma50 = closes.rolling(50).mean().iloc[-1]
+            ma150 = closes.rolling(150).mean().iloc[-1]
+            ma200 = closes.rolling(200).mean().iloc[-1]
             
-            # 1. 趋势多头 (价格 > 月线)
-            if curr_p > ma20:
-                # 2. 资金进场 (放量 > 1.3倍 且 上涨)
-                if v_ratio > 1.3 and pct > 0.5:
-                    reasons.append("🔥放量抢筹")
-                
-                # 3. 均线金叉 (MA5 上穿 MA20)
-                ma5_prev = closes.rolling(5).mean().iloc[-2]
-                ma20_prev = closes.rolling(20).mean().iloc[-2]
-                if ma5 > ma20 and ma5_prev <= ma20_prev:
-                    reasons.append("📈金叉启动")
+            year_low = lows.rolling(250).min().iloc[-1] if len(lows) > 250 else lows.min()
+            year_high = highs.rolling(250).max().iloc[-1] if len(highs) > 250 else highs.max()
             
-            # 收集结果
-            if reasons:
-                results.append({
+            # 趋势条件：多头排列
+            trend_ok = (curr_p > ma50) and (ma50 > ma150) and (ma150 > ma200)
+            # 底部条件：离一年低点至少涨了25%
+            base_ok = curr_p > year_low * 1.25
+            # 攻击条件：离一年高点不远(25%以内)
+            attack_ok = curr_p > year_high * 0.75
+            
+            if not (trend_ok and base_ok and attack_ok):
+                continue
+            
+            # --- 2. 信号扫描 ---
+            signals = []
+            vol_ma20 = volumes.rolling(20).mean().iloc[-1]
+            vol_ratio = curr_v / vol_ma20 if vol_ma20 > 0 else 0
+            pct_chg = (curr_p - closes.iloc[-2]) / closes.iloc[-2] * 100
+            
+            # 信号A: 机构抢筹 (放量大涨)
+            if vol_ratio > 1.5 and pct_chg > 1.0:
+                signals.append("🔥机构抢筹")
+            
+            # 信号B: 逼近新高
+            if curr_p >= year_high * 0.98:
+                signals.append("🚀逼近新高")
+            
+            # 信号C: 缩量洗盘 (量极缩 + 价格稳)
+            if abs(pct_chg) < 1.0 and vol_ratio < 0.6 and curr_p > ma50:
+                signals.append("👀缩量洗盘")
+
+            if signals:
+                candidates.append({
                     "code": code,
+                    "name": SECTOR_MAP.get(code, "其他"),
                     "price": curr_p,
-                    "pct": pct,
-                    "vol_ratio": v_ratio,
-                    "signal": " ".join(reasons)
+                    "change": pct_chg,
+                    "vol_ratio": vol_ratio,
+                    "signal": " ".join(signals),
+                    "rs": calculate_rs_rating(df)
                 })
-                
         except: continue
 
-    # === 生成 Markdown 内容 ===
-    markdown_output = "\n\n---\n\n## 🎯 猎手雷达：明日潜力股扫描\n"
-    markdown_output += "> 以下股票呈现【放量】或【突破】形态，建议加入自选观察。\n\n"
+    # 按 RS 强度排序 (强者恒强)
+    candidates.sort(key=lambda x: x['rs'], reverse=True)
     
-    if not results:
-        markdown_output += "今天市场平静，未扫描到明显异动股票。\n"
+    # --- 3. 板块熔断 (风控核心) ---
+    final_list = []
+    sector_count = {} # 计数器
+    
+    for stock in candidates:
+        sector = stock['name']
+        # 初始化计数
+        if sector not in sector_count: sector_count[sector] = 0
+        
+        # 熔断阈值：同板块最多只选 2 只
+        if sector_count[sector] >= 2:
+            continue
+            
+        final_list.append(stock)
+        sector_count[sector] += 1
+        
+        # 最多只展示前 8 只
+        if len(final_list) >= 8:
+            break
+            
+    # --- 4. 生成报告 ---
+    print(f"\n✅ 扫描完成: 初选 {len(candidates)} 只 -> 风控后精选 {len(final_list)} 只\n")
+    
+    markdown = "\n\n---\n\n## 🦅 猎手雷达 (风控版)：机构潜力股\n"
+    markdown += "> **筛选逻辑**：Minervini 趋势模板 + 机构异动信号 + **行业分散风控(Max 2)**。\n\n"
+    
+    if not final_list:
+        markdown += "今日市场分化，未发现符合风控模型的高质量标的。\n"
     else:
-        markdown_output += "| 代码 | 现价 | 涨跌幅 | 量比 | 信号 |\n"
-        markdown_output += "|---|---|---|---|---|\n"
-        for res in results:
-            markdown_output += f"| **{res['code']}** | {res['price']:.2f} | {res['pct']:+.2f}% | {res['vol_ratio']:.1f}x | {res['signal']} |\n"
+        markdown += "| 代码 | 板块 | 现价 | 涨跌 | 量比 | 信号 | 强度(RS) |\n"
+        markdown += "|---|---|---|---|---|---|---|\n"
+        for r in final_list:
+            markdown += f"| **{r['code']}** | {r['name']} | {r['price']:.2f} | {r['change']:+.2f}% | {r['vol_ratio']:.1f}x | {r['signal']} | {r['rs']:.0f} |\n"
 
-    print("-" * 65)
-    print(f"✅ 扫描结束: 发现 {len(results)} 只潜力股")
+    print(markdown)
     
-    # === 追加到报告文件 ===
-    report_path = get_report_path()
-    if os.path.exists(report_path):
+    # 追加到报告
+    path = get_report_path()
+    if os.path.exists(path):
         try:
-            with open(report_path, "a", encoding="utf-8") as f:
-                f.write(markdown_output)
-            print(f"✅ 已成功追加到报告: {report_path}")
-        except Exception as e:
-            print(f"❌ 写入报告失败: {e}")
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(markdown)
+            print(f"✅ 已追加到报告: {path}")
+        except: pass
     else:
-        print(f"⚠️ 未找到今日报告文件: {report_path}，无法追加。")
-        # 如果找不到文件（比如单跑测试），就打印出来
-        print(markdown_output)
+        print("⚠️ 未找到今日报告文件，仅打印结果。")
 
 if __name__ == "__main__":
-    scan_and_append()
+    scan_market()
