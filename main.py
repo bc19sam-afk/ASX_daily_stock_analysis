@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 def parse_arguments() -> argparse.Namespace:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
-        description='A股自选股智能分析系统',
+        description='澳股自选股智能分析系统',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 示例:
@@ -232,7 +232,7 @@ def run_full_analysis(
 
         # 创建调度器
         save_context_snapshot = None
-        if getattr(args, 'no_context-snapshot', False):
+        if getattr(args, 'no_context_snapshot', False):
             save_context_snapshot = False
         query_id = uuid.uuid4().hex
         pipeline = StockAnalysisPipeline(
