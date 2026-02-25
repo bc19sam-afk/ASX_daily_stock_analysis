@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-src/screener.py - ASX 潜力股雷达 (机构风控版)
-核心策略：Minervini 趋势模板 + 相对强度(RS) + 板块熔断风控
+src/screener.py - ASX 潜力股雷达 (机构风控终极版)
+核心策略：Minervini 趋势模板 + 相对强度(RS) + 板块熔断风控 + 自动追加报告
 """
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import datetime
 import os
 import sys
@@ -42,23 +41,28 @@ ASX_WATCHLIST = list(SECTOR_MAP.keys())
 def get_report_path():
     """获取今日报告路径"""
     today_str = datetime.datetime.now().strftime("%Y%m%d")
+    # 假设脚本在 src/ 下，往上两级找到 reports/
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     report_dir = os.path.join(base_dir, "reports")
-    # 优先找大盘报告，其次找个股报告
+    
+    # 优先找大盘复盘报告，其次找个股分析报告
     for prefix in ["market_review_", "report_"]:
         filename = f"{prefix}{today_str}.md"
         path = os.path.join(report_dir, filename)
         if os.path.exists(path): return path
-    # 如果都找不到，返回一个默认路径防止报错
+        
+    # 如果都找不到，返回一个默认路径防止报错（会在 logs 里打印）
     return os.path.join(report_dir, f"market_review_{today_str}.md")
 
 def calculate_rs_rating(data_df):
     """计算相对强度 (RS Rating)"""
     try:
         p_now = data_df['Close'].iloc[-1]
+        # 如果数据不够长，就用最早的数据代替
         p_3m = data_df['Close'].iloc[-63] if len(data_df) > 63 else data_df['Close'].iloc[0]
         p_6m = data_df['Close'].iloc[-126] if len(data_df) > 126 else data_df['Close'].iloc[0]
-        # 权重：近3个月权重更高
+        
+        # 权重：近3个月权重更高 (40%)，近6个月次之 (20%)
         rs_score = 0.4 * (p_now/p_3m) + 0.2 * (p_now/p_6m)
         return rs_score * 100
     except:
@@ -70,7 +74,7 @@ def scan_market():
     
     candidates = []
     
-    # 批量下载数据
+    # 批量下载数据 (最近1年)
     try:
         data = yf.download(ASX_WATCHLIST, period="1y", interval="1d", group_by='ticker', progress=False)
     except Exception as e:
@@ -82,6 +86,7 @@ def scan_market():
             df = data[code]
             if df.empty or len(df) < 200: continue
             
+            # 提取关键列
             closes = df['Close']
             volumes = df['Volume']
             highs = df['High']
@@ -98,11 +103,13 @@ def scan_market():
             year_low = lows.rolling(250).min().iloc[-1] if len(lows) > 250 else lows.min()
             year_high = highs.rolling(250).max().iloc[-1] if len(highs) > 250 else highs.max()
             
-            # 趋势条件：多头排列
+            # 趋势条件：MA50 > MA150 > MA200 (多头排列)
             trend_ok = (curr_p > ma50) and (ma50 > ma150) and (ma150 > ma200)
-            # 底部条件：离一年低点至少涨了25%
+            
+            # 底部条件：离一年低点至少涨了 25% (摆脱底部)
             base_ok = curr_p > year_low * 1.25
-            # 攻击条件：离一年高点不远(25%以内)
+            
+            # 攻击条件：离一年高点不远，在 25% 以内 (处于攻击形态)
             attack_ok = curr_p > year_high * 0.75
             
             if not (trend_ok and base_ok and attack_ok):
@@ -114,18 +121,19 @@ def scan_market():
             vol_ratio = curr_v / vol_ma20 if vol_ma20 > 0 else 0
             pct_chg = (curr_p - closes.iloc[-2]) / closes.iloc[-2] * 100
             
-            # 信号A: 机构抢筹 (放量大涨)
+            # 信号A: 机构抢筹 (放量 > 1.5倍 且 大涨 > 1%)
             if vol_ratio > 1.5 and pct_chg > 1.0:
                 signals.append("🔥机构抢筹")
             
-            # 信号B: 逼近新高
+            # 信号B: 逼近新高 (距离新高不到 2%)
             if curr_p >= year_high * 0.98:
                 signals.append("🚀逼近新高")
             
-            # 信号C: 缩量洗盘 (量极缩 + 价格稳)
+            # 信号C: 缩量洗盘 (量极缩 < 0.6 且 价格稳住) - 适合低吸
             if abs(pct_chg) < 1.0 and vol_ratio < 0.6 and curr_p > ma50:
                 signals.append("👀缩量洗盘")
 
+            # 只要有信号，或者趋势极强，就加入候选
             if signals:
                 candidates.append({
                     "code": code,
@@ -157,8 +165,8 @@ def scan_market():
         final_list.append(stock)
         sector_count[sector] += 1
         
-        # 最多只展示前 8 只
-        if len(final_list) >= 8:
+        # 最多只展示前 10 只
+        if len(final_list) >= 10:
             break
             
     # --- 4. 生成报告 ---
@@ -184,7 +192,8 @@ def scan_market():
             with open(path, "a", encoding="utf-8") as f:
                 f.write(markdown)
             print(f"✅ 已追加到报告: {path}")
-        except: pass
+        except Exception as e:
+            print(f"❌ 写入失败: {e}")
     else:
         print("⚠️ 未找到今日报告文件，仅打印结果。")
 
