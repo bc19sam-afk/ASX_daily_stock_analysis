@@ -989,8 +989,8 @@ class DatabaseManager:
         if target_date is None:
             target_date = date.today()
         
-        # 获取最近2天数据
-        recent_data = self.get_latest_data(code, days=2)
+        # 获取最近30天数据（用于历史价格表 + 今日/昨日对比）
+        recent_data = self.get_latest_data(code, days=30)
         
         if not recent_data:
             logger.warning(f"未找到 {code} 的数据")
@@ -1021,6 +1021,20 @@ class DatabaseManager:
             
             # 均线形态判断
             context['ma_status'] = self._analyze_ma_status(today_data)
+        
+        # 构建30天历史价格表（供 AI 分析用）
+        history_rows = list(reversed(recent_data))  # 从旧到新
+        table_lines = []
+        for row in history_rows:
+            date_str = row.date.isoformat() if row.date else 'N/A'
+            close_str = str(round(row.close, 2)) if row.close else 'N/A'
+            pct_str = (str(round(row.pct_chg, 2)) + '%') if row.pct_chg is not None else 'N/A'
+            vol_str = f"{int(row.volume):,}" if row.volume else 'N/A'
+            table_lines.append(f"| {date_str} | {close_str} | {pct_str} | {vol_str} |")
+        
+        context['price_history_table'] = "
+".join(table_lines)
+        context['raw_data'] = [row.to_dict() for row in history_rows]
         
         return context
     
