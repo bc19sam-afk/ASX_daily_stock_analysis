@@ -361,16 +361,20 @@ class YfinanceFetcher(BaseFetcher):
         retry=retry_if_exception_type(Exception),
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )
-    def get_daily_data(self, stock_code: str, days: int = 300) -> pd.DataFrame:
+    def get_daily_data(self, stock_code: str, start_date: str = None, end_date: str = None, days: int = 300) -> pd.DataFrame:
         """
         获取日线数据（含资金面增强）
+        兼容 base 类的 start_date/end_date 调用方式
         """
         import yfinance as yf
         try:
             ticker_symbol = self._convert_stock_code(stock_code)
             logger.info(f"[{stock_code}] 正在从 Yahoo Finance 获取数据...")
             ticker = yf.Ticker(ticker_symbol)
-            df = ticker.history(period=f"{days}d")
+            if start_date and end_date:
+                df = ticker.history(start=start_date, end=end_date)
+            else:
+                df = ticker.history(period=f"{days}d")
 
             if df.empty:
                 raise DataFetchError(f"[{stock_code}] 未获取到数据")
