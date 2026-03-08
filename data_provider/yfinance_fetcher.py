@@ -292,6 +292,117 @@ class YfinanceFetcher(BaseFetcher):
         # 同样使用修正后的正则，支持 .AX
         return bool(re.match(r'^[A-Z]{1,5}(\.[A-Z]+)?$', code))
 
+    def _get_enhanced_data(self, stock_code: str, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        获取内部人交易和机构持仓数据，注入到 DataFrame 中。
+        失败时静默降级，不影响主流程。
+        """
+        import yfinance as yf
+        try:
+            ticker_symbol = self._convert_stock_code(stock_code)
+            ticker = yf.Ticker(ticker_symbol)
+
+            # --- 1. 内部人交易 ---
+            insider_net_shares = 0
+            insider_desc = "无数据"
+            try:
+                insiders = ticker.insider_transactions
+                if isinstance(insiders, pd.DataFrame) and not insiders.empty and 'Shares' in insiders.columns:
+                    recent = insiders.head(10).copy()
+                    # 只对 Transaction 列填充空字符串，避免污染数值列
+                    if 'Transaction' in recent.columns:
+                        recent['Transaction'] = recent['Transaction'].fillna('')
+                        buy_mask = recent['Transaction'].str.contains('Purchase', case=False, na=False)
+                        sell_mask = recent['Transaction'].str.contains('Sale', case=False, na=False)
+                    else:
+                        buy_mask = pd.Series([False] * len(recent), index=recent.index)
+                        sell_mask = pd.Series([False] * len(recent), index=recent.index)
+
+                    buy_shares = recent.loc[buy_mask, 'Shares'].sum() if buy_mask.any() else 0
+                    sell_shares = recent.loc[sell_mask, 'Shares'].sum() if sell_mask.any() else 0
+                    insider_net_shares = buy_shares - sell_shares
+                    direction = '买入' if insider_net_shares > 0 else '卖出'
+                    insider_desc = f"近期内部人净{direction} {abs(insider_net_shares):.0f} 股"
+            except Exception as e:
+                logger.debug(f"[{stock_code}] 内部人数据获取失败: {e}")
+
+            # --- 2. 机构持仓 ---
+            inst_percent = 0.0
+            inst_desc = "无数据"
+            try:
+                institutions = ticker.institutional_holders
+                if isinstance(institutions, pd.DataFrame) and not institutions.empty:
+                    if '% Holdings' in institutions.columns:
+                        inst_percent = float(institutions['% Holdings'].sum())
+                        inst_desc = f"机构合计持股 {inst_percent * 100:.2f}%"
+                    elif 'Shares' in institutions.columns:
+                        total_shares = institutions['Shares'].sum()
+                        inst_desc = f"机构合计持有 {total_shares:.0f} 股"
+            except Exception as e:
+                logger.debug(f"[{stock_code}] 机构持仓数据获取失败: {e}")
+
+            # --- 3. 注入 DataFrame ---
+            df = df.copy()
+            df['Insider_Net'] = insider_net_shares
+            df['Insider_Desc'] = insider_desc
+            df['Inst_Percent'] = inst_percent
+            df['Inst_Desc'] = inst_desc
+
+            logger.info(f"[{stock_code}] 资金面增强数据：{insider_desc} | {inst_desc}")
+            return df
+
+        except Exception as e:
+            logger.warning(f"[{stock_code}] 获取增强数据失败（已降级）：{e}")
+            return df
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type(Exception),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+    )
+    def get_daily_data(self, stock_code: str, days: int = 300) -> pd.DataFrame:
+        """
+        获取日线数据（含资金面增强）
+        """
+        import yfinance as yf
+        try:
+            ticker_symbol = self._convert_stock_code(stock_code)
+            logger.info(f"[{stock_code}] 正在从 Yahoo Finance 获取数据...")
+            ticker = yf.Ticker(ticker_symbol)
+            df = ticker.history(period=f"{days}d")
+
+            if df.empty:
+                raise DataFetchError(f"[{stock_code}] 未获取到数据")
+
+            # 注入资金面数据
+            df = self._get_enhanced_data(stock_code, df)
+
+            # 重置索引，使 Date 成为列
+            df = df.reset_index()
+
+            # 重命名列
+            rename_map = {
+                "Open": "open", "High": "high", "Low": "low",
+                "Close": "close", "Volume": "volume", "Date": "date",
+            }
+            df = df.rename(columns=rename_map)
+
+            # 格式化日期
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.strftime("%Y-%m-%d")
+
+            # 保留标准列 + 资金面列
+            extra_cols = [c for c in ['Insider_Net', 'Insider_Desc', 'Inst_Percent', 'Inst_Desc'] if c in df.columns]
+            available_cols = [c for c in STANDARD_COLUMNS if c in df.columns]
+            df = df[available_cols + extra_cols]
+
+            return df
+
+        except Exception as e:
+            logger.error(f"[{stock_code}] 获取数据失败：{e}")
+            raise DataFetchError(f"Yahoo Finance 获取数据失败：{e}")
+
     def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """
         获取美股/国际股票实时行情数据

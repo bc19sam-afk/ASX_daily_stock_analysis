@@ -279,6 +279,23 @@ class StockAnalysisPipeline:
                     'yesterday': {}
                 }
             
+            # Step 5.5: 注入资金面数据（仅对 .AX 澳股 / 国际股使用 yfinance 获取）
+            try:
+                import re
+                if re.match(r'^[A-Z]{1,5}(\.[A-Z]+)?$', code.strip().upper()):
+                    from data_provider.yfinance_fetcher import YfinanceFetcher
+                    yf_fetcher = YfinanceFetcher()
+                    import pandas as pd
+                    _dummy_df = pd.DataFrame()  # 只用来触发增强数据获取
+                    _enhanced_df = yf_fetcher._get_enhanced_data(code, _dummy_df)
+                    if 'Insider_Desc' in _enhanced_df.columns:
+                        context['Insider_Desc'] = _enhanced_df['Insider_Desc'].iloc[-1]
+                    if 'Inst_Desc' in _enhanced_df.columns:
+                        context['Inst_Desc'] = _enhanced_df['Inst_Desc'].iloc[-1]
+                    logger.info(f"[{code}] 资金面数据已注入 context")
+            except Exception as e:
+                logger.warning(f"[{code}] 资金面数据注入失败（已跳过）：{e}")
+
             # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
             enhanced_context = self._enhance_context(
                 context, 

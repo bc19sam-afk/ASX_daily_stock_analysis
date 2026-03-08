@@ -447,7 +447,8 @@ class GeminiAnalyzer:
                 "✅/⚠️/❌ 检查项4：无重大利空",
                 "✅/⚠️/❌ 检查项5：筹码健康",
                 "✅/⚠️/❌ 检查项6：PE估值合理",
-                "✅/⚠️/❌ 检查项7：当前宏观大盘（美股/ASX）及大宗商品环境是否支持操作"
+                "✅/⚠️/❌ 检查项7：当前宏观大盘（美股/ASX）及大宗商品环境是否支持操作",
+                "✅/⚠️/❌ 检查项8：资金面健康 (内部人/机构动向)"
             ]
         }
     },
@@ -1189,7 +1190,16 @@ class GeminiAnalyzer:
         格式化分析提示词（决策仪表盘 v2.0）
         """
         code = context.get('code', 'Unknown')
-        
+
+        # 尝试从 history_data DataFrame 中提取资金面数据注入 context
+        # （兼容 yfinance_fetcher 将数据写在 DataFrame 列里的做法）
+        raw_data = context.get('history_data') or context.get('kline') or context.get('history')
+        if raw_data is not None and hasattr(raw_data, 'columns'):
+            if 'Insider_Desc' in raw_data.columns and 'Insider_Desc' not in context:
+                context['Insider_Desc'] = raw_data['Insider_Desc'].iloc[-1]
+            if 'Inst_Desc' in raw_data.columns and 'Inst_Desc' not in context:
+                context['Inst_Desc'] = raw_data['Inst_Desc'].iloc[-1]
+
         # 优先使用上下文中的股票名称
         stock_name = context.get('stock_name', name)
         if not stock_name or stock_name == f'股票{code}':
@@ -1301,6 +1311,28 @@ class GeminiAnalyzer:
 """
         else:
             prompt += "\n目前未搜索到近期相关新闻，请主要依据技术面和板块趋势进行分析。\n"
+
+        # 注入资金面数据（Insider + Institutional）
+        insider_desc = context.get('Insider_Desc', '无数据')
+        inst_desc = context.get('Inst_Desc', '无数据')
+
+        if insider_desc != '无数据' or inst_desc != '无数据':
+            prompt += f"""
+---
+## 💰 资金面深度扫描 (Yahoo Finance 实时数据)
+
+| 项目 | 数据 |
+|------|------|
+| 内部人交易 (Insider) | {insider_desc} |
+| 机构持仓 (Institutional) | {inst_desc} |
+
+**量化解读**：
+- 若内部人净买入 > 0，通常视为强烈利好信号（高管最懂公司）。
+- 若机构持股比例高 (>30%) 且持续增持，说明"聪明钱"看好。
+- 警惕"背离"：股价涨但内部人在卖出，或机构大幅减持。
+"""
+        else:
+            prompt += "\n⚠️ 资金面数据缺失，无法分析内部人及机构动向。\n"
 
         # 3. 注入数据缺失警告
         if context.get('data_missing'):
