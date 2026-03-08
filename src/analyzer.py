@@ -447,7 +447,8 @@ class GeminiAnalyzer:
                 "✅/⚠️/❌ 检查项4：无重大利空",
                 "✅/⚠️/❌ 检查项5：筹码健康",
                 "✅/⚠️/❌ 检查项6：PE估值合理",
-                "✅/⚠️/❌ 检查项7：当前宏观大盘（美股/ASX）及大宗商品环境是否支持操作"
+                "✅/⚠️/❌ 检查项7：当前宏观大盘（美股/ASX）及大宗商品环境是否支持操作",
+          "✅/⚠️/❌ 检查项8：资金面健康 (内部人/机构动向)"
             ]
         }
     },
@@ -1301,6 +1302,25 @@ class GeminiAnalyzer:
 """
         else:
             prompt += "\n目前未搜索到近期相关新闻，请主要依据技术面和板块趋势进行分析。\n"
+
+        # 【新增】注入资金面数据 (Insider & Institutional)
+        # 从 context 中读取我们在 yfinance_fetcher.py 中注入的数据
+        insider_desc = context.get('Insider_Desc', '无数据')
+        inst_desc = context.get('Inst_Desc', '无数据')
+        
+        if insider_desc != '无数据' or inst_desc != '无数据':
+            prompt += f"""
+---
+## 💰 资金面深度扫描 (Yahoo Finance 实时数据)
+**内部人交易 (Insider)**: {insider_desc}
+**机构持仓 (Institutional)**: {inst_desc}
+**量化解读**:
+- 若内部人净买入 > 0，通常视为强烈利好信号（高管最懂公司）。
+- 若机构持股比例高 (>30%) 且持续增持，说明“聪明钱”看好。
+- 警惕“背离”：股价涨但内部人在卖出，或机构大幅减持。
+"""
+        else:
+            prompt += "\n⚠️ 资金面数据缺失，无法分析内部人及机构动向。\n"
 
         # 3. 注入数据缺失警告
         if context.get('data_missing'):
