@@ -153,7 +153,7 @@ class StockAnalysisPipeline:
             logger.error(f"[{code}] {error_msg}")
             return False, error_msg, {}
     
-    def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
+    def analyze_stock(self, code: str, report_type: ReportType, query_id: str, df_attrs: Optional[dict] = None, market_overview: Optional[dict] = None) -> Optional[AnalysisResult]:
         """
         分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
         
@@ -603,7 +603,7 @@ class StockAnalysisPipeline:
                 return None
             
             effective_query_id = analysis_query_id or self.query_id or uuid.uuid4().hex
-            result = self.analyze_stock(code, report_type, query_id=effective_query_id)
+            result = self.analyze_stock(code, report_type, query_id=effective_query_id, df_attrs=df_attrs, market_overview=market_overview)
             
             if result:
                 logger.info(
