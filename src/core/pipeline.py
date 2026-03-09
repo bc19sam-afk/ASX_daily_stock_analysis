@@ -130,25 +130,28 @@ class StockAnalysisPipeline:
             # 断点续传检查：如果今日数据已存在，跳过
             if not force_refresh and self.db.has_today_data(code, today):
                 logger.info(f"[{code}] 今日数据已存在，跳过获取（断点续传）")
-                return True, None
+                return True, None, {}
             
             # 从数据源获取数据
             logger.info(f"[{code}] 开始从数据源获取数据...")
             df, source_name = self.fetcher_manager.get_daily_data(code, days=30)
             
             if df is None or df.empty:
-                return False, "获取数据为空"
+                return False, "获取数据为空", {}
             
+            # 缓存 df.attrs（含股票名称和资金面摘要）
+            df_attrs = dict(df.attrs) if hasattr(df, 'attrs') else {}
+
             # 保存到数据库
             saved_count = self.db.save_daily_data(df, code, source_name)
             logger.info(f"[{code}] 数据保存成功（来源: {source_name}，新增 {saved_count} 条）")
             
-            return True, None
+            return True, None, df_attrs
             
         except Exception as e:
             error_msg = f"获取/保存数据失败: {str(e)}"
             logger.error(f"[{code}] {error_msg}")
-            return False, error_msg
+            return False, error_msg, {}
     
     def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
         """
@@ -194,6 +197,9 @@ class StockAnalysisPipeline:
                 logger.warning(f"[{code}] 获取实时行情失败: {e}")
             
             # 如果还是没有名称，使用代码作为名称
+            # 从 yfinance df.attrs 补充股票名称（解决"股票ARB.AX"问题）
+            if not stock_name and df_attrs.get('stock_name'):
+                stock_name = df_attrs['stock_name']
             if not stock_name:
                 stock_name = f'股票{code}'
             
@@ -279,21 +285,16 @@ class StockAnalysisPipeline:
                     'yesterday': {}
                 }
             
-            # Step 5.5: 注入资金面数据（仅对 .AX 澳股 / 国际股使用 yfinance 获取）
+            # Step 5.5: 注入资金面数据（直接从df_attrs读取，无需重复调用yfinance）
             try:
-                import re
-                if re.match(r'^[A-Z]{1,5}(\.[A-Z]+)?$', code.strip().upper()):
-                    from data_provider.yfinance_fetcher import YfinanceFetcher
-                    import pandas as pd
-                    yf_fetcher = YfinanceFetcher()
-                    # 直接传一行空 DataFrame，让 _get_enhanced_data 去抓真实数据
-                    _dummy_df = pd.DataFrame([{}])
-                    _enhanced_df = yf_fetcher._get_enhanced_data(code, _dummy_df)
-                    if 'Insider_Desc' in _enhanced_df.columns and len(_enhanced_df) > 0:
-                        context['Insider_Desc'] = _enhanced_df['Insider_Desc'].iloc[0]
-                    if 'Inst_Desc' in _enhanced_df.columns and len(_enhanced_df) > 0:
-                        context['Inst_Desc'] = _enhanced_df['Inst_Desc'].iloc[0]
+                insider_desc = df_attrs.get('insider_desc', '')
+                inst_desc = df_attrs.get('inst_desc', '')
+                if insider_desc or inst_desc:
+                    context['Insider_Desc'] = insider_desc
+                    context['Inst_Desc'] = inst_desc
                     logger.info(f"[{code}] 资金面数据已注入 context")
+                else:
+                    logger.debug(f"[{code}] df_attrs 无资金面数据，跳过注入")
             except Exception as e:
                 logger.warning(f"[{code}] 资金面数据注入失败（已跳过）：{e}")
 
@@ -558,7 +559,7 @@ class StockAnalysisPipeline:
         
         try:
             # Step 1: 获取并保存数据
-            success, error = self.fetch_and_save_stock_data(code)
+            success, error, df_attrs = self.fetch_and_save_stock_data(code)
             
             if not success:
                 logger.warning(f"[{code}] 数据获取失败: {error}")

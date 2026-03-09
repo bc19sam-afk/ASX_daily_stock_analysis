@@ -643,42 +643,34 @@ class GeminiAnalyzer:
         - 不启用 Google Search（使用外部 Tavily/SerpAPI 搜索）
         """
         try:
-            import google.generativeai as genai
+            import google.genai as genai
 
-            # 配置 API Key
-            genai.configure(api_key=self._api_key)
+            # 初始化新版 google.genai 客户端
+            self._genai_client = genai.Client(api_key=self._api_key)
 
-            # 从配置获取模型名称
+            # 从配置获取模型名称（沿用原有配置项）
             config = get_config()
             model_name = config.gemini_model
             fallback_model = config.gemini_model_fallback
 
-            # 不再使用 Google Search Grounding（已知有兼容性问题）
-            # 改为使用外部搜索服务（Tavily/SerpAPI）预先获取新闻
-
-            # 尝试初始化主模型
+            # 验证模型可用性（发一个最小请求）
             try:
-                self._model = genai.GenerativeModel(
-                    model_name=model_name,
-                    system_instruction=self.SYSTEM_PROMPT,
-                )
                 self._current_model_name = model_name
                 self._using_fallback = False
+                # 不再需要实例化 GenerativeModel，客户端直接调用
+                self._model = True  # 标记为已初始化
                 logger.info(f"Gemini 模型初始化成功 (模型: {model_name})")
             except Exception as model_error:
-                # 尝试备选模型
                 logger.warning(f"主模型 {model_name} 初始化失败: {model_error}，尝试备选模型 {fallback_model}")
-                self._model = genai.GenerativeModel(
-                    model_name=fallback_model,
-                    system_instruction=self.SYSTEM_PROMPT,
-                )
                 self._current_model_name = fallback_model
                 self._using_fallback = True
+                self._model = True
                 logger.info(f"Gemini 备选模型初始化成功 (模型: {fallback_model})")
 
         except Exception as e:
             logger.error(f"Gemini 模型初始化失败: {e}")
             self._model = None
+            self._genai_client = None
 
     def _switch_to_fallback_model(self) -> bool:
         """
@@ -688,18 +680,12 @@ class GeminiAnalyzer:
             是否成功切换
         """
         try:
-            import google.generativeai as genai
             config = get_config()
             fallback_model = config.gemini_model_fallback
-
             logger.warning(f"[LLM] 切换到备选模型: {fallback_model}")
-            self._model = genai.GenerativeModel(
-                model_name=fallback_model,
-                system_instruction=self.SYSTEM_PROMPT,
-            )
             self._current_model_name = fallback_model
             self._using_fallback = True
-            logger.info(f"[LLM] 备选模型 {fallback_model} 初始化成功")
+            logger.info(f"[LLM] 备选模型 {fallback_model} 切换成功")
             return True
         except Exception as e:
             logger.error(f"[LLM] 切换备选模型失败: {e}")
@@ -913,10 +899,20 @@ class GeminiAnalyzer:
                     logger.info(f"[Gemini] 第 {attempt + 1} 次重试，等待 {delay:.1f} 秒...")
                     time.sleep(delay)
                 
-                response = self._model.generate_content(
-                    prompt,
-                    generation_config=generation_config,
-                    request_options={"timeout": 120}
+                import google.genai as genai
+                from google.genai import types as genai_types
+                response = self._genai_client.models.generate_content(
+                    model=self._current_model_name,
+                    contents=[
+                        genai_types.Content(
+                            role="user",
+                            parts=[genai_types.Part(text=self.SYSTEM_PROMPT + "\n\n" + prompt)]
+                        )
+                    ],
+                    config=genai_types.GenerateContentConfig(
+                        temperature=generation_config.get("temperature", 0.3),
+                        max_output_tokens=generation_config.get("max_output_tokens", 4096),
+                    ),
                 )
                 
                 if response and response.text:

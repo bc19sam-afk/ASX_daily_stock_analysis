@@ -379,8 +379,20 @@ class YfinanceFetcher(BaseFetcher):
             if df.empty:
                 raise DataFetchError(f"[{stock_code}] 未获取到数据")
 
-            # 注入资金面数据
+            # 获取股票名称
+            stock_name = ''
+            try:
+                info = ticker.info
+                stock_name = info.get('shortName', '') or info.get('longName', '') or ''
+            except Exception:
+                pass
+
+            # 注入资金面数据，同时缓存结果到 attrs 避免 pipeline 重复调用
             df = self._get_enhanced_data(stock_code, df)
+            # 将资金面摘要缓存到 attrs，pipeline 直接读取，无需二次请求
+            df.attrs['insider_desc'] = df['Insider_Desc'].iloc[0] if 'Insider_Desc' in df.columns and len(df) > 0 else ''
+            df.attrs['inst_desc'] = df['Inst_Desc'].iloc[0] if 'Inst_Desc' in df.columns and len(df) > 0 else ''
+            df.attrs['stock_name'] = stock_name
 
             # 重置索引，使 Date 成为列
             df = df.reset_index()
@@ -395,6 +407,26 @@ class YfinanceFetcher(BaseFetcher):
             # 格式化日期
             if "date" in df.columns:
                 df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.strftime("%Y-%m-%d")
+
+            # 确保按日期升序排列（旧→新），pct_change() 依赖此顺序
+            if "date" in df.columns:
+                df = df.sort_values("date").reset_index(drop=True)
+
+            # 计算涨跌幅
+            if "close" in df.columns:
+                df["pct_chg"] = df["close"].pct_change() * 100
+                df["pct_chg"] = df["pct_chg"].fillna(0).round(2)
+
+            # 计算成交额（估算）
+            if "volume" in df.columns and "close" in df.columns:
+                df["amount"] = (df["volume"] * df["close"]).round(0)
+            else:
+                df["amount"] = 0
+
+            # 价格精度统一到2位小数
+            for col in ["open", "high", "low", "close"]:
+                if col in df.columns:
+                    df[col] = df[col].round(2)
 
             # 保留标准列 + 资金面列
             extra_cols = [c for c in ['Insider_Net', 'Insider_Desc', 'Inst_Percent', 'Inst_Desc'] if c in df.columns]
