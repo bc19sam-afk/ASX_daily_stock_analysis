@@ -1032,8 +1032,7 @@ class DatabaseManager:
             vol_str = f"{int(row.volume):,}" if row.volume else 'N/A'
             table_lines.append(f"| {date_str} | {close_str} | {pct_str} | {vol_str} |")
         
-        context['price_history_table'] = "
-".join(table_lines)
+        context['price_history_table'] = "\n".join(table_lines)
         context['raw_data'] = [row.to_dict() for row in history_rows]
 
         # 计算真实 ATR（14日，用于仓位计算）
