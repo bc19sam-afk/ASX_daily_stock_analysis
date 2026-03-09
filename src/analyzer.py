@@ -636,45 +636,20 @@ class GeminiAnalyzer:
 
     def _init_model(self) -> None:
         """
-        初始化 Gemini 模型
-
-        配置：
-        - 使用 gemini-3-flash-preview 或 gemini-2.5-flash 模型
-        - 不启用 Google Search（使用外部 Tavily/SerpAPI 搜索）
+        初始化 Gemini 模型（使用新版 google-genai SDK）
         """
         try:
-            import google.generativeai as genai
+            from google import genai
 
-            # 配置 API Key
-            genai.configure(api_key=self._api_key)
-
-            # 从配置获取模型名称
             config = get_config()
             model_name = config.gemini_model
             fallback_model = config.gemini_model_fallback
 
-            # 不再使用 Google Search Grounding（已知有兼容性问题）
-            # 改为使用外部搜索服务（Tavily/SerpAPI）预先获取新闻
-
-            # 尝试初始化主模型
-            try:
-                self._model = genai.GenerativeModel(
-                    model_name=model_name,
-                    system_instruction=self.SYSTEM_PROMPT,
-                )
-                self._current_model_name = model_name
-                self._using_fallback = False
-                logger.info(f"Gemini 模型初始化成功 (模型: {model_name})")
-            except Exception as model_error:
-                # 尝试备选模型
-                logger.warning(f"主模型 {model_name} 初始化失败: {model_error}，尝试备选模型 {fallback_model}")
-                self._model = genai.GenerativeModel(
-                    model_name=fallback_model,
-                    system_instruction=self.SYSTEM_PROMPT,
-                )
-                self._current_model_name = fallback_model
-                self._using_fallback = True
-                logger.info(f"Gemini 备选模型初始化成功 (模型: {fallback_model})")
+            # 新版 SDK 使用 Client
+            self._model = genai.Client(api_key=self._api_key)
+            self._current_model_name = model_name
+            self._using_fallback = False
+            logger.info(f"Gemini 模型初始化成功 (模型: {model_name})")
 
         except Exception as e:
             logger.error(f"Gemini 模型初始化失败: {e}")
@@ -688,15 +663,9 @@ class GeminiAnalyzer:
             是否成功切换
         """
         try:
-            import google.generativeai as genai
             config = get_config()
             fallback_model = config.gemini_model_fallback
-
             logger.warning(f"[LLM] 切换到备选模型: {fallback_model}")
-            self._model = genai.GenerativeModel(
-                model_name=fallback_model,
-                system_instruction=self.SYSTEM_PROMPT,
-            )
             self._current_model_name = fallback_model
             self._using_fallback = True
             logger.info(f"[LLM] 备选模型 {fallback_model} 初始化成功")
@@ -913,12 +882,17 @@ class GeminiAnalyzer:
                     logger.info(f"[Gemini] 第 {attempt + 1} 次重试，等待 {delay:.1f} 秒...")
                     time.sleep(delay)
                 
-                response = self._model.generate_content(
-                    prompt,
-                    generation_config=generation_config,
-                    request_options={"timeout": 120}
+                from google.genai import types as genai_types
+                response = self._model.models.generate_content(
+                    model=self._current_model_name,
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=self.SYSTEM_PROMPT,
+                        temperature=generation_config.get("temperature", 0.7),
+                        max_output_tokens=generation_config.get("max_output_tokens", 8192),
+                    )
                 )
-                
+
                 if response and response.text:
                     return response.text
                 else:
@@ -1064,7 +1038,7 @@ class GeminiAnalyzer:
             if not model_name:
                 model_name = getattr(self._model, '_model_name', 'unknown')
                 if hasattr(self._model, 'model_name'):
-                    model_name = self._model.model_name
+                    model_name = self._current_model_name
             
             logger.info(f"========== AI 分析 {name}({code}) ==========")
             time.sleep(30)
