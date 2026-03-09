@@ -338,7 +338,7 @@ def run_full_analysis(
 
         # === Auto backtest ===
         try:
-            if getattr(config, 'backtest_enabled', False):
+            if getattr(config, 'backtest_enabled', True):  # 默认启用
                 from src.services.backtest_service import BacktestService
 
                 logger.info("开始自动回测...")
@@ -346,7 +346,7 @@ def run_full_analysis(
                 stats = service.run_backtest(
                     force=False,
                     eval_window_days=getattr(config, 'backtest_eval_window_days', 10),
-                    min_age_days=getattr(config, 'backtest_min_age_days', 14),
+                    min_age_days=getattr(config, 'backtest_min_age_days', 10),  # 与eval_window_days对齐
                     limit=200,
                 )
                 logger.info(

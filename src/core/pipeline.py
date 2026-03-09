@@ -309,6 +309,26 @@ class StockAnalysisPipeline:
                 context['market_overview'] = market_overview
                 logger.info(f"[{code}] 大盘数据已注入 context")
 
+            # Step 5.7: 注入历史回测胜率（真实数据，防止 AI 编造）
+            try:
+                from src.services.backtest_service import BacktestService
+                bt_service = BacktestService()
+                summary = bt_service.get_summary(scope='stock', code=code)
+                if summary and summary.get('completed_count', 0) >= 3:
+                    context['backtest_summary'] = {
+                        'total': summary.get('completed_count', 0),
+                        'win_rate': summary.get('win_rate_pct'),
+                        'direction_accuracy': summary.get('direction_accuracy_pct'),
+                        'avg_return': summary.get('avg_stock_return_pct'),
+                        'stop_loss_rate': summary.get('stop_loss_trigger_rate'),
+                    }
+                    logger.info(f"[{code}] 历史胜率已注入: 胜率={summary.get('win_rate_pct')}% 样本={summary.get('completed_count')}")
+                else:
+                    context['backtest_summary'] = None
+            except Exception as e:
+                logger.debug(f"[{code}] 回测胜率查询失败（已跳过）: {e}")
+                context['backtest_summary'] = None
+
             # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
             enhanced_context = self._enhance_context(
                 context, 
@@ -783,9 +803,27 @@ class StockAnalysisPipeline:
         """
         try:
             logger.info("生成决策仪表盘日报...")
-            
+
+            # 生成组合层面 AI 总结（在个股报告前面）
+            portfolio_prefix = ""
+            try:
+                logger.info("生成组合决策总结...")
+                portfolio_summary = self.analyzer.generate_portfolio_summary(results)
+                if portfolio_summary:
+                    today_str = results[0].market_snapshot.get('date', '') if results and results[0].market_snapshot else ''
+                    portfolio_prefix = f"## 🎯 组合决策总结 {today_str}
+
+{portfolio_summary}
+
+---
+
+"
+                    logger.info("组合决策总结生成成功")
+            except Exception as e:
+                logger.warning(f"组合决策总结生成失败（已跳过）: {e}")
+
             # 生成决策仪表盘格式的详细日报
-            report = self.notifier.generate_dashboard_report(results)
+            report = portfolio_prefix + self.notifier.generate_dashboard_report(results)
             
             # 保存到本地
             filepath = self.notifier.save_report_to_file(report)

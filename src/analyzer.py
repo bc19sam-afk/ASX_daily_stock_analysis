@@ -1233,6 +1233,21 @@ class GeminiAnalyzer:
         else:
             fundamentals_table = "暂无基本面数据"
 
+        # 生成历史回测胜率摘要
+        bt = context.get('backtest_summary')
+        if bt:
+            backtest_block = f"""### ⏳ 历史回测实测数据（真实，非估计）
+| 指标 | 数值 |
+|------|------|
+| 样本数 | {bt.get('total', 0)} 次 |
+| 方向准确率 | {bt.get('direction_accuracy') or 'N/A'}% |
+| 胜率（含中性） | {bt.get('win_rate') or 'N/A'}% |
+| 平均收益 | {bt.get('avg_return') or 'N/A'}% |
+| 止损触发率 | {bt.get('stop_loss_rate') or 'N/A'}% |"""
+        else:
+            backtest_block = """### ⏳ 历史回测数据
+⚠️ **数据不足，暂无历史回测结果。请勿编造胜率数字，直接注明"样本不足，无法统计"。**"""
+
         # 生成大盘宏观表格
         market_overview = context.get('market_overview', {})
         if market_overview:
@@ -1270,6 +1285,8 @@ class GeminiAnalyzer:
 | 涨跌幅 | {today.get('pct_chg', 'N/A')}% |
 | 成交量 | {self._format_volume(today.get('volume'))} |
 | 成交额 | {self._format_amount(today.get('amount'))} |
+
+{backtest_block}
 
 ### 🌏 今日大盘环境
 {market_table}
@@ -1313,8 +1330,8 @@ class GeminiAnalyzer:
 **量化要求**：判定所属板块（Mining, Banking, Healthcare等），结合今日大宗商品（铁矿石/金/铜/原油）走势。若板块利空，即使个股技术面好，也必须提示“板块共振向下”并调低评分。这是第一道宏观过滤器。
 
 ## ⏳ 第二阶段：历史回测复盘 (Backtesting)
-**量化要求**：复盘过去 30 天历史数据。寻找类似当前的技术信号（如回踩MA10）。总结在那之后 5 天内股价是突破了还是反转了？给出该形态在本股身上的“历史胜率”。
-【30天历史价格表】：
+**量化要求**：上方已提供本股的真实系统回测数据，请直接引用。若显示“样本不足”则注明“历史样本不足，暂无统计”，**严禁自行编造或估算任何胜率数字**。
+【30天历史价格表（辅助参考）】：
 {context.get('price_history_table', '暂无历史数据')}
 
 ## 📅 第三阶段：财报季避雷针 (Earnings)
@@ -1672,6 +1689,75 @@ class GeminiAnalyzer:
         
         return results
 
+
+    def generate_portfolio_summary(self, results: list) -> str:
+        """
+        对所有个股分析结果做一次组合层面的 AI 汇总。
+        输入：AnalysisResult 列表
+        输出：纯文本的组合决策摘要（Markdown格式）
+        """
+        if not results or not self.is_available():
+            return ""
+
+        config = get_config()
+
+        # 构建股票摘要表格
+        lines = []
+        for r in sorted(results, key=lambda x: x.sentiment_score, reverse=True):
+            bt = ""
+            if r.dashboard:
+                # 尝试从dashboard里取止损止盈
+                sl = r.dashboard.get("position_strategy", {}).get("stop_loss", "")
+                tp = r.dashboard.get("position_strategy", {}).get("take_profit", "")
+                bt = f"止损:{sl} 目标:{tp}" if sl or tp else ""
+            lines.append(
+                f"| {r.name}({r.code}) | {r.sentiment_score} | {r.trend_prediction} "
+                f"| {r.operation_advice} | {r.confidence_level} | {bt} |"
+            )
+
+        table = "
+".join(lines)
+
+        prompt = f"""你是一位澳股投资组合经理，请对以下 {len(results)} 只股票的今日分析结果做组合层面的综合决策。
+
+## 今日个股评分汇总
+| 股票 | 评分 | 趋势 | 操作建议 | 置信度 | 止损/目标 |
+|------|------|------|---------|--------|-----------|
+{table}
+
+## 投资组合参数
+- 总本金：{config.total_assets} AUD
+- 单笔最大风险：总本金的 1%（{config.total_assets * 0.01:.0f} AUD）
+
+## 你的任务
+请输出以下内容（直接用Markdown，不要JSON）：
+
+### 1. 今日操作优先级
+列出今日**必须执行**的操作（买入/卖出），按优先级排序，每条一行，格式：
+`🟢 买入 XXX.AX — 原因一句话`
+`🔴 减仓/卖出 XXX.AX — 原因一句话`
+
+### 2. 整体仓位建议
+基于今日看多/看空比例，给出整体仓位建议（如：当前环境建议总仓位控制在X成）。
+
+### 3. 板块集中度警告
+如果同一板块有多只股票同向信号（同时看多或看空），请点名提示，防止过度集中。
+
+### 4. 今日一句话总结
+用一句话概括今日澳股组合的整体态势和核心操作逻辑。
+
+要求：简洁、具体、可执行。不要重复个股报告里已有的详细分析。"""
+
+        try:
+            generation_config = {
+                "temperature": 0.4,
+                "max_output_tokens": 1000,
+            }
+            response = self._call_api_with_retry(prompt, generation_config)
+            return response.strip()
+        except Exception as e:
+            logger.warning(f"[组合总结] AI 调用失败: {e}")
+            return ""
 
 # 便捷函数
 def get_analyzer() -> GeminiAnalyzer:
