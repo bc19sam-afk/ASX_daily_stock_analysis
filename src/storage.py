@@ -1035,7 +1035,27 @@ class DatabaseManager:
         context['price_history_table'] = "
 ".join(table_lines)
         context['raw_data'] = [row.to_dict() for row in history_rows]
-        
+
+        # 计算真实 ATR（14日，用于仓位计算）
+        # ATR = 平均(max(high-low, |high-prev_close|, |low-prev_close|))
+        try:
+            atr_values = []
+            for i in range(1, len(history_rows)):
+                curr = history_rows[i]
+                prev = history_rows[i - 1]
+                if curr.high and curr.low and prev.close:
+                    tr = max(
+                        curr.high - curr.low,
+                        abs(curr.high - prev.close),
+                        abs(curr.low - prev.close)
+                    )
+                    atr_values.append(tr)
+            if atr_values:
+                atr_14 = round(sum(atr_values[-14:]) / len(atr_values[-14:]), 4)
+                context['atr'] = atr_14
+        except Exception:
+            context['atr'] = 0
+
         return context
     
     def _analyze_ma_status(self, data: StockDaily) -> str:

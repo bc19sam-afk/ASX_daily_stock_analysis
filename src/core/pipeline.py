@@ -295,8 +295,19 @@ class StockAnalysisPipeline:
                     logger.info(f"[{code}] 资金面数据已注入 context")
                 else:
                     logger.debug(f"[{code}] df_attrs 无资金面数据，跳过注入")
+
+                # 注入基本面数据
+                fundamentals = df_attrs.get('fundamentals', {})
+                if fundamentals:
+                    context['fundamentals'] = fundamentals
+                    logger.info(f"[{code}] 基本面数据已注入 context: {list(fundamentals.keys())}")
             except Exception as e:
                 logger.warning(f"[{code}] 资金面数据注入失败（已跳过）：{e}")
+
+            # Step 5.6: 注入大盘宏观数据
+            if market_overview:
+                context['market_overview'] = market_overview
+                logger.info(f"[{code}] 大盘数据已注入 context")
 
             # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
             enhanced_context = self._enhance_context(
@@ -533,6 +544,7 @@ class StockAnalysisPipeline:
         single_stock_notify: bool = False,
         report_type: ReportType = ReportType.SIMPLE,
         analysis_query_id: Optional[str] = None,
+        market_overview: Optional[dict] = None,
     ) -> Optional[AnalysisResult]:
         """
         处理单只股票的完整流程
@@ -606,6 +618,30 @@ class StockAnalysisPipeline:
             logger.exception(f"[{code}] 处理过程发生未知异常: {e}")
             return None
     
+    def _fetch_market_overview(self) -> dict:
+        """
+        复用 MarketAnalyzer._get_main_indices() 拉取大盘数据，
+        转换为 {名称: {close, pct_chg, trend}} 格式注入个股 context。
+        """
+        try:
+            from src.market_analyzer import MarketAnalyzer
+            ma = MarketAnalyzer()
+            indices = ma._get_main_indices()
+            overview = {}
+            for idx in indices:
+                pct = round(idx.change_pct, 2) if idx.change_pct is not None else None
+                overview[idx.name] = {
+                    'close': round(idx.current, 2),
+                    'pct_chg': pct,
+                    'trend': '📈' if (pct or 0) > 0 else ('📉' if (pct or 0) < 0 else '➡️')
+                }
+            if overview:
+                logger.info(f"[大盘] 已获取 {len(overview)} 个指标（复用 MarketAnalyzer）")
+            return overview
+        except Exception as e:
+            logger.warning(f"[大盘] 大盘数据获取失败（已跳过）: {e}")
+            return {}
+
     def run(
         self,
         stock_codes: Optional[List[str]] = None,
@@ -646,6 +682,12 @@ class StockAnalysisPipeline:
         logger.info(f"股票列表: {', '.join(stock_codes)}")
         logger.info(f"并发数: {self.max_workers}, 模式: {'仅获取数据' if dry_run else '完整分析'}")
         
+        # === 抓取大盘宏观数据（一次性，共享给所有股票）===
+        market_overview = self._fetch_market_overview()
+        if market_overview:
+            logger.info(f"[大盘] ASX200: {market_overview.get('ASX200', {}).get('close', 'N/A')} "
+                       f"({market_overview.get('ASX200', {}).get('pct_chg', 'N/A')}%)")
+
         # === 批量预取实时行情（优化：避免每只股票都触发全量拉取）===
         # 只有股票数量 >= 5 时才进行预取，少量股票直接逐个查询更高效
         if len(stock_codes) >= 5:
@@ -678,6 +720,7 @@ class StockAnalysisPipeline:
                     single_stock_notify=single_stock_notify and send_notification,
                     report_type=report_type,  # Issue #119: 传递报告类型
                     analysis_query_id=uuid.uuid4().hex,
+                    market_overview=market_overview,
                 ): code
                 for code in stock_codes
             }

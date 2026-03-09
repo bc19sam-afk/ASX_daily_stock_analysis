@@ -643,34 +643,42 @@ class GeminiAnalyzer:
         - 不启用 Google Search（使用外部 Tavily/SerpAPI 搜索）
         """
         try:
-            import google.genai as genai
+            import google.generativeai as genai
 
-            # 初始化新版 google.genai 客户端
-            self._genai_client = genai.Client(api_key=self._api_key)
+            # 配置 API Key
+            genai.configure(api_key=self._api_key)
 
-            # 从配置获取模型名称（沿用原有配置项）
+            # 从配置获取模型名称
             config = get_config()
             model_name = config.gemini_model
             fallback_model = config.gemini_model_fallback
 
-            # 验证模型可用性（发一个最小请求）
+            # 不再使用 Google Search Grounding（已知有兼容性问题）
+            # 改为使用外部搜索服务（Tavily/SerpAPI）预先获取新闻
+
+            # 尝试初始化主模型
             try:
+                self._model = genai.GenerativeModel(
+                    model_name=model_name,
+                    system_instruction=self.SYSTEM_PROMPT,
+                )
                 self._current_model_name = model_name
                 self._using_fallback = False
-                # 不再需要实例化 GenerativeModel，客户端直接调用
-                self._model = True  # 标记为已初始化
                 logger.info(f"Gemini 模型初始化成功 (模型: {model_name})")
             except Exception as model_error:
+                # 尝试备选模型
                 logger.warning(f"主模型 {model_name} 初始化失败: {model_error}，尝试备选模型 {fallback_model}")
+                self._model = genai.GenerativeModel(
+                    model_name=fallback_model,
+                    system_instruction=self.SYSTEM_PROMPT,
+                )
                 self._current_model_name = fallback_model
                 self._using_fallback = True
-                self._model = True
                 logger.info(f"Gemini 备选模型初始化成功 (模型: {fallback_model})")
 
         except Exception as e:
             logger.error(f"Gemini 模型初始化失败: {e}")
             self._model = None
-            self._genai_client = None
 
     def _switch_to_fallback_model(self) -> bool:
         """
@@ -680,12 +688,18 @@ class GeminiAnalyzer:
             是否成功切换
         """
         try:
+            import google.generativeai as genai
             config = get_config()
             fallback_model = config.gemini_model_fallback
+
             logger.warning(f"[LLM] 切换到备选模型: {fallback_model}")
+            self._model = genai.GenerativeModel(
+                model_name=fallback_model,
+                system_instruction=self.SYSTEM_PROMPT,
+            )
             self._current_model_name = fallback_model
             self._using_fallback = True
-            logger.info(f"[LLM] 备选模型 {fallback_model} 切换成功")
+            logger.info(f"[LLM] 备选模型 {fallback_model} 初始化成功")
             return True
         except Exception as e:
             logger.error(f"[LLM] 切换备选模型失败: {e}")
@@ -899,20 +913,10 @@ class GeminiAnalyzer:
                     logger.info(f"[Gemini] 第 {attempt + 1} 次重试，等待 {delay:.1f} 秒...")
                     time.sleep(delay)
                 
-                import google.genai as genai
-                from google.genai import types as genai_types
-                response = self._genai_client.models.generate_content(
-                    model=self._current_model_name,
-                    contents=[
-                        genai_types.Content(
-                            role="user",
-                            parts=[genai_types.Part(text=self.SYSTEM_PROMPT + "\n\n" + prompt)]
-                        )
-                    ],
-                    config=genai_types.GenerateContentConfig(
-                        temperature=generation_config.get("temperature", 0.3),
-                        max_output_tokens=generation_config.get("max_output_tokens", 4096),
-                    ),
+                response = self._model.generate_content(
+                    prompt,
+                    generation_config=generation_config,
+                    request_options={"timeout": 120}
                 )
                 
                 if response and response.text:
@@ -1219,6 +1223,29 @@ class GeminiAnalyzer:
                 price_table = f'N/A (无数据, 可用字段: {keys_str})'
         # <<<<<< [修改结束] <<<<<<
         
+        # 生成基本面数据表格
+        fundamentals = context.get('fundamentals', {})
+        if fundamentals:
+            fund_lines = ["| 指标 | 数值 |", "|------|------|"]
+            for k, v in fundamentals.items():
+                fund_lines.append(f"| {k} | {v} |")
+            fundamentals_table = "\n".join(fund_lines)
+        else:
+            fundamentals_table = "暂无基本面数据"
+
+        # 生成大盘宏观表格
+        market_overview = context.get('market_overview', {})
+        if market_overview:
+            mkt_lines = ["| 指标 | 收盘 | 涨跌幅 |", "|------|------|--------|"]
+            for name, d in market_overview.items():
+                close = d.get('close', 'N/A')
+                pct = f"{d.get('pct_chg', 'N/A')}%" if d.get('pct_chg') is not None else 'N/A'
+                trend = d.get('trend', '')
+                mkt_lines.append(f"| {name} | {close} | {trend} {pct} |")
+            market_table = "\n".join(mkt_lines)
+        else:
+            market_table = "暂无大盘数据"
+
         # ========== 构建决策仪表盘格式的输入 ==========
         prompt = f"""# 决策仪表盘分析请求
 
@@ -1243,6 +1270,12 @@ class GeminiAnalyzer:
 | 涨跌幅 | {today.get('pct_chg', 'N/A')}% |
 | 成交量 | {self._format_volume(today.get('volume'))} |
 | 成交额 | {self._format_amount(today.get('amount'))} |
+
+### 🌏 今日大盘环境
+{market_table}
+
+### 📊 基本面数据
+{fundamentals_table}
 
 ### 📈 近期价格走势 (最近 30 个交易日数据)
 | 日期 | 收盘价 | 涨跌幅 | 成交量 |
@@ -1291,8 +1324,8 @@ class GeminiAnalyzer:
 **量化要求**：
 1. **本金基数**：当前账户总本金为 {get_config().total_assets} AUD。
 2. **风险红线**：单笔交易最大允许亏损为总本金的 1%（即 {get_config().total_assets * 0.01} AUD）。
-3. **仓位计算**：计算 1.5 倍 ATR 的止损空间。(当前 ATR: {context.get('atr', 0)})
-4. **具体指令**：请根据上述数据，给出精确的【建议买入股数】（公式：单笔风险金额 / 止损空间）。
+3. **仓位计算**：计算 1.5 倍 ATR 的止损空间。(当前14日真实 ATR: **{round(context.get('atr', 0), 4)} AUD**，止损空间 = ATR × 1.5 = **{round(context.get('atr', 0) * 1.5, 4)} AUD**)
+4. **具体指令**：请根据上述数据，给出精确的【建议买入股数】（公式：{get_config().total_assets * 0.01} / {round(context.get('atr', 0) * 1.5, 4)} = 精确股数）。
 
 这是最后执行的红线，必须给出具体数字。
 """

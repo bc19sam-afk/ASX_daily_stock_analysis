@@ -379,11 +379,47 @@ class YfinanceFetcher(BaseFetcher):
             if df.empty:
                 raise DataFetchError(f"[{stock_code}] 未获取到数据")
 
-            # 获取股票名称
+            # 获取股票名称 + 基本面数据
             stock_name = ''
+            fundamentals = {}
             try:
                 info = ticker.info
                 stock_name = info.get('shortName', '') or info.get('longName', '') or ''
+
+                # 基本面字段（能取到就取，取不到静默跳过）
+                pe = info.get('trailingPE') or info.get('forwardPE')
+                pb = info.get('priceToBook')
+                div_yield = info.get('dividendYield')
+                eps = info.get('trailingEps')
+                eps_growth = info.get('earningsGrowth') or info.get('revenueGrowth')
+                market_cap = info.get('marketCap')
+                roe = info.get('returnOnEquity')
+                debt_equity = info.get('debtToEquity')
+                next_earnings = info.get('earningsTimestamp')
+
+                if pe:
+                    fundamentals['PE'] = round(float(pe), 2)
+                if pb:
+                    fundamentals['PB'] = round(float(pb), 2)
+                if div_yield:
+                    fundamentals['股息率'] = f"{round(float(div_yield) * 100, 2)}%"
+                if eps:
+                    fundamentals['EPS'] = round(float(eps), 4)
+                if eps_growth:
+                    fundamentals['EPS增速'] = f"{round(float(eps_growth) * 100, 2)}%"
+                if market_cap:
+                    fundamentals['市值'] = f"{round(market_cap / 1e8, 2)}亿AUD"
+                if roe:
+                    fundamentals['ROE'] = f"{round(float(roe) * 100, 2)}%"
+                if debt_equity:
+                    fundamentals['负债权益比'] = round(float(debt_equity), 2)
+                if next_earnings:
+                    from datetime import datetime
+                    try:
+                        fundamentals['下次财报'] = datetime.fromtimestamp(next_earnings).strftime('%Y-%m-%d')
+                    except Exception:
+                        pass
+
             except Exception:
                 pass
 
@@ -393,6 +429,7 @@ class YfinanceFetcher(BaseFetcher):
             df.attrs['insider_desc'] = df['Insider_Desc'].iloc[0] if 'Insider_Desc' in df.columns and len(df) > 0 else ''
             df.attrs['inst_desc'] = df['Inst_Desc'].iloc[0] if 'Inst_Desc' in df.columns and len(df) > 0 else ''
             df.attrs['stock_name'] = stock_name
+            df.attrs['fundamentals'] = fundamentals
 
             # 重置索引，使 Date 成为列
             df = df.reset_index()
