@@ -811,13 +811,7 @@ class StockAnalysisPipeline:
                 portfolio_summary = self.analyzer.generate_portfolio_summary(results)
                 if portfolio_summary:
                     today_str = results[0].market_snapshot.get('date', '') if results and results[0].market_snapshot else ''
-                    portfolio_prefix = f"## 🎯 组合决策总结 {today_str}
-
-{portfolio_summary}
-
----
-
-"
+                    portfolio_prefix = "## 🎯 组合决策总结 " + today_str + "\n\n" + portfolio_summary + "\n\n---\n\n"
                     logger.info("组合决策总结生成成功")
             except Exception as e:
                 logger.warning(f"组合决策总结生成失败（已跳过）: {e}")
