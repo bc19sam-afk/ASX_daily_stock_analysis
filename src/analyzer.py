@@ -1715,8 +1715,7 @@ class GeminiAnalyzer:
                 f"| {r.operation_advice} | {r.confidence_level} | {bt} |"
             )
 
-        table = "
-".join(lines)
+        table = "\n".join(lines)
 
         prompt = f"""你是一位澳股投资组合经理，请对以下 {len(results)} 只股票的今日分析结果做组合层面的综合决策。
 
