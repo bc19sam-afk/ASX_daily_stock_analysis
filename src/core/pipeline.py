@@ -705,8 +705,9 @@ class StockAnalysisPipeline:
         # === 抓取大盘宏观数据（一次性，共享给所有股票）===
         market_overview = self._fetch_market_overview()
         if market_overview:
-            logger.info(f"[大盘] ASX200: {market_overview.get('ASX200', {}).get('close', 'N/A')} "
-                       f"({market_overview.get('ASX200', {}).get('pct_chg', 'N/A')}%)")
+            # 找 ASX200 数据（key 可能是 "ASX 200 (看点位)" 或 "ASX200"）
+                asx_data = market_overview.get('ASX200') or market_overview.get('ASX 200 (看点位)') or {}
+                logger.info(f"[大盘] ASX200: {asx_data.get('close', 'N/A')} ({asx_data.get('pct_chg', 'N/A')}%)")
 
         # === 批量预取实时行情（优化：避免每只股票都触发全量拉取）===
         # 只有股票数量 >= 5 时才进行预取，少量股票直接逐个查询更高效
