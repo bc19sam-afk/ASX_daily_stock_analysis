@@ -902,11 +902,22 @@ class GeminiAnalyzer:
                 last_error = e
                 error_str = str(e)
                 
-                # 检查是否是 429 限流错误
+                # 检查是否是 429 限流 或 503 过载错误
                 is_rate_limit = '429' in error_str or 'quota' in error_str.lower() or 'rate' in error_str.lower()
+                is_overload = '503' in error_str or 'unavailable' in error_str.lower() or 'connection' in error_str.lower()
                 
-                if is_rate_limit:
-                    logger.warning(f"[Gemini] API 限流 (429)，第 {attempt + 1}/{max_retries} 次尝试: {error_str[:100]}")
+                if is_rate_limit or is_overload:
+                    err_type = "限流 (429)" if is_rate_limit else "过载/连接失败 (503)"
+                    logger.warning(f"[Gemini] API {err_type}，第 {attempt + 1}/{max_retries} 次尝试: {error_str[:100]}")
+                    
+                    # 503/连接失败时重建Client，避免持久连接状态损坏
+                    if is_overload and hasattr(self, '_model') and self._model is not None:
+                        try:
+                            from google import genai as _genai
+                            self._model = _genai.Client(api_key=self._api_key)
+                            logger.info("[Gemini] 已重建Client连接")
+                        except Exception:
+                            pass
                     
                     # 如果已经重试了一半次数且还没切换过备选模型，尝试切换
                     if attempt >= max_retries // 2 and not tried_fallback:
@@ -916,7 +927,7 @@ class GeminiAnalyzer:
                         else:
                             logger.warning("[Gemini] 切换备选模型失败，继续使用当前模型重试")
                 else:
-                    # 非限流错误，记录并继续重试
+                    # 其他错误，记录并继续重试
                     logger.warning(f"[Gemini] API 调用失败，第 {attempt + 1}/{max_retries} 次尝试: {error_str[:100]}")
         
         # Gemini 重试耗尽，尝试 Anthropic 再 OpenAI

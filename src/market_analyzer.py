@@ -471,13 +471,13 @@ class MarketAnalyzer:
         """使用模板生成复盘报告（无大模型时的备选方案）"""
         
         # 判断市场走势
-        sh_index = next((idx for idx in overview.indices if idx.code == '000001'), None)
-        if sh_index:
-            if sh_index.change_pct > 1:
+        asx_index = next((idx for idx in overview.indices if idx.code == '^AXJO'), None)
+        if asx_index:
+            if asx_index.change_pct > 1:
                 market_mood = "强势上涨"
-            elif sh_index.change_pct > 0:
+            elif asx_index.change_pct > 0:
                 market_mood = "小幅上涨"
-            elif sh_index.change_pct > -1:
+            elif asx_index.change_pct > -1:
                 market_mood = "小幅下跌"
             else:
                 market_mood = "明显下跌"
@@ -497,7 +497,7 @@ class MarketAnalyzer:
         report = f"""## 📊 {overview.date} 大盘复盘
 
 ### 一、市场总结
-今日A股市场整体呈现**{market_mood}**态势。
+今日 ASX 市场整体呈现**{market_mood}**态势。
 
 ### 二、主要指数
 {indices_text}
@@ -509,7 +509,7 @@ class MarketAnalyzer:
 | 下跌家数 | {overview.down_count} |
 | 涨停 | {overview.limit_up_count} |
 | 跌停 | {overview.limit_down_count} |
-| 两市成交额 | {overview.total_amount:.0f}亿 |
+| ASX 成交额 | {overview.total_amount:.0f}亿 |
 
 ### 四、板块表现
 - **领涨**: {top_text}
