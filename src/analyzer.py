@@ -1757,7 +1757,7 @@ class GeminiAnalyzer:
         try:
             generation_config = {
                 "temperature": 0.4,
-                "max_output_tokens": 1000,
+                "max_output_tokens": 2000,
             }
             response = self._call_api_with_retry(prompt, generation_config)
             return response.strip()
