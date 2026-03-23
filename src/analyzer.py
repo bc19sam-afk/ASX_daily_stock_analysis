@@ -1246,6 +1246,27 @@ class GeminiAnalyzer:
         else:
             market_table = "暂无大盘数据"
 
+        # 止损追踪警告block
+        stop_loss_alert = context.get('stop_loss_alert')
+        if stop_loss_alert and stop_loss_alert.get('warning'):
+            sl_block = f"""
+### ⚠️ 止损追踪警告
+{stop_loss_alert['warning']}
+- 上次止损位（{stop_loss_alert.get('prev_date', '')} {stop_loss_alert.get('prev_operation', '')}信号）：{stop_loss_alert['prev_stop_loss']:.3f} AUD
+- 当前价格：{stop_loss_alert['current_price']:.3f} AUD
+- 距止损位：{stop_loss_alert['diff_pct']:.1f}%
+
+**请在分析结论中重点说明是否需要执行止损操作。**
+"""
+        elif stop_loss_alert and stop_loss_alert.get('prev_stop_loss'):
+            sl_block = (
+                "### 📍 历史止损参考\n"
+                f"上次止损位（{stop_loss_alert.get('prev_date', '')}）：{stop_loss_alert['prev_stop_loss']:.3f} AUD，"
+                f"当前距止损 {stop_loss_alert['diff_pct']:.1f}%\n"
+            )
+        else:
+            sl_block = ""
+
         # ========== 构建决策仪表盘格式的输入 ==========
         prompt = f"""# 决策仪表盘分析请求
 
@@ -1273,6 +1294,7 @@ class GeminiAnalyzer:
 
 {backtest_block}
 
+{sl_block}
 ### 🌏 今日大盘环境
 {market_table}
 

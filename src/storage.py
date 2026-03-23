@@ -969,6 +969,26 @@ class DatabaseManager:
         
         return saved_count
     
+    def get_previous_signals(self, code: str, days: int = 7) -> Optional[dict]:
+        """
+        获取该股票最近一次分析的止损位、建仓位、趋势和操作建议。
+        用于止损追踪提醒。
+        Returns None 如果没有历史记录。
+        """
+        records = self.get_analysis_history(code=code, days=days, limit=1)
+        if not records:
+            return None
+        r = records[0]
+        return {
+            'stop_loss': r.stop_loss,
+            'ideal_buy': r.ideal_buy,
+            'take_profit': r.take_profit,
+            'operation_advice': r.operation_advice,
+            'sentiment_score': r.sentiment_score,
+            'trend_prediction': r.trend_prediction,
+            'created_at': r.created_at.strftime('%Y-%m-%d') if r.created_at else None,
+        }
+
     def get_analysis_context(
         self, 
         code: str,

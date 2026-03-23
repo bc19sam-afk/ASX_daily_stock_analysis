@@ -329,6 +329,39 @@ class StockAnalysisPipeline:
                 logger.debug(f"[{code}] 回测胜率查询失败（已跳过）: {e}")
                 context['backtest_summary'] = None
 
+            # Step 5.8: 注入止损追踪数据（对比昨日止损位和今日价格）
+            try:
+                prev = self.db.get_previous_signals(code=code, days=7)
+                if prev and prev.get('stop_loss'):
+                    current_price = None
+                    if context.get('today') and isinstance(context['today'], dict):
+                        current_price = context['today'].get('close')
+                    if current_price and prev['stop_loss'] > 0:
+                        sl = prev['stop_loss']
+                        diff_pct = (current_price - sl) / sl * 100
+                        warning = None
+                        if current_price <= sl:
+                            warning = f"🚨 止损已触发！当前价 {current_price:.3f} 已跌破止损位 {sl:.3f}"
+                        elif diff_pct <= 5:
+                            warning = f"⚠️ 止损临近！当前价 {current_price:.3f} 距止损位 {sl:.3f} 仅剩 {diff_pct:.1f}%"
+                        context['stop_loss_alert'] = {
+                            'prev_stop_loss': sl,
+                            'prev_operation': prev.get('operation_advice', ''),
+                            'prev_date': prev.get('created_at', ''),
+                            'current_price': current_price,
+                            'diff_pct': round(diff_pct, 1),
+                            'warning': warning,
+                        }
+                        if warning:
+                            logger.warning(f"[{code}] {warning}")
+                    else:
+                        context['stop_loss_alert'] = None
+                else:
+                    context['stop_loss_alert'] = None
+            except Exception as e:
+                logger.debug(f"[{code}] 止损追踪查询失败（已跳过）: {e}")
+                context['stop_loss_alert'] = None
+
             # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
             enhanced_context = self._enhance_context(
                 context, 
@@ -811,7 +844,7 @@ class StockAnalysisPipeline:
                 logger.info("生成组合决策总结...")
                 portfolio_summary = self.analyzer.generate_portfolio_summary(results)
                 if portfolio_summary:
-                    from datetime import date as _date; today_str = _date.today().strftime('%Y-%m-%d')
+                    today_str = results[0].market_snapshot.get('date', '') if results and results[0].market_snapshot else ''
                     portfolio_prefix = "## 🎯 组合决策总结 " + today_str + "\n\n" + portfolio_summary + "\n\n---\n\n"
                     logger.info("组合决策总结生成成功")
             except Exception as e:
