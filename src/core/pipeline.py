@@ -362,6 +362,16 @@ class StockAnalysisPipeline:
                 logger.debug(f"[{code}] 止损追踪查询失败（已跳过）: {e}")
                 context['stop_loss_alert'] = None
 
+            # Step 5.9: 注入信号连续性数据
+            try:
+                streak_data = self.db.get_signal_streak(code=code, days=10)
+                context['signal_streak'] = streak_data
+                if streak_data.get('streak', 0) >= 2:
+                    logger.info(f"[{code}] 信号连续性: {streak_data.get('summary', '')}")
+            except Exception as e:
+                logger.debug(f"[{code}] 信号连续性查询失败（已跳过）: {e}")
+                context['signal_streak'] = None
+
             # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
             enhanced_context = self._enhance_context(
                 context, 

@@ -1267,6 +1267,13 @@ class GeminiAnalyzer:
         else:
             sl_block = ""
 
+        # 信号连续性block
+        streak = context.get('signal_streak')
+        if streak and streak.get('streak', 0) >= 2:
+            streak_block = "### 📅 信号连续性\n" + streak['summary'] + "，请在分析中说明趋势是否仍然有效。\n"
+        else:
+            streak_block = ""
+
         # ========== 构建决策仪表盘格式的输入 ==========
         prompt = f"""# 决策仪表盘分析请求
 
@@ -1295,6 +1302,7 @@ class GeminiAnalyzer:
 {backtest_block}
 
 {sl_block}
+{streak_block}
 ### 🌏 今日大盘环境
 {market_table}
 

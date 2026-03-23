@@ -989,6 +989,57 @@ class DatabaseManager:
             'created_at': r.created_at.strftime('%Y-%m-%d') if r.created_at else None,
         }
 
+    def get_signal_streak(self, code: str, days: int = 10) -> dict:
+        """
+        统计该股票最近N天的信号连续性。
+        返回：连续看多/看空/震荡天数，以及今日是否与昨日一致。
+        """
+        records = self.get_analysis_history(code=code, days=days, limit=days)
+        if not records:
+            return {'streak': 0, 'direction': None, 'consistent': False, 'summary': ''}
+
+        # 按时间从新到旧已排序，取最新方向
+        def classify(trend: str) -> str:
+            if not trend:
+                return 'unknown'
+            t = trend.lower()
+            if any(x in t for x in ['看多', '多头', '买入', 'bullish', 'up', '上涨']):
+                return 'bullish'
+            if any(x in t for x in ['看空', '空头', '卖出', 'bearish', 'down', '下跌']):
+                return 'bearish'
+            return 'neutral'
+
+        directions = [classify(r.trend_prediction) for r in records]
+        latest = directions[0]
+
+        # 数连续天数
+        streak = 1
+        for d in directions[1:]:
+            if d == latest:
+                streak += 1
+            else:
+                break
+
+        consistent = len(directions) >= 2 and directions[0] == directions[1]
+
+        label_map = {'bullish': '看多', 'bearish': '看空', 'neutral': '震荡', 'unknown': '未知'}
+        label = label_map.get(latest, latest)
+
+        if streak >= 3:
+            summary = f"连续 {streak} 天{label}"
+        elif streak == 2:
+            summary = f"连续 2 天{label}"
+        else:
+            summary = f"今日{label}（方向刚转变）"
+
+        return {
+            'streak': streak,
+            'direction': latest,
+            'label': label,
+            'consistent': consistent,
+            'summary': summary,
+        }
+
     def get_analysis_context(
         self, 
         code: str,
