@@ -15,7 +15,9 @@
 """
 
 import logging
+import os
 import random
+import re
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -339,45 +341,33 @@ class DataFetcherManager:
         """
         初始化默认数据源列表
 
-        优先级动态调整逻辑：
-        - 如果配置了 TUSHARE_TOKEN：Tushare 优先级提升为 0（最高）
-        - 否则按默认优先级：
-          0. EfinanceFetcher (Priority 0) - 最高优先级
-          1. AkshareFetcher (Priority 1)
-          2. PytdxFetcher (Priority 2) - 通达信
-          2. TushareFetcher (Priority 2)
-          3. BaostockFetcher (Priority 3)
-          4. YfinanceFetcher (Priority 4)
+        启用列表由环境变量 ENABLED_FETCHERS 控制，默认仅启用 yfinance。
         """
-        from .efinance_fetcher import EfinanceFetcher
-        from .akshare_fetcher import AkshareFetcher
-        from .tushare_fetcher import TushareFetcher
-        from .pytdx_fetcher import PytdxFetcher
-        from .baostock_fetcher import BaostockFetcher
-        from .yfinance_fetcher import YfinanceFetcher
-        from src.config import get_config
+        enabled_fetchers = self._resolve_enabled_fetchers()
+        fetchers: List[BaseFetcher] = []
 
-        config = get_config()
+        if 'yfinance' in enabled_fetchers:
+            from .yfinance_fetcher import YfinanceFetcher
+            fetchers.append(YfinanceFetcher())
+        if 'tushare' in enabled_fetchers:
+            from .tushare_fetcher import TushareFetcher
+            fetchers.append(TushareFetcher())
+        if 'pytdx' in enabled_fetchers:
+            from .pytdx_fetcher import PytdxFetcher
+            fetchers.append(PytdxFetcher())
+        if 'baostock' in enabled_fetchers:
+            from .baostock_fetcher import BaostockFetcher
+            fetchers.append(BaostockFetcher())
+        if 'akshare' in enabled_fetchers:
+            from .akshare_fetcher import AkshareFetcher
+            fetchers.append(AkshareFetcher())
+        if 'efinance' in enabled_fetchers:
+            from .efinance_fetcher import EfinanceFetcher
+            fetchers.append(EfinanceFetcher())
 
-        # 创建所有数据源实例（优先级在各 Fetcher 的 __init__ 中确定）
-        efinance = EfinanceFetcher()
-        akshare = AkshareFetcher()
-        tushare = TushareFetcher()  # 会根据 Token 配置自动调整优先级
-        pytdx = PytdxFetcher()      # 通达信数据源（可配 PYTDX_HOST/PYTDX_PORT）
-        baostock = BaostockFetcher()
-        yfinance = YfinanceFetcher()
+        self._fetchers = fetchers
 
-        # 初始化数据源列表
-        self._fetchers = [
-            # efinance,
-            # akshare,
-            tushare,
-            pytdx,
-            baostock,
-            yfinance,
-        ]
-
-        # 按优先级排序（Tushare 如果配置了 Token 且初始化成功，优先级为 0）
+        # 按优先级排序
         self._fetchers.sort(key=lambda f: f.priority)
 
         # 构建优先级说明
@@ -388,6 +378,30 @@ class DataFetcherManager:
         """添加数据源并重新排序"""
         self._fetchers.append(fetcher)
         self._fetchers.sort(key=lambda f: f.priority)
+
+    @staticmethod
+    def _resolve_enabled_fetchers() -> List[str]:
+        """解析 ENABLED_FETCHERS（默认 yfinance）。"""
+        raw = os.getenv('ENABLED_FETCHERS', 'yfinance').strip().lower()
+        items = [item.strip() for item in raw.split(',') if item.strip()]
+        return items or ['yfinance']
+
+    @staticmethod
+    def _is_au_us_symbol(stock_code: str) -> bool:
+        """
+        判断是否为应优先使用 Yahoo Finance 的澳/美股代码。
+
+        支持：
+        - CBA.AX / MSFT.US
+        - AAPL
+        - BRK.B / BRK-B
+        """
+        code = stock_code.strip().upper()
+        if code.endswith('.AX') or code.endswith('.US'):
+            return True
+        if re.fullmatch(r'[A-Z]{1,5}([.-][A-Z]{1,2})?', code):
+            return code not in {'HK', 'SH', 'SZ', 'SS'}
+        return False
     
     def get_daily_data(
         self, 
@@ -423,25 +437,18 @@ class DataFetcherManager:
         errors = []
         
         for fetcher in self._fetchers:
-            # === 核心修改：智能分流 (Start) ===
-            # 如果是澳洲股票(.AX) 或 美股(纯字母)，且当前工具不是雅虎，直接跳过
-            is_au_us = ('.AX' in stock_code) or (stock_code.isalpha()) or ('.US' in stock_code)
-            
+            is_au_us = self._is_au_us_symbol(stock_code)
             if is_au_us and 'YfinanceFetcher' not in fetcher.name:
                 continue
-            # === 核心修改：智能分流 (End) ===
 
             try:
                 logger.info(f"尝试使用 [{fetcher.name}] 获取 {stock_code}...")
-                
-                # 👇👇👇 这里是你刚才漏掉的关键代码，必须加回来！ 👇👇👇
                 df = fetcher.get_daily_data(
                     stock_code=stock_code,
                     start_date=start_date,
                     end_date=end_date,
                     days=days
                 )
-                # 👆👆👆 没有这一段，程序就废了 👆👆👆
 
                 if df is not None and not df.empty:
                     logger.info(f"[{fetcher.name}] 成功获取 {stock_code}")
