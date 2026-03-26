@@ -51,8 +51,8 @@ def main() -> int:
 
     db_path = resolve_db_path(args.db)
     if not db_path.exists():
-        print(f"[ERROR] DB not found: {db_path}")
-        return 1
+        print(f"[SKIP] DB not found, nothing to migrate: {db_path}")
+        return 0
 
     conn = sqlite3.connect(str(db_path))
     try:

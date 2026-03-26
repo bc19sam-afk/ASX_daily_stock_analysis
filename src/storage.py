@@ -36,6 +36,8 @@ from sqlalchemy import (
     select,
     and_,
     desc,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import (
     declarative_base,
@@ -429,12 +431,60 @@ class DatabaseManager:
         
         # 创建所有表
         Base.metadata.create_all(self._engine)
+        self._ensure_analysis_history_columns()
 
         self._initialized = True
         logger.info(f"数据库初始化完成: {db_url}")
 
         # 注册退出钩子，确保程序退出时关闭数据库连接
         atexit.register(DatabaseManager._cleanup_engine, self._engine)
+
+    def _ensure_analysis_history_columns(self) -> None:
+        """
+        启动时自动补齐 analysis_history 的新增列（SQLite）。
+
+        说明：
+        - create_all 不会修改已存在表结构；
+        - 历史数据库可能缺少后续版本新增的字段，导致查询报错。
+        """
+        if self._engine.dialect.name != "sqlite":
+            return
+
+        required_columns = {
+            "alpha_decision": "TEXT",
+            "final_decision": "TEXT",
+            "watchlist_state": "TEXT",
+            "market_regime": "TEXT",
+            "news_sentiment": "TEXT",
+            "event_risk": "TEXT",
+            "sector_tone": "TEXT",
+            "data_quality_flag": "TEXT",
+        }
+
+        inspector = inspect(self._engine)
+        table_names = set(inspector.get_table_names())
+        if "analysis_history" not in table_names:
+            return
+
+        existing_columns = {col["name"] for col in inspector.get_columns("analysis_history")}
+        missing = [
+            (name, col_type)
+            for name, col_type in required_columns.items()
+            if name not in existing_columns
+        ]
+        if not missing:
+            return
+
+        with self._engine.begin() as conn:
+            for col, col_type in missing:
+                conn.execute(
+                    text(f"ALTER TABLE analysis_history ADD COLUMN {col} {col_type}")
+                )
+
+        logger.info(
+            "analysis_history 自动迁移完成，新增列: %s",
+            ", ".join(col for col, _ in missing),
+        )
     
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
