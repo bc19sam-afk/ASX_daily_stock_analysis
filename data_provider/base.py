@@ -202,7 +202,17 @@ class BaseFetcher(ABC):
         """
         # 计算日期范围
         if end_date is None:
-            end_date = datetime.now().strftime('%Y-%m-%d')
+            try:
+                from src.config import get_config
+                from src.market_calendar import get_last_closed_trading_date
+                cfg = get_config()
+                end_date = get_last_closed_trading_date(
+                    calendar=getattr(cfg, 'market_calendar', 'ASX'),
+                    market_timezone=getattr(cfg, 'market_timezone', 'Australia/Sydney'),
+                ).strftime('%Y-%m-%d')
+            except Exception:
+                # 降级兜底：保持旧行为
+                end_date = datetime.now().strftime('%Y-%m-%d')
         
         if start_date is None:
             # 默认获取最近 30 个交易日（按日历日估算，多取一些）
