@@ -61,14 +61,39 @@ def _should_skip_for_market_window(config: Config) -> bool:
     now_utc = datetime.now(timezone.utc)
     market_calendar = getattr(config, 'market_calendar', 'ASX')
     market_timezone = getattr(config, 'market_timezone', 'Australia/Sydney')
-    market_date = now_utc.astimezone(ZoneInfo(market_timezone)).date()
+    require_market_closed = getattr(config, 'require_market_closed', False)
+
+    market_now = now_utc.astimezone(ZoneInfo(market_timezone))
+    market_date = market_now.date()
+    logger.info(
+        "市场窗口检查：UTC=%s，市场本地时间(%s)=%s",
+        now_utc.isoformat(),
+        market_timezone,
+        market_now.isoformat(),
+    )
 
     if not is_trading_day(market_date, market_calendar):
-        logger.info(f"跳过执行：{market_calendar} 今日非交易日（市场时区: {market_timezone}）")
+        logger.info(
+            "跳过执行：%s 今日非交易日（市场本地时间(%s)=%s）",
+            market_calendar,
+            market_timezone,
+            market_now.isoformat(),
+        )
         return True
-    if not is_market_closed(now_utc, calendar=market_calendar, market_timezone=market_timezone):
-        logger.info(f"跳过执行：{market_calendar} 尚未收盘（市场时区: {market_timezone}）")
+
+    if require_market_closed and not is_market_closed(
+        now_utc,
+        calendar=market_calendar,
+        market_timezone=market_timezone,
+    ):
+        logger.info(
+            "跳过执行：%s 尚未收盘（REQUIRE_MARKET_CLOSED=true，市场本地时间(%s)=%s）",
+            market_calendar,
+            market_timezone,
+            market_now.isoformat(),
+        )
         return True
+
     return False
 
 

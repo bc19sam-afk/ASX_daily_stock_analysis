@@ -197,6 +197,7 @@ class Config:
     market_review_enabled: bool = True        # 是否启用大盘复盘
     market_timezone: str = "Australia/Sydney" # 市场时区（用于交易日/收盘判断）
     market_calendar: str = "ASX"              # 市场日历（ASX/NYSE）
+    require_market_closed: bool = False         # 是否要求市场已收盘（默认关闭，适配盘前任务）
 
     # === 实时行情增强数据配置 ===
     # 实时行情开关（关闭后使用历史收盘价进行分析）
@@ -453,6 +454,7 @@ class Config:
             market_review_enabled=os.getenv('MARKET_REVIEW_ENABLED', 'true').lower() == 'true',
             market_timezone=os.getenv('MARKET_TIMEZONE', 'Australia/Sydney'),
             market_calendar=os.getenv('MARKET_CALENDAR', 'ASX'),
+            require_market_closed=os.getenv('REQUIRE_MARKET_CLOSED', 'false').lower() == 'true',
             webui_enabled=os.getenv('WEBUI_ENABLED', 'false').lower() == 'true',
             webui_host=os.getenv('WEBUI_HOST', '127.0.0.1'),
             webui_port=int(os.getenv('WEBUI_PORT', '8000')),
