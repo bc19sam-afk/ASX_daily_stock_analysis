@@ -245,19 +245,6 @@ python main.py
 > 有建议？欢迎 [提交 Issue](https://github.com/ZhuLinsen/daily_stock_analysis/issues)
 
 
----
-
-## ☕ 支持项目
-
-如果本项目对你有帮助，欢迎支持项目的持续维护与迭代，感谢支持 🙏  
-赞赏可备注联系方式，祝股市长虹
-
-| 支付宝 (Alipay) | 微信支付 (WeChat) | Ko-fi |
-| :---: | :---: | :---: |
-| <img src="./sources/alipay.jpg" width="200" alt="Alipay"> | <img src="./sources/wechatpay.jpg" width="200" alt="WeChat Pay"> | <a href="https://ko-fi.com/mumu157" target="_blank"><img src="./sources/ko-fi.png" width="200" alt="Ko-fi"></a> |
-
----
-
 ## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！
