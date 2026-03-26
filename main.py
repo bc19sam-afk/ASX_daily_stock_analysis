@@ -43,15 +43,33 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.market_review import run_market_review
+from src.market_calendar import is_trading_day, is_market_closed
 
 from src.config import get_config, Config
 from src.logging_config import setup_logging
 
 
 logger = logging.getLogger(__name__)
+
+
+def _should_skip_for_market_window(config: Config) -> bool:
+    """基于市场日历/时区判断是否应跳过本次任务。"""
+    now_utc = datetime.now(timezone.utc)
+    market_calendar = getattr(config, 'market_calendar', 'ASX')
+    market_timezone = getattr(config, 'market_timezone', 'Australia/Sydney')
+    market_date = now_utc.astimezone(ZoneInfo(market_timezone)).date()
+
+    if not is_trading_day(market_date, market_calendar):
+        logger.info(f"跳过执行：{market_calendar} 今日非交易日（市场时区: {market_timezone}）")
+        return True
+    if not is_market_closed(now_utc, calendar=market_calendar, market_timezone=market_timezone):
+        logger.info(f"跳过执行：{market_calendar} 尚未收盘（市场时区: {market_timezone}）")
+        return True
+    return False
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -218,6 +236,10 @@ def run_full_analysis(
     这是定时任务调用的主函数
     """
     try:
+        # 交易日与收盘检查：避免依赖机器本地时间（GitHub Actions 真实入口）
+        if _should_skip_for_market_window(config):
+            return
+
         # 命令行参数 --single-notify 覆盖配置（#55）
         if getattr(args, 'single_notify', False):
             config.single_stock_notify = True
@@ -523,6 +545,9 @@ def main() -> int:
             from src.search_service import SearchService
 
             logger.info("模式: 仅大盘复盘")
+            if _should_skip_for_market_window(config):
+                return 0
+
             notifier = NotificationService()
 
             # 初始化搜索服务和分析器（如果有配置）
