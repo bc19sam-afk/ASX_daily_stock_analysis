@@ -58,6 +58,10 @@ jobs:
       - name: 创建必要目录
         run: |
           mkdir -p data logs reports
+
+      - name: 迁移数据库结构（analysis_history 新增决策字段）
+        run: |
+          python scripts/migrate_analysis_history_decision_columns.py --db ./data/stock_analysis.db
       
       - name: 执行股票分析
         env:

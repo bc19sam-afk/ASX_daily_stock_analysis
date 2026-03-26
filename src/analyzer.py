@@ -136,6 +136,20 @@ class AnalysisResult:
     decision_type: str = "hold"  # 决策类型：buy/hold/sell（用于统计）
     confidence_level: str = "中"  # 置信度：高/中/低
 
+    # ========== 决策结构（确定性主链）==========
+    alpha_decision: str = "HOLD"       # BUY/HOLD/SELL（规则层）
+    final_decision: str = "HOLD"       # BUY/HOLD/SELL（合成后）
+    watchlist_state: str = "ACTIVE"    # OBSERVE/ACTIVE/DROP（独立于交易动作）
+    market_regime: str = "NEUTRAL"     # RISK_ON/NEUTRAL/RISK_OFF（overlay）
+    news_sentiment: str = "NEU"        # POS/NEU/NEG（overlay，稳定值）
+    event_risk: str = "MEDIUM"         # LOW/MEDIUM/HIGH（overlay，稳定值）
+    sector_tone: str = "NEU"           # POS/NEU/NEG（overlay，稳定值）
+    data_quality_flag: str = "OK"      # OK/MISSING（gate）
+    # 原始提取状态（允许 UNKNOWN；排错与复盘使用）
+    news_sentiment_raw: str = "UNKNOWN"
+    event_risk_raw: str = "UNKNOWN"
+    sector_tone_raw: str = "UNKNOWN"
+
     # ========== 决策仪表盘 (新增) ==========
     dashboard: Optional[Dict[str, Any]] = None  # 完整的决策仪表盘数据
 
@@ -188,6 +202,17 @@ class AnalysisResult:
             'operation_advice': self.operation_advice,
             'decision_type': self.decision_type,
             'confidence_level': self.confidence_level,
+            'alpha_decision': self.alpha_decision,
+            'final_decision': self.final_decision,
+            'watchlist_state': self.watchlist_state,
+            'market_regime': self.market_regime,
+            'news_sentiment': self.news_sentiment,
+            'event_risk': self.event_risk,
+            'sector_tone': self.sector_tone,
+            'data_quality_flag': self.data_quality_flag,
+            'news_sentiment_raw': self.news_sentiment_raw,
+            'event_risk_raw': self.event_risk_raw,
+            'sector_tone_raw': self.sector_tone_raw,
             'dashboard': self.dashboard,
             'trend_analysis': self.trend_analysis,
             'short_term_outlook': self.short_term_outlook,
@@ -1522,6 +1547,23 @@ class GeminiAnalyzer:
                         decision_type = 'sell'
                     else:
                         decision_type = 'hold'
+
+                # Overlay 因子（原始提取状态允许 UNKNOWN）
+                news_sentiment_raw = self._normalize_enum(
+                    data.get('news_sentiment'),
+                    {"POS", "NEU", "NEG"},
+                    default="UNKNOWN",
+                )
+                event_risk_raw = self._normalize_enum(
+                    data.get('event_risk'),
+                    {"LOW", "MEDIUM", "HIGH"},
+                    default="UNKNOWN",
+                )
+                sector_tone_raw = self._normalize_enum(
+                    data.get('sector_tone'),
+                    {"POS", "NEU", "NEG"},
+                    default="UNKNOWN",
+                )
                 
                 return AnalysisResult(
                     code=code,
@@ -1532,6 +1574,12 @@ class GeminiAnalyzer:
                     operation_advice=data.get('operation_advice', '持有'),
                     decision_type=decision_type,
                     confidence_level=data.get('confidence_level', '中'),
+                    news_sentiment=self._fold_unknown(news_sentiment_raw, fallback="NEU"),
+                    event_risk=self._fold_unknown(event_risk_raw, fallback="MEDIUM"),
+                    sector_tone=self._fold_unknown(sector_tone_raw, fallback="NEU"),
+                    news_sentiment_raw=news_sentiment_raw,
+                    event_risk_raw=event_risk_raw,
+                    sector_tone_raw=sector_tone_raw,
                     # 决策仪表盘
                     dashboard=dashboard,
                     # 走势分析
@@ -1635,12 +1683,27 @@ class GeminiAnalyzer:
             operation_advice=advice,
             decision_type=decision_type,
             confidence_level='低',
+            news_sentiment="NEU",
+            event_risk="MEDIUM",
+            sector_tone="NEU",
+            news_sentiment_raw="UNKNOWN",
+            event_risk_raw="UNKNOWN",
+            sector_tone_raw="UNKNOWN",
             analysis_summary=summary,
             key_points='JSON解析失败，仅供参考',
             risk_warning='分析结果可能不准确，建议结合其他信息判断',
             raw_response=response_text,
             success=True,
         )
+
+    @staticmethod
+    def _normalize_enum(value: Any, allowed: set[str], default: str) -> str:
+        text = str(value or "").strip().upper()
+        return text if text in allowed else default
+
+    @staticmethod
+    def _fold_unknown(value: str, fallback: str) -> str:
+        return fallback if str(value).upper() == "UNKNOWN" else value
     
     def batch_analyze(
         self, 

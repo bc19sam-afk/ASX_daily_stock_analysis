@@ -449,6 +449,14 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     operation_advice=record.operation_advice,
                     trend_prediction=record.trend_prediction,
                     analysis_summary=record.analysis_summary,
+                    alpha_decision=getattr(record, "alpha_decision", None),
+                    final_decision=getattr(record, "final_decision", None),
+                    watchlist_state=getattr(record, "watchlist_state", None),
+                    market_regime=getattr(record, "market_regime", None),
+                    news_sentiment=getattr(record, "news_sentiment", None),
+                    event_risk=getattr(record, "event_risk", None),
+                    sector_tone=getattr(record, "sector_tone", None),
+                    data_quality_flag=getattr(record, "data_quality_flag", None),
                 ),
                 strategy=ReportStrategy(
                     ideal_buy=str(getattr(record, 'ideal_buy', None)) if getattr(record, 'ideal_buy', None) is not None else None,
@@ -533,7 +541,15 @@ def _build_analysis_report(
         operation_advice=summary_data.get("operation_advice"),
         trend_prediction=summary_data.get("trend_prediction"),
         sentiment_score=summary_data.get("sentiment_score"),
-        sentiment_label=summary_data.get("sentiment_label")
+        sentiment_label=summary_data.get("sentiment_label"),
+        alpha_decision=summary_data.get("alpha_decision"),
+        final_decision=summary_data.get("final_decision"),
+        watchlist_state=summary_data.get("watchlist_state"),
+        market_regime=summary_data.get("market_regime"),
+        news_sentiment=summary_data.get("news_sentiment"),
+        event_risk=summary_data.get("event_risk"),
+        sector_tone=summary_data.get("sector_tone"),
+        data_quality_flag=summary_data.get("data_quality_flag"),
     )
 
     strategy = None

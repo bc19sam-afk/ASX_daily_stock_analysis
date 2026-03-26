@@ -36,6 +36,8 @@ from sqlalchemy import (
     select,
     and_,
     desc,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import (
     declarative_base,
@@ -199,6 +201,14 @@ class AnalysisHistory(Base):
     operation_advice = Column(String(20))
     trend_prediction = Column(String(50))
     analysis_summary = Column(Text)
+    alpha_decision = Column(String(8))      # BUY/HOLD/SELL
+    final_decision = Column(String(8))      # BUY/HOLD/SELL
+    watchlist_state = Column(String(16))    # OBSERVE/ACTIVE/DROP
+    market_regime = Column(String(16))      # RISK_ON/NEUTRAL/RISK_OFF
+    news_sentiment = Column(String(8))      # POS/NEU/NEG
+    event_risk = Column(String(8))          # LOW/MEDIUM/HIGH
+    sector_tone = Column(String(8))         # POS/NEU/NEG
+    data_quality_flag = Column(String(16))  # OK/MISSING
 
     # 详细数据
     raw_result = Column(Text)
@@ -229,6 +239,14 @@ class AnalysisHistory(Base):
             'operation_advice': self.operation_advice,
             'trend_prediction': self.trend_prediction,
             'analysis_summary': self.analysis_summary,
+            'alpha_decision': self.alpha_decision,
+            'final_decision': self.final_decision,
+            'watchlist_state': self.watchlist_state,
+            'market_regime': self.market_regime,
+            'news_sentiment': self.news_sentiment,
+            'event_risk': self.event_risk,
+            'sector_tone': self.sector_tone,
+            'data_quality_flag': self.data_quality_flag,
             'raw_result': self.raw_result,
             'news_content': self.news_content,
             'context_snapshot': self.context_snapshot,
@@ -413,12 +431,60 @@ class DatabaseManager:
         
         # 创建所有表
         Base.metadata.create_all(self._engine)
+        self._ensure_analysis_history_columns()
 
         self._initialized = True
         logger.info(f"数据库初始化完成: {db_url}")
 
         # 注册退出钩子，确保程序退出时关闭数据库连接
         atexit.register(DatabaseManager._cleanup_engine, self._engine)
+
+    def _ensure_analysis_history_columns(self) -> None:
+        """
+        启动时自动补齐 analysis_history 的新增列（SQLite）。
+
+        说明：
+        - create_all 不会修改已存在表结构；
+        - 历史数据库可能缺少后续版本新增的字段，导致查询报错。
+        """
+        if self._engine.dialect.name != "sqlite":
+            return
+
+        required_columns = {
+            "alpha_decision": "TEXT",
+            "final_decision": "TEXT",
+            "watchlist_state": "TEXT",
+            "market_regime": "TEXT",
+            "news_sentiment": "TEXT",
+            "event_risk": "TEXT",
+            "sector_tone": "TEXT",
+            "data_quality_flag": "TEXT",
+        }
+
+        inspector = inspect(self._engine)
+        table_names = set(inspector.get_table_names())
+        if "analysis_history" not in table_names:
+            return
+
+        existing_columns = {col["name"] for col in inspector.get_columns("analysis_history")}
+        missing = [
+            (name, col_type)
+            for name, col_type in required_columns.items()
+            if name not in existing_columns
+        ]
+        if not missing:
+            return
+
+        with self._engine.begin() as conn:
+            for col, col_type in missing:
+                conn.execute(
+                    text(f"ALTER TABLE analysis_history ADD COLUMN {col} {col_type}")
+                )
+
+        logger.info(
+            "analysis_history 自动迁移完成，新增列: %s",
+            ", ".join(col for col, _ in missing),
+        )
     
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
@@ -732,6 +798,14 @@ class DatabaseManager:
             operation_advice=result.operation_advice,
             trend_prediction=result.trend_prediction,
             analysis_summary=result.analysis_summary,
+            alpha_decision=getattr(result, "alpha_decision", None),
+            final_decision=getattr(result, "final_decision", None),
+            watchlist_state=getattr(result, "watchlist_state", None),
+            market_regime=getattr(result, "market_regime", None),
+            news_sentiment=getattr(result, "news_sentiment", None),
+            event_risk=getattr(result, "event_risk", None),
+            sector_tone=getattr(result, "sector_tone", None),
+            data_quality_flag=getattr(result, "data_quality_flag", None),
             raw_result=self._safe_json_dumps(raw_result),
             news_content=news_content,
             context_snapshot=context_text,

@@ -120,6 +120,14 @@ class ReportSummary(BaseModel):
         le=100
     )
     sentiment_label: Optional[str] = Field(None, description="情绪标签")
+    alpha_decision: Optional[str] = Field(None, description="规则层决策(BUY/HOLD/SELL)")
+    final_decision: Optional[str] = Field(None, description="最终决策(BUY/HOLD/SELL)")
+    watchlist_state: Optional[str] = Field(None, description="观察池状态(OBSERVE/ACTIVE/DROP)")
+    market_regime: Optional[str] = Field(None, description="市场状态(RISK_ON/NEUTRAL/RISK_OFF)")
+    news_sentiment: Optional[str] = Field(None, description="新闻情绪(POS/NEU/NEG)")
+    event_risk: Optional[str] = Field(None, description="事件风险(LOW/MEDIUM/HIGH)")
+    sector_tone: Optional[str] = Field(None, description="板块语气(POS/NEU/NEG)")
+    data_quality_flag: Optional[str] = Field(None, description="数据质量闸门(OK/MISSING)")
 
 
 class ReportStrategy(BaseModel):

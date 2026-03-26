@@ -191,7 +191,15 @@ def get_history_detail(
             operation_advice=result.get("operation_advice"),
             trend_prediction=result.get("trend_prediction"),
             sentiment_score=result.get("sentiment_score"),
-            sentiment_label=result.get("sentiment_label")
+            sentiment_label=result.get("sentiment_label"),
+            alpha_decision=result.get("alpha_decision"),
+            final_decision=result.get("final_decision"),
+            watchlist_state=result.get("watchlist_state"),
+            market_regime=result.get("market_regime"),
+            news_sentiment=result.get("news_sentiment"),
+            event_risk=result.get("event_risk"),
+            sector_tone=result.get("sector_tone"),
+            data_quality_flag=result.get("data_quality_flag"),
         )
         
         strategy = ReportStrategy(
