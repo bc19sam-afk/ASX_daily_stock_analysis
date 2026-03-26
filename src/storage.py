@@ -199,6 +199,14 @@ class AnalysisHistory(Base):
     operation_advice = Column(String(20))
     trend_prediction = Column(String(50))
     analysis_summary = Column(Text)
+    alpha_decision = Column(String(8))      # BUY/HOLD/SELL
+    final_decision = Column(String(8))      # BUY/HOLD/SELL
+    watchlist_state = Column(String(16))    # OBSERVE/ACTIVE/DROP
+    market_regime = Column(String(16))      # RISK_ON/NEUTRAL/RISK_OFF
+    news_sentiment = Column(String(8))      # POS/NEU/NEG
+    event_risk = Column(String(8))          # LOW/MEDIUM/HIGH
+    sector_tone = Column(String(8))         # POS/NEU/NEG
+    data_quality_flag = Column(String(16))  # OK/MISSING
 
     # 详细数据
     raw_result = Column(Text)
@@ -229,6 +237,14 @@ class AnalysisHistory(Base):
             'operation_advice': self.operation_advice,
             'trend_prediction': self.trend_prediction,
             'analysis_summary': self.analysis_summary,
+            'alpha_decision': self.alpha_decision,
+            'final_decision': self.final_decision,
+            'watchlist_state': self.watchlist_state,
+            'market_regime': self.market_regime,
+            'news_sentiment': self.news_sentiment,
+            'event_risk': self.event_risk,
+            'sector_tone': self.sector_tone,
+            'data_quality_flag': self.data_quality_flag,
             'raw_result': self.raw_result,
             'news_content': self.news_content,
             'context_snapshot': self.context_snapshot,
@@ -732,6 +748,14 @@ class DatabaseManager:
             operation_advice=result.operation_advice,
             trend_prediction=result.trend_prediction,
             analysis_summary=result.analysis_summary,
+            alpha_decision=getattr(result, "alpha_decision", None),
+            final_decision=getattr(result, "final_decision", None),
+            watchlist_state=getattr(result, "watchlist_state", None),
+            market_regime=getattr(result, "market_regime", None),
+            news_sentiment=getattr(result, "news_sentiment", None),
+            event_risk=getattr(result, "event_risk", None),
+            sector_tone=getattr(result, "sector_tone", None),
+            data_quality_flag=getattr(result, "data_quality_flag", None),
             raw_result=self._safe_json_dumps(raw_result),
             news_content=news_content,
             context_snapshot=context_text,

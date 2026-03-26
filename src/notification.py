@@ -50,6 +50,19 @@ logger = logging.getLogger(__name__)
 WECHAT_IMAGE_MAX_BYTES = 2 * 1024 * 1024
 
 
+def _get_effective_decision(result: Any) -> str:
+    """获取用于统计的主决策（优先 final_decision，兼容 decision_type）。"""
+    final_decision = str(getattr(result, 'final_decision', '') or '').upper()
+    if final_decision in ('BUY', 'HOLD', 'SELL'):
+        return final_decision
+    decision_type = str(getattr(result, 'decision_type', '') or '').lower()
+    if decision_type == 'buy':
+        return 'BUY'
+    if decision_type == 'sell':
+        return 'SELL'
+    return 'HOLD'
+
+
 class NotificationChannel(Enum):
     """通知渠道类型"""
     WECHAT = "wechat"      # 企业微信
@@ -435,10 +448,10 @@ class NotificationService:
             reverse=True
         )
         
-        # 统计信息 - 使用 decision_type 字段准确统计
-        buy_count = sum(1 for r in results if getattr(r, 'decision_type', '') == 'buy')
-        sell_count = sum(1 for r in results if getattr(r, 'decision_type', '') == 'sell')
-        hold_count = sum(1 for r in results if getattr(r, 'decision_type', '') in ('hold', ''))
+        # 统计信息 - 使用主决策（优先 final_decision）
+        buy_count = sum(1 for r in results if _get_effective_decision(r) == 'BUY')
+        sell_count = sum(1 for r in results if _get_effective_decision(r) == 'SELL')
+        hold_count = sum(1 for r in results if _get_effective_decision(r) == 'HOLD')
         avg_score = sum(r.sentiment_score for r in results) / len(results) if results else 0
         
         report_lines.extend([
@@ -694,10 +707,10 @@ class NotificationService:
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
 
-        # 统计信息 - 使用 decision_type 字段准确统计
-        buy_count = sum(1 for r in results if getattr(r, 'decision_type', '') == 'buy')
-        sell_count = sum(1 for r in results if getattr(r, 'decision_type', '') == 'sell')
-        hold_count = sum(1 for r in results if getattr(r, 'decision_type', '') in ('hold', ''))
+        # 统计信息 - 使用主决策（优先 final_decision）
+        buy_count = sum(1 for r in results if _get_effective_decision(r) == 'BUY')
+        sell_count = sum(1 for r in results if _get_effective_decision(r) == 'SELL')
+        hold_count = sum(1 for r in results if _get_effective_decision(r) == 'HOLD')
 
         report_lines = [
             f"# 🎯 {report_date} 决策仪表盘",
@@ -956,10 +969,10 @@ class NotificationService:
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
         
-        # 统计 - 使用 decision_type 字段准确统计
-        buy_count = sum(1 for r in results if getattr(r, 'decision_type', '') == 'buy')
-        sell_count = sum(1 for r in results if getattr(r, 'decision_type', '') == 'sell')
-        hold_count = sum(1 for r in results if getattr(r, 'decision_type', '') in ('hold', ''))
+        # 统计 - 使用主决策（优先 final_decision）
+        buy_count = sum(1 for r in results if _get_effective_decision(r) == 'BUY')
+        sell_count = sum(1 for r in results if _get_effective_decision(r) == 'SELL')
+        hold_count = sum(1 for r in results if _get_effective_decision(r) == 'HOLD')
         
         lines = [
             f"## 🎯 {report_date} 决策仪表盘",
@@ -1097,10 +1110,10 @@ class NotificationService:
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
 
-        # 统计 - 使用 decision_type 字段准确统计
-        buy_count = sum(1 for r in results if getattr(r, 'decision_type', '') == 'buy')
-        sell_count = sum(1 for r in results if getattr(r, 'decision_type', '') == 'sell')
-        hold_count = sum(1 for r in results if getattr(r, 'decision_type', '') in ('hold', ''))
+        # 统计 - 使用主决策（优先 final_decision）
+        buy_count = sum(1 for r in results if _get_effective_decision(r) == 'BUY')
+        sell_count = sum(1 for r in results if _get_effective_decision(r) == 'SELL')
+        hold_count = sum(1 for r in results if _get_effective_decision(r) == 'HOLD')
         avg_score = sum(r.sentiment_score for r in results) / len(results) if results else 0
 
         lines = [

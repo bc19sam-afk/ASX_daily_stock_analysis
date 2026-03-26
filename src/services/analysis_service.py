@@ -135,6 +135,14 @@ class AnalysisService:
                 "trend_prediction": result.trend_prediction,
                 "sentiment_score": result.sentiment_score,
                 "sentiment_label": sentiment_label,
+                "alpha_decision": getattr(result, "alpha_decision", "HOLD"),
+                "final_decision": getattr(result, "final_decision", "HOLD"),
+                "watchlist_state": getattr(result, "watchlist_state", "ACTIVE"),
+                "market_regime": getattr(result, "market_regime", "NEUTRAL"),
+                "news_sentiment": getattr(result, "news_sentiment", "NEU"),
+                "event_risk": getattr(result, "event_risk", "MEDIUM"),
+                "sector_tone": getattr(result, "sector_tone", "NEU"),
+                "data_quality_flag": getattr(result, "data_quality_flag", "OK"),
             },
             "strategy": {
                 "ideal_buy": sniper_points.get("ideal_buy"),
@@ -147,6 +155,11 @@ class AnalysisService:
                 "technical_analysis": result.technical_analysis,
                 "fundamental_analysis": result.fundamental_analysis,
                 "risk_warning": result.risk_warning,
+                "overlay_extraction": {
+                    "news_sentiment_raw": getattr(result, "news_sentiment_raw", "UNKNOWN"),
+                    "event_risk_raw": getattr(result, "event_risk_raw", "UNKNOWN"),
+                    "sector_tone_raw": getattr(result, "sector_tone_raw", "UNKNOWN"),
+                }
             }
         }
         

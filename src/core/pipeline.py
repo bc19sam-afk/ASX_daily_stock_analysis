@@ -389,6 +389,11 @@ class StockAnalysisPipeline:
                 realtime_data = enhanced_context.get('realtime', {})
                 result.current_price = realtime_data.get('price')
                 result.change_pct = realtime_data.get('change_pct')
+                self._apply_decision_structure(
+                    result=result,
+                    enhanced_context=enhanced_context,
+                    trend_result=trend_result,
+                )
 
             # Step 8: 保存分析历史记录
             if result:
@@ -416,6 +421,113 @@ class StockAnalysisPipeline:
             logger.error(f"[{code}] 分析失败: {e}")
             logger.exception(f"[{code}] 详细错误信息:")
             return None
+
+    @staticmethod
+    def _map_alpha_decision(buy_signal: Optional[str]) -> str:
+        signal = str(buy_signal or "").strip()
+        if signal in ("强烈买入", "买入"):
+            return "BUY"
+        if signal in ("卖出", "强烈卖出"):
+            return "SELL"
+        return "HOLD"
+
+    @staticmethod
+    def _infer_market_regime(market_overview: Optional[dict]) -> str:
+        if not market_overview or not isinstance(market_overview, dict):
+            return "NEUTRAL"
+        pct_values = []
+        for item in market_overview.values():
+            if not isinstance(item, dict):
+                continue
+            pct = item.get("pct_chg")
+            try:
+                pct_values.append(float(pct))
+            except (TypeError, ValueError):
+                continue
+        if not pct_values:
+            return "NEUTRAL"
+        avg = sum(pct_values) / len(pct_values)
+        if avg >= 0.5:
+            return "RISK_ON"
+        if avg <= -0.5:
+            return "RISK_OFF"
+        return "NEUTRAL"
+
+    @staticmethod
+    def _synthesize_final_decision(
+        *,
+        alpha_decision: str,
+        market_regime: str,
+        news_sentiment: str,
+        event_risk: str,
+        sector_tone: str,
+        data_quality_flag: str,
+    ) -> str:
+        # 第一版保守规则：
+        # - BUY 可降级到 HOLD
+        # - HOLD 不直接因 overlay 降到 SELL
+        # - SELL 维持 SELL
+        if alpha_decision == "SELL":
+            return "SELL"
+        if alpha_decision == "HOLD":
+            return "HOLD"
+
+        blocked = False
+        if data_quality_flag == "MISSING":
+            blocked = True
+        if market_regime == "RISK_OFF":
+            blocked = True
+        if event_risk == "HIGH":
+            blocked = True
+        if news_sentiment == "NEG" and sector_tone == "NEG":
+            blocked = True
+
+        return "HOLD" if blocked else "BUY"
+
+    def _apply_decision_structure(
+        self,
+        *,
+        result: AnalysisResult,
+        enhanced_context: Dict[str, Any],
+        trend_result: Optional[TrendAnalysisResult],
+    ) -> None:
+        buy_signal = getattr(trend_result, "buy_signal", None)
+        buy_signal_text = getattr(buy_signal, "value", buy_signal)
+        alpha_decision = self._map_alpha_decision(buy_signal_text)
+
+        market_regime = self._infer_market_regime(enhanced_context.get("market_overview"))
+        data_quality_flag = "MISSING" if enhanced_context.get("data_missing") else "OK"
+
+        # Overlay 稳定值（对外不暴露 UNKNOWN）
+        news_sentiment = getattr(result, "news_sentiment", "NEU")
+        if news_sentiment not in ("POS", "NEU", "NEG"):
+            news_sentiment = "NEU"
+
+        event_risk = getattr(result, "event_risk", "MEDIUM")
+        if event_risk not in ("LOW", "MEDIUM", "HIGH"):
+            event_risk = "MEDIUM"
+
+        sector_tone = getattr(result, "sector_tone", "NEU")
+        if sector_tone not in ("POS", "NEU", "NEG"):
+            sector_tone = "NEU"
+
+        final_decision = self._synthesize_final_decision(
+            alpha_decision=alpha_decision,
+            market_regime=market_regime,
+            news_sentiment=news_sentiment,
+            event_risk=event_risk,
+            sector_tone=sector_tone,
+            data_quality_flag=data_quality_flag,
+        )
+
+        result.alpha_decision = alpha_decision
+        result.market_regime = market_regime
+        result.news_sentiment = news_sentiment
+        result.event_risk = event_risk
+        result.sector_tone = sector_tone
+        result.data_quality_flag = data_quality_flag
+        result.final_decision = final_decision
+        result.watchlist_state = "ACTIVE"
     
     def _enhance_context(
         self,
