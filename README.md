@@ -11,6 +11,8 @@
 
 > 🤖 基于 AI 大模型的 AU/US 自选股智能分析系统（重点 ASX + US stocks），每日自动分析并推送「决策仪表盘」到企业微信/飞书/Telegram/邮箱
 
+> ℹ️ 本仓库当前为 **AU/US-only fork**：默认仅启用 `yfinance`，如需额外数据源需显式设置 `ENABLED_FETCHERS`。
+
 [**功能特性**](#-功能特性) · [**快速开始**](#-快速开始) · [**推送效果**](#-推送效果) · [**完整指南**](docs/full-guide.md) · [**常见问题**](docs/FAQ.md) · [**更新日志**](docs/CHANGELOG.md)
 
 简体中文 | [English](docs/README_EN.md) | [繁體中文](docs/README_CHT.md)
@@ -121,6 +123,7 @@
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
 | `STOCK_LIST` | 自选股代码，如 `CBA.AX,BHP.AX,AAPL,TSLA` | ✅ |
+| `ENABLED_FETCHERS` | 启用的数据源列表（逗号分隔），默认 `yfinance`；如需额外源需显式配置 | 可选 |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API（新闻搜索） | 推荐 |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 全渠道搜索 | 可选 |
 | `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索优化，支持AI摘要，多个key用逗号分隔） | 可选 |

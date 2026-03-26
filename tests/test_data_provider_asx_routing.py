@@ -49,6 +49,12 @@ def test_resolve_enabled_fetchers_from_env(monkeypatch):
     assert DataFetcherManager._resolve_enabled_fetchers() == ["yfinance", "tushare"]
 
 
+def test_manager_init_uses_enabled_fetchers_env(monkeypatch):
+    monkeypatch.setenv("ENABLED_FETCHERS", "yfinance")
+    manager = DataFetcherManager()
+    assert manager.available_fetchers == ["YfinanceFetcher"]
+
+
 def test_asx_stock_routes_to_yfinance_only():
     cn_fetcher = DummyFetcher("TushareFetcher", priority=1)
     yf_fetcher = DummyFetcher("YfinanceFetcher", priority=2)
