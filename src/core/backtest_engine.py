@@ -79,6 +79,13 @@ class BacktestEngine:
         "等待",
         "wait",
     )
+    _ACTION_KEYWORDS = {
+        "OPEN": ("建仓", "开仓", "买入", "buy", "open"),
+        "ADD": ("加仓", "增持", "add", "increase"),
+        "HOLD": ("持有", "hold"),
+        "REDUCE": ("减仓", "reduce", "trim"),
+        "CLOSE": ("清仓", "卖出", "sell", "close"),
+    }
 
     # Negation prefixes (trailing spaces stripped for suffix-matching against prefix text).
     # English patterns include trailing space in their canonical form; rstrip is
@@ -321,6 +328,7 @@ class BacktestEngine:
 
         advice_breakdown = cls._compute_advice_breakdown(completed)
         diagnostics = cls._compute_diagnostics(results_list)
+        diagnostics["action_effectiveness"] = cls._compute_action_effectiveness(completed)
 
         return {
             "scope": scope,
@@ -552,3 +560,33 @@ class BacktestEngine:
             "eval_status": status_counts,
             "first_hit": first_hit_counts,
         }
+
+    @classmethod
+    def infer_action_type(cls, operation_advice: Optional[str]) -> str:
+        text = cls._normalize_text(operation_advice)
+        if not text:
+            return "HOLD"
+        for action, keywords in cls._ACTION_KEYWORDS.items():
+            if cls._matches_intent(text, keywords):
+                return action
+        return "HOLD"
+
+    @classmethod
+    def _compute_action_effectiveness(cls, results: List[BacktestResultLike]) -> Dict[str, Any]:
+        buckets: Dict[str, Dict[str, int]] = {}
+        for row in results:
+            action = cls.infer_action_type(row.operation_advice)
+            bucket = buckets.setdefault(action, {"total": 0, "win": 0, "loss": 0, "neutral": 0})
+            bucket["total"] += 1
+            outcome = (row.outcome or "").strip()
+            if outcome in ("win", "loss", "neutral"):
+                bucket[outcome] += 1
+
+        enriched: Dict[str, Any] = {}
+        for action, bucket in buckets.items():
+            wl = bucket["win"] + bucket["loss"]
+            enriched[action] = {
+                **bucket,
+                "win_rate_pct": round(bucket["win"] / wl * 100, 2) if wl else None,
+            }
+        return enriched

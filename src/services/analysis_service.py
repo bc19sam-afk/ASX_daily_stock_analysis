@@ -132,6 +132,7 @@ class AnalysisService:
             "summary": {
                 "analysis_summary": result.analysis_summary,
                 "operation_advice": result.operation_advice,
+                "position_action": getattr(result, "position_action", "HOLD"),
                 "trend_prediction": result.trend_prediction,
                 "sentiment_score": result.sentiment_score,
                 "sentiment_label": sentiment_label,
@@ -143,6 +144,10 @@ class AnalysisService:
                 "event_risk": getattr(result, "event_risk", "MEDIUM"),
                 "sector_tone": getattr(result, "sector_tone", "NEU"),
                 "data_quality_flag": getattr(result, "data_quality_flag", "OK"),
+                "target_weight": getattr(result, "target_weight", 0.0),
+                "current_weight": getattr(result, "current_weight", 0.0),
+                "delta_amount": getattr(result, "delta_amount", 0.0),
+                "action_reason": getattr(result, "action_reason", ""),
             },
             "strategy": {
                 "ideal_buy": sniper_points.get("ideal_buy"),

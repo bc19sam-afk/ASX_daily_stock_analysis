@@ -209,6 +209,11 @@ class AnalysisHistory(Base):
     event_risk = Column(String(8))          # LOW/MEDIUM/HIGH
     sector_tone = Column(String(8))         # POS/NEU/NEG
     data_quality_flag = Column(String(16))  # OK/MISSING
+    position_action = Column(String(16))    # OPEN/ADD/HOLD/REDUCE/CLOSE
+    target_weight = Column(Float)
+    current_weight = Column(Float)
+    delta_amount = Column(Float)
+    action_reason = Column(Text)
 
     # 详细数据
     raw_result = Column(Text)
@@ -247,6 +252,11 @@ class AnalysisHistory(Base):
             'event_risk': self.event_risk,
             'sector_tone': self.sector_tone,
             'data_quality_flag': self.data_quality_flag,
+            'position_action': self.position_action,
+            'target_weight': self.target_weight,
+            'current_weight': self.current_weight,
+            'delta_amount': self.delta_amount,
+            'action_reason': self.action_reason,
             'raw_result': self.raw_result,
             'news_content': self.news_content,
             'context_snapshot': self.context_snapshot,
@@ -381,6 +391,75 @@ class BacktestSummary(Base):
     )
 
 
+class PortfolioPosition(Base):
+    """当前持仓快照（按股票唯一）。"""
+
+    __tablename__ = 'portfolio_positions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(10), nullable=False, unique=True, index=True)
+    name = Column(String(50))
+    quantity = Column(Float, nullable=False, default=0.0)
+    avg_cost = Column(Float, nullable=False, default=0.0)
+    market_value = Column(Float, nullable=False, default=0.0)
+    current_price = Column(Float)
+    weight = Column(Float, nullable=False, default=0.0)
+    unrealized_pnl = Column(Float)
+    status = Column(String(16), nullable=False, default='OPEN')  # OPEN/CLOSED
+    opened_at = Column(DateTime)
+    closed_at = Column(DateTime)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class AccountSnapshot(Base):
+    """账户日级快照。"""
+
+    __tablename__ = 'account_snapshots'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    snapshot_date = Column(Date, nullable=False, index=True)
+    cash = Column(Float, nullable=False, default=0.0)
+    equity_value = Column(Float, nullable=False, default=0.0)
+    total_value = Column(Float, nullable=False, default=0.0)
+    daily_pnl = Column(Float)
+    note = Column(String(255))
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint('snapshot_date', name='uix_account_snapshot_date'),
+    )
+
+
+class TradeJournal(Base):
+    """调仓/交易日志。"""
+
+    __tablename__ = 'trade_journal'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    query_id = Column(String(64), index=True)
+    code = Column(String(10), nullable=False, index=True)
+    action_date = Column(Date, nullable=False, index=True)
+    action = Column(String(16), nullable=False, index=True)  # OPEN/ADD/HOLD/REDUCE/CLOSE
+    final_decision = Column(String(8))
+    market_regime = Column(String(16))
+    event_risk = Column(String(8))
+    data_quality_flag = Column(String(16))
+    current_weight = Column(Float, default=0.0)
+    target_weight = Column(Float, default=0.0)
+    delta_amount = Column(Float, default=0.0)
+    current_quantity = Column(Float, default=0.0)
+    target_quantity = Column(Float, default=0.0)
+    current_price = Column(Float)
+    available_cash_before = Column(Float, default=0.0)
+    available_cash_after = Column(Float, default=0.0)
+    reason = Column(Text)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+    __table_args__ = (
+        Index('ix_trade_journal_code_date', 'code', 'action_date'),
+    )
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
@@ -459,6 +538,11 @@ class DatabaseManager:
             "event_risk": "TEXT",
             "sector_tone": "TEXT",
             "data_quality_flag": "TEXT",
+            "position_action": "TEXT",
+            "target_weight": "REAL",
+            "current_weight": "REAL",
+            "delta_amount": "REAL",
+            "action_reason": "TEXT",
         }
 
         inspector = inspect(self._engine)
@@ -806,6 +890,11 @@ class DatabaseManager:
             event_risk=getattr(result, "event_risk", None),
             sector_tone=getattr(result, "sector_tone", None),
             data_quality_flag=getattr(result, "data_quality_flag", None),
+            position_action=getattr(result, "position_action", None),
+            target_weight=getattr(result, "target_weight", None),
+            current_weight=getattr(result, "current_weight", None),
+            delta_amount=getattr(result, "delta_amount", None),
+            action_reason=getattr(result, "action_reason", None),
             raw_result=self._safe_json_dumps(raw_result),
             news_content=news_content,
             context_snapshot=context_text,
@@ -1112,6 +1201,160 @@ class DatabaseManager:
             'label': label,
             'consistent': consistent,
             'summary': summary,
+        }
+
+    def get_latest_account_snapshot(self) -> Optional[AccountSnapshot]:
+        """获取最新账户快照。"""
+        with self.get_session() as session:
+            return session.execute(
+                select(AccountSnapshot)
+                .order_by(desc(AccountSnapshot.snapshot_date), desc(AccountSnapshot.created_at))
+                .limit(1)
+            ).scalar_one_or_none()
+
+    def save_account_snapshot(
+        self,
+        *,
+        snapshot_date: date,
+        cash: float,
+        equity_value: float,
+        total_value: float,
+        daily_pnl: Optional[float] = None,
+        note: Optional[str] = None,
+    ) -> None:
+        """写入或更新账户快照。"""
+        with self.get_session() as session:
+            row = session.execute(
+                select(AccountSnapshot).where(AccountSnapshot.snapshot_date == snapshot_date).limit(1)
+            ).scalar_one_or_none()
+
+            if row is None:
+                row = AccountSnapshot(
+                    snapshot_date=snapshot_date,
+                    cash=float(cash),
+                    equity_value=float(equity_value),
+                    total_value=float(total_value),
+                    daily_pnl=daily_pnl,
+                    note=note,
+                    created_at=datetime.now(),
+                )
+                session.add(row)
+            else:
+                row.cash = float(cash)
+                row.equity_value = float(equity_value)
+                row.total_value = float(total_value)
+                row.daily_pnl = daily_pnl
+                row.note = note
+            session.commit()
+
+    def get_portfolio_positions(self, only_open: bool = True) -> List[PortfolioPosition]:
+        """获取持仓列表。"""
+        with self.get_session() as session:
+            query = select(PortfolioPosition)
+            if only_open:
+                query = query.where(PortfolioPosition.status == "OPEN")
+            rows = session.execute(query.order_by(desc(PortfolioPosition.market_value))).scalars().all()
+            return list(rows)
+
+    def get_portfolio_position(self, code: str) -> Optional[PortfolioPosition]:
+        """获取单只股票持仓。"""
+        with self.get_session() as session:
+            return session.execute(
+                select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
+            ).scalar_one_or_none()
+
+    def upsert_portfolio_position(
+        self,
+        *,
+        code: str,
+        name: Optional[str],
+        quantity: float,
+        avg_cost: float,
+        current_price: Optional[float],
+        weight: float,
+        market_value: float,
+    ) -> None:
+        """更新当前持仓。quantity<=0 时标记为 CLOSED。"""
+        now = datetime.now()
+        with self.get_session() as session:
+            row = session.execute(
+                select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
+            ).scalar_one_or_none()
+            if row is None:
+                row = PortfolioPosition(
+                    code=code,
+                    name=name,
+                    quantity=max(float(quantity), 0.0),
+                    avg_cost=max(float(avg_cost), 0.0),
+                    current_price=current_price,
+                    weight=max(float(weight), 0.0),
+                    market_value=max(float(market_value), 0.0),
+                    unrealized_pnl=None,
+                    status="OPEN" if quantity > 0 else "CLOSED",
+                    opened_at=now if quantity > 0 else None,
+                    closed_at=None if quantity > 0 else now,
+                    updated_at=now,
+                )
+                session.add(row)
+            else:
+                prev_qty = float(row.quantity or 0.0)
+                row.name = name or row.name
+                row.quantity = max(float(quantity), 0.0)
+                row.avg_cost = max(float(avg_cost), 0.0) if quantity > 0 else 0.0
+                row.current_price = current_price
+                row.weight = max(float(weight), 0.0)
+                row.market_value = max(float(market_value), 0.0)
+                if row.quantity > 0:
+                    row.status = "OPEN"
+                    row.closed_at = None
+                    if row.opened_at is None:
+                        row.opened_at = now if prev_qty <= 0 else row.opened_at
+                else:
+                    row.status = "CLOSED"
+                    if row.closed_at is None:
+                        row.closed_at = now
+                row.updated_at = now
+            session.commit()
+
+    def save_trade_journal(self, **kwargs: Any) -> None:
+        """保存单条交易日志。"""
+        entry = TradeJournal(created_at=datetime.now(), **kwargs)
+        with self.get_session() as session:
+            session.add(entry)
+            session.commit()
+
+    def get_trade_journal(self, code: Optional[str] = None, limit: int = 100) -> List[TradeJournal]:
+        """获取交易日志。"""
+        with self.get_session() as session:
+            query = select(TradeJournal)
+            if code:
+                query = query.where(TradeJournal.code == code)
+            rows = session.execute(
+                query.order_by(desc(TradeJournal.action_date), desc(TradeJournal.created_at)).limit(limit)
+            ).scalars().all()
+            return list(rows)
+
+    def get_portfolio_overview(self) -> Dict[str, Any]:
+        """获取组合汇总 + 持仓明细。"""
+        latest = self.get_latest_account_snapshot()
+        positions = self.get_portfolio_positions(only_open=True)
+        return {
+            "snapshot_date": latest.snapshot_date.isoformat() if latest else None,
+            "cash": float(latest.cash) if latest else 0.0,
+            "equity_value": float(latest.equity_value) if latest else 0.0,
+            "total_value": float(latest.total_value) if latest else 0.0,
+            "holdings": [
+                {
+                    "code": p.code,
+                    "name": p.name,
+                    "quantity": float(p.quantity or 0.0),
+                    "avg_cost": float(p.avg_cost or 0.0),
+                    "current_price": p.current_price,
+                    "weight": float(p.weight or 0.0),
+                    "market_value": float(p.market_value or 0.0),
+                }
+                for p in positions
+            ],
         }
 
     def get_analysis_context(

@@ -41,6 +41,7 @@ except ImportError:
 from src.config import get_config
 from src.analyzer import AnalysisResult
 from src.formatters import format_feishu_markdown, markdown_to_html_document
+from src.storage import get_db
 from bot.models import BotMessage
 
 logger = logging.getLogger(__name__)
@@ -719,6 +720,31 @@ class NotificationService:
             "",
         ]
 
+        try:
+            overview = get_db().get_portfolio_overview()
+        except Exception:
+            overview = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
+
+        report_lines.extend([
+            "## 💼 组合概览",
+            "",
+            f"- 可用现金: **{overview.get('cash', 0.0):,.2f}**",
+            f"- 持仓市值: **{overview.get('equity_value', 0.0):,.2f}**",
+            f"- 账户总值: **{overview.get('total_value', 0.0):,.2f}**",
+            "",
+        ])
+        holdings = overview.get("holdings") or []
+        if holdings:
+            report_lines.extend([
+                "| 当前持仓 | 数量 | 权重 |",
+                "|---------|------|------|",
+            ])
+            for h in holdings:
+                report_lines.append(
+                    f"| {h.get('name', h.get('code'))}({h.get('code')}) | {h.get('quantity', 0):,.2f} | {h.get('weight', 0.0):.2%} |"
+                )
+            report_lines.append("")
+
         # === 新增：分析结果摘要 (Issue #112) ===
         if results:
             report_lines.extend([
@@ -731,6 +757,9 @@ class NotificationService:
                 report_lines.append(
                     f"{signal_emoji} **{display_name}({r.code})**: {r.operation_advice} | "
                     f"评分 {r.sentiment_score} | {r.trend_prediction}"
+                )
+                report_lines.append(
+                    f"   - 今日动作: `{getattr(r, 'position_action', 'HOLD')}` | 当前仓位 {getattr(r, 'current_weight', 0.0):.2%} → 目标仓位 {getattr(r, 'target_weight', 0.0):.2%} | 调整金额 {getattr(r, 'delta_amount', 0.0):,.2f}"
                 )
             report_lines.extend([
                 "",
