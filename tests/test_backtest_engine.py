@@ -231,6 +231,105 @@ class BacktestEngineTestCase(unittest.TestCase):
         self.assertEqual(res["outcome"], "loss")
         self.assertFalse(res["direction_correct"])
 
+    def test_structured_fields_override_conflicting_legacy_advice(self):
+        cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        bars = self._bars(date(2024, 1, 1), [98, 97, 96], highs=[99, 98, 97], lows=[97, 96, 95])
+        res = BacktestEngine.evaluate_single(
+            operation_advice="买入",  # conflicting legacy text
+            final_decision="SELL",
+            position_action="CLOSE",
+            target_weight=0.0,
+            current_weight=0.2,
+            analysis_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=bars,
+            stop_loss=None,
+            take_profit=None,
+            config=cfg,
+        )
+        self.assertEqual(res["decision_source"], "final_decision")
+        self.assertEqual(res["direction_expected"], "down")
+        self.assertEqual(res["position_recommendation"], "cash")
+        self.assertEqual(res["outcome"], "win")
+
+    def test_hold_invested_vs_hold_near_zero_exposure(self):
+        cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        bars = self._bars(date(2024, 1, 1), [99.5, 99.0, 98.5], highs=[100.0, 99.8, 99.2], lows=[99.2, 98.8, 98.3])
+
+        invested = BacktestEngine.evaluate_single(
+            operation_advice="观望",
+            final_decision="HOLD",
+            position_action="HOLD",
+            target_weight=0.15,
+            current_weight=0.12,
+            analysis_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=bars,
+            stop_loss=None,
+            take_profit=None,
+            config=cfg,
+        )
+        self.assertEqual(invested["position_recommendation"], "long")
+        self.assertEqual(invested["direction_expected"], "not_down")
+
+        near_zero = BacktestEngine.evaluate_single(
+            operation_advice="持有",
+            final_decision="HOLD",
+            position_action="HOLD",
+            target_weight=0.001,
+            current_weight=0.0,
+            analysis_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=bars,
+            stop_loss=None,
+            take_profit=None,
+            config=cfg,
+        )
+        self.assertEqual(near_zero["position_recommendation"], "cash")
+        self.assertEqual(near_zero["direction_expected"], "flat")
+
+    def test_alpha_only_hold_respects_near_zero_exposure(self):
+        cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        bars = self._bars(date(2024, 1, 1), [100.1, 99.9, 100.0], highs=[100.2, 100.0, 100.1], lows=[99.8, 99.7, 99.8])
+        res = BacktestEngine.evaluate_single(
+            operation_advice="买入",
+            alpha_decision="HOLD",
+            final_decision=None,
+            position_action=None,
+            target_weight=0.0,
+            current_weight=0.001,
+            analysis_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=bars,
+            stop_loss=None,
+            take_profit=None,
+            config=cfg,
+        )
+        self.assertEqual(res["decision_source"], "alpha_decision")
+        self.assertEqual(res["position_recommendation"], "cash")
+        self.assertEqual(res["direction_expected"], "flat")
+
+    def test_action_driven_intent_keeps_position_action_source_even_if_alpha_exists(self):
+        cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        bars = self._bars(date(2024, 1, 1), [101.0, 100.8, 100.5], highs=[101.2, 101.0, 100.9], lows=[100.6, 100.5, 100.2])
+        res = BacktestEngine.evaluate_single(
+            operation_advice="卖出",
+            alpha_decision="BUY",
+            final_decision=None,
+            position_action="CLOSE",
+            target_weight=0.0,
+            current_weight=0.3,
+            analysis_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=bars,
+            stop_loss=None,
+            take_profit=None,
+            config=cfg,
+        )
+        self.assertEqual(res["decision_source"], "position_action")
+        self.assertEqual(res["position_recommendation"], "cash")
+        self.assertEqual(res["direction_expected"], "flat")
+
     def test_insufficient_data(self):
         cfg = EvaluationConfig(eval_window_days=5, neutral_band_pct=2.0)
         bars = self._bars(date(2024, 1, 1), [100, 101])

@@ -34,6 +34,13 @@ class BacktestResultItem(BaseModel):
     evaluated_at: Optional[str] = None
     operation_advice: Optional[str] = None
     position_recommendation: Optional[str] = None
+    alpha_decision: Optional[str] = None
+    final_decision: Optional[str] = None
+    position_action: Optional[str] = None
+    target_weight: Optional[float] = None
+    current_weight: Optional[float] = None
+    delta_amount: Optional[float] = None
+    decision_source: Optional[str] = None
     start_price: Optional[float] = None
     end_close: Optional[float] = None
     max_high: Optional[float] = None
@@ -78,6 +85,10 @@ class PerformanceMetrics(BaseModel):
     loss_count: int
     neutral_count: int
 
+    # New source-of-truth metrics under structured execution semantics.
+    decision_accuracy_pct: Optional[float] = None
+    decision_win_rate_pct: Optional[float] = None
+    # Compatibility aliases for legacy clients; same values as decision_*.
     direction_accuracy_pct: Optional[float] = None
     win_rate_pct: Optional[float] = None
     neutral_rate_pct: Optional[float] = None
@@ -91,4 +102,3 @@ class PerformanceMetrics(BaseModel):
 
     advice_breakdown: Dict[str, Any] = Field(default_factory=dict)
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
-

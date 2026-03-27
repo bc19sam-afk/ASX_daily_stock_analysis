@@ -38,6 +38,11 @@ class BacktestResultLike(Protocol):
     first_hit: Optional[str]
     first_hit_trading_days: Optional[int]
     operation_advice: Optional[str]
+    alpha_decision: Optional[str]
+    final_decision: Optional[str]
+    position_action: Optional[str]
+    target_weight: Optional[float]
+    current_weight: Optional[float]
 
 
 @dataclass(frozen=True)
@@ -127,6 +132,12 @@ class BacktestEngine:
         cls,
         *,
         operation_advice: Optional[str],
+        alpha_decision: Optional[str] = None,
+        final_decision: Optional[str] = None,
+        position_action: Optional[str] = None,
+        target_weight: Optional[float] = None,
+        current_weight: Optional[float] = None,
+        delta_amount: Optional[float] = None,
         analysis_date: date,
         start_price: float,
         forward_bars: Sequence[DailyBarLike],
@@ -143,11 +154,26 @@ class BacktestEngine:
         """
 
         if start_price is None or start_price <= 0:
+            intent = cls.resolve_execution_intent(
+                operation_advice=operation_advice,
+                alpha_decision=alpha_decision,
+                final_decision=final_decision,
+                position_action=position_action,
+                target_weight=target_weight,
+                current_weight=current_weight,
+            )
             return {
                 "analysis_date": analysis_date,
                 "operation_advice": operation_advice,
-                "position_recommendation": cls.infer_position_recommendation(operation_advice),
-                "direction_expected": cls.infer_direction_expected(operation_advice),
+                "alpha_decision": alpha_decision,
+                "final_decision": final_decision,
+                "position_action": position_action,
+                "target_weight": target_weight,
+                "current_weight": current_weight,
+                "delta_amount": delta_amount,
+                "position_recommendation": intent["position_recommendation"],
+                "direction_expected": intent["direction_expected"],
+                "decision_source": intent["decision_source"],
                 "eval_status": "error",
             }
 
@@ -156,11 +182,26 @@ class BacktestEngine:
             raise ValueError("eval_window_days must be positive")
 
         if len(forward_bars) < eval_days:
+            intent = cls.resolve_execution_intent(
+                operation_advice=operation_advice,
+                alpha_decision=alpha_decision,
+                final_decision=final_decision,
+                position_action=position_action,
+                target_weight=target_weight,
+                current_weight=current_weight,
+            )
             return {
                 "analysis_date": analysis_date,
                 "operation_advice": operation_advice,
-                "position_recommendation": cls.infer_position_recommendation(operation_advice),
-                "direction_expected": cls.infer_direction_expected(operation_advice),
+                "alpha_decision": alpha_decision,
+                "final_decision": final_decision,
+                "position_action": position_action,
+                "target_weight": target_weight,
+                "current_weight": current_weight,
+                "delta_amount": delta_amount,
+                "position_recommendation": intent["position_recommendation"],
+                "direction_expected": intent["direction_expected"],
+                "decision_source": intent["decision_source"],
                 "eval_status": "insufficient_data",
                 "eval_window_days": eval_days,
             }
@@ -178,8 +219,16 @@ class BacktestEngine:
         else:
             stock_return_pct = (end_close - start_price) / start_price * 100
 
-        direction_expected = cls.infer_direction_expected(operation_advice)
-        position = cls.infer_position_recommendation(operation_advice)
+        intent = cls.resolve_execution_intent(
+            operation_advice=operation_advice,
+            alpha_decision=alpha_decision,
+            final_decision=final_decision,
+            position_action=position_action,
+            target_weight=target_weight,
+            current_weight=current_weight,
+        )
+        direction_expected = intent["direction_expected"]
+        position = intent["position_recommendation"]
 
         outcome, direction_correct = cls._classify_outcome(
             stock_return_pct=stock_return_pct,
@@ -218,6 +267,13 @@ class BacktestEngine:
             "engine_version": config.engine_version,
             "eval_status": "completed",
             "operation_advice": operation_advice,
+            "alpha_decision": alpha_decision,
+            "final_decision": final_decision,
+            "position_action": position_action,
+            "target_weight": target_weight,
+            "current_weight": current_weight,
+            "delta_amount": delta_amount,
+            "decision_source": intent["decision_source"],
             "position_recommendation": position,
             "start_price": start_price,
             "end_close": end_close,
@@ -266,12 +322,12 @@ class BacktestEngine:
 
         direction_denominator = sum(1 for r in completed if r.direction_correct is not None)
         direction_numerator = sum(1 for r in completed if r.direction_correct is True)
-        direction_accuracy_pct = (
+        decision_accuracy_pct = (
             round(direction_numerator / direction_denominator * 100, 2) if direction_denominator else None
         )
 
         win_loss_denominator = win_count + loss_count
-        win_rate_pct = round(win_count / win_loss_denominator * 100, 2) if win_loss_denominator else None
+        decision_win_rate_pct = round(win_count / win_loss_denominator * 100, 2) if win_loss_denominator else None
         neutral_rate_pct = round(neutral_count / len(completed) * 100, 2) if completed else None
 
         avg_stock_return_pct = cls._average([r.stock_return_pct for r in completed])
@@ -343,8 +399,12 @@ class BacktestEngine:
             "win_count": win_count,
             "loss_count": loss_count,
             "neutral_count": neutral_count,
-            "direction_accuracy_pct": direction_accuracy_pct,
-            "win_rate_pct": win_rate_pct,
+            # New source-of-truth names
+            "decision_accuracy_pct": decision_accuracy_pct,
+            "decision_win_rate_pct": decision_win_rate_pct,
+            # Compatibility aliases (same value, explicit aliasing)
+            "direction_accuracy_pct": decision_accuracy_pct,
+            "win_rate_pct": decision_win_rate_pct,
             "neutral_rate_pct": neutral_rate_pct,
             "avg_stock_return_pct": avg_stock_return_pct,
             "avg_simulated_return_pct": avg_simulated_return_pct,
@@ -354,6 +414,102 @@ class BacktestEngine:
             "avg_days_to_first_hit": avg_days_to_first_hit,
             "advice_breakdown": advice_breakdown,
             "diagnostics": diagnostics,
+        }
+
+    @classmethod
+    def resolve_execution_intent(
+        cls,
+        *,
+        operation_advice: Optional[str],
+        alpha_decision: Optional[str],
+        final_decision: Optional[str],
+        position_action: Optional[str],
+        target_weight: Optional[float],
+        current_weight: Optional[float],
+    ) -> Dict[str, str]:
+        """Resolve intent using structured execution fields first.
+
+        HOLD semantics (explicit):
+        - HOLD with invested exposure (max(target_weight, current_weight) > 1%) =>
+          position_recommendation=long, direction_expected=not_down.
+        - HOLD with zero/near-zero exposure (<=1%) =>
+          position_recommendation=cash, direction_expected=flat.
+        """
+        action = str(position_action or "").strip().upper()
+        final = str(final_decision or "").strip().upper()
+        alpha = str(alpha_decision or "").strip().upper()
+        tw = abs(float(target_weight or 0.0))
+        cw = abs(float(current_weight or 0.0))
+        invested = max(tw, cw) > cls._WEIGHT_EPSILON
+
+        if final in ("BUY", "SELL", "HOLD") or action in ("OPEN", "ADD", "HOLD", "REDUCE", "CLOSE"):
+            position = "long"
+            direction = "flat"
+            if action in ("OPEN", "ADD"):
+                position = "long"
+                direction = "up"
+            elif action == "CLOSE":
+                position = "cash"
+                direction = "down" if final == "SELL" else "flat"
+            elif action == "REDUCE":
+                position = "long" if invested else "cash"
+                if final == "SELL":
+                    direction = "down"
+                else:
+                    direction = "not_down" if invested else "flat"
+            elif action == "HOLD":
+                position = "long" if invested else "cash"
+                direction = "not_down" if invested else "flat"
+            else:
+                # Decision-only fallback within structured path
+                if final == "BUY":
+                    position = "long"
+                    direction = "up"
+                elif final == "SELL":
+                    position = "cash"
+                    direction = "down"
+                else:
+                    position = "long" if invested else "cash"
+                    direction = "not_down" if invested else "flat"
+
+            if final == "BUY":
+                direction = "up"
+                position = "long"
+            elif final == "SELL":
+                direction = "down"
+                if action not in ("OPEN", "ADD"):
+                    position = "cash" if not invested or action == "CLOSE" else "long"
+            elif final == "HOLD" and action == "":
+                position = "long" if invested else "cash"
+                direction = "not_down" if invested else "flat"
+
+            source = "final_decision" if final in ("BUY", "SELL", "HOLD") else "position_action"
+            return {
+                "position_recommendation": position,
+                "direction_expected": direction,
+                "decision_source": source,
+            }
+
+        if alpha in ("BUY", "SELL", "HOLD"):
+            if alpha == "HOLD":
+                position = "long" if invested else "cash"
+                direction = "not_down" if invested else "flat"
+            elif alpha == "BUY":
+                position = "long"
+                direction = "up"
+            else:
+                position = "cash"
+                direction = "down"
+            return {
+                "position_recommendation": position,
+                "direction_expected": direction,
+                "decision_source": "alpha_decision",
+            }
+
+        return {
+            "position_recommendation": cls.infer_position_recommendation(operation_advice),
+            "direction_expected": cls.infer_direction_expected(operation_advice),
+            "decision_source": "operation_advice",
         }
 
     @staticmethod
@@ -575,7 +731,9 @@ class BacktestEngine:
     def _compute_action_effectiveness(cls, results: List[BacktestResultLike]) -> Dict[str, Any]:
         buckets: Dict[str, Dict[str, int]] = {}
         for row in results:
-            action = cls.infer_action_type(row.operation_advice)
+            action = str(getattr(row, "position_action", "") or "").strip().upper()
+            if action not in cls._ACTION_KEYWORDS:
+                action = cls.infer_action_type(row.operation_advice)
             bucket = buckets.setdefault(action, {"total": 0, "win": 0, "loss": 0, "neutral": 0})
             bucket["total"] += 1
             outcome = (row.outcome or "").strip()
@@ -590,3 +748,4 @@ class BacktestEngine:
                 "win_rate_pct": round(bucket["win"] / wl * 100, 2) if wl else None,
             }
         return enriched
+    _WEIGHT_EPSILON = 0.01  # 1% 视为近零仓位
