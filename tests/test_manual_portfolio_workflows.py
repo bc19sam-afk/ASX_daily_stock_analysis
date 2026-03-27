@@ -1,0 +1,109 @@
+# -*- coding: utf-8 -*-
+
+import os
+import tempfile
+import unittest
+
+from src.storage import DatabaseManager
+from scripts.manual_portfolio_workflows import HoldingInput, init_portfolio, record_trade
+
+
+class ManualPortfolioWorkflowTestCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        DatabaseManager.reset_instance()
+        self.db = DatabaseManager(db_url=f"sqlite:///{os.path.join(self.tmp.name, 'manual_workflow.db')}")
+
+    def tearDown(self):
+        DatabaseManager.reset_instance()
+        self.tmp.cleanup()
+
+    def test_init_with_multiple_holdings(self):
+        init_portfolio(
+            self.db,
+            cash=1000,
+            holdings=[
+                HoldingInput(code="AAA", quantity=10, avg_cost=10),
+                HoldingInput(code="BBB", quantity=5, avg_cost=20),
+            ],
+        )
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot)
+        self.assertAlmostEqual(snapshot.cash, 1000.0, places=2)
+        self.assertAlmostEqual(snapshot.equity_value, 200.0, places=2)
+        self.assertAlmostEqual(snapshot.total_value, 1200.0, places=2)
+
+        positions = self.db.get_portfolio_positions(only_open=True)
+        self.assertEqual(len(positions), 2)
+
+    def test_first_buy(self):
+        init_portfolio(self.db, cash=1000, holdings=[])
+        record_trade(self.db, code="AAA", side="BUY", quantity=10, price=20, fee=0)
+
+        pos = self.db.get_portfolio_position("AAA")
+        self.assertIsNotNone(pos)
+        self.assertAlmostEqual(pos.quantity, 10.0, places=6)
+        self.assertAlmostEqual(pos.avg_cost, 20.0, places=6)
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.cash, 800.0, places=2)
+        self.assertAlmostEqual(snapshot.equity_value, 200.0, places=2)
+
+    def test_add_to_existing_position(self):
+        init_portfolio(
+            self.db,
+            cash=1000,
+            holdings=[HoldingInput(code="AAA", quantity=10, avg_cost=10)],
+        )
+        record_trade(self.db, code="AAA", side="BUY", quantity=5, price=20, fee=0)
+
+        pos = self.db.get_portfolio_position("AAA")
+        self.assertAlmostEqual(pos.quantity, 15.0, places=6)
+        self.assertAlmostEqual(pos.avg_cost, (10 * 10 + 5 * 20) / 15, places=6)
+
+    def test_partial_sell(self):
+        init_portfolio(
+            self.db,
+            cash=1000,
+            holdings=[HoldingInput(code="AAA", quantity=10, avg_cost=10)],
+        )
+        record_trade(self.db, code="AAA", side="SELL", quantity=4, price=15, fee=0)
+
+        pos = self.db.get_portfolio_position("AAA")
+        self.assertAlmostEqual(pos.quantity, 6.0, places=6)
+        self.assertAlmostEqual(pos.avg_cost, 10.0, places=6)
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.cash, 1060.0, places=2)
+
+    def test_full_close(self):
+        init_portfolio(
+            self.db,
+            cash=1000,
+            holdings=[HoldingInput(code="AAA", quantity=10, avg_cost=10)],
+        )
+        record_trade(self.db, code="AAA", side="SELL", quantity=10, price=12, fee=0)
+
+        pos = self.db.get_portfolio_position("AAA")
+        self.assertIsNotNone(pos)
+        self.assertEqual(pos.status, "CLOSED")
+        self.assertAlmostEqual(pos.quantity, 0.0, places=6)
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.equity_value, 0.0, places=2)
+
+    def test_fee_handling(self):
+        init_portfolio(self.db, cash=1000, holdings=[])
+
+        record_trade(self.db, code="AAA", side="BUY", quantity=10, price=10, fee=5)
+        snapshot_after_buy = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot_after_buy.cash, 895.0, places=2)
+
+        record_trade(self.db, code="AAA", side="SELL", quantity=10, price=12, fee=3)
+        snapshot_after_sell = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot_after_sell.cash, 1012.0, places=2)
+
+
+if __name__ == "__main__":
+    unittest.main()

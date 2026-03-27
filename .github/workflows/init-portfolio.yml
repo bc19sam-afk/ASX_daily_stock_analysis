@@ -1,0 +1,124 @@
+name: Init Portfolio
+
+on:
+  workflow_dispatch:
+    inputs:
+      cash:
+        description: 'Cash balance (for example: 5000)'
+        required: true
+        default: '0'
+      code_1:
+        description: 'Code #1 (optional)'
+        required: false
+        default: ''
+      quantity_1:
+        description: 'Quantity #1 (optional)'
+        required: false
+        default: ''
+      avg_cost_1:
+        description: 'Average cost #1 (optional)'
+        required: false
+        default: ''
+      code_2:
+        description: 'Code #2 (optional)'
+        required: false
+        default: ''
+      quantity_2:
+        description: 'Quantity #2 (optional)'
+        required: false
+        default: ''
+      avg_cost_2:
+        description: 'Average cost #2 (optional)'
+        required: false
+        default: ''
+      code_3:
+        description: 'Code #3 (optional)'
+        required: false
+        default: ''
+      quantity_3:
+        description: 'Quantity #3 (optional)'
+        required: false
+        default: ''
+      avg_cost_3:
+        description: 'Average cost #3 (optional)'
+        required: false
+        default: ''
+      code_4:
+        description: 'Code #4 (optional)'
+        required: false
+        default: ''
+      quantity_4:
+        description: 'Quantity #4 (optional)'
+        required: false
+        default: ''
+      avg_cost_4:
+        description: 'Average cost #4 (optional)'
+        required: false
+        default: ''
+      code_5:
+        description: 'Code #5 (optional)'
+        required: false
+        default: ''
+      quantity_5:
+        description: 'Quantity #5 (optional)'
+        required: false
+        default: ''
+      avg_cost_5:
+        description: 'Average cost #5 (optional)'
+        required: false
+        default: ''
+
+jobs:
+  init-portfolio:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore database cache
+        uses: actions/cache@v4
+        with:
+          path: data/stock_analysis.db
+          key: stock-db-${{ runner.os }}
+          restore-keys: |
+            stock-db-
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Init portfolio from form inputs
+        run: |
+          mkdir -p data
+          python scripts/manual_portfolio_workflows.py init-portfolio \
+            --cash "${{ github.event.inputs.cash }}" \
+            --code-1 "${{ github.event.inputs.code_1 }}" \
+            --quantity-1 "${{ github.event.inputs.quantity_1 }}" \
+            --avg-cost-1 "${{ github.event.inputs.avg_cost_1 }}" \
+            --code-2 "${{ github.event.inputs.code_2 }}" \
+            --quantity-2 "${{ github.event.inputs.quantity_2 }}" \
+            --avg-cost-2 "${{ github.event.inputs.avg_cost_2 }}" \
+            --code-3 "${{ github.event.inputs.code_3 }}" \
+            --quantity-3 "${{ github.event.inputs.quantity_3 }}" \
+            --avg-cost-3 "${{ github.event.inputs.avg_cost_3 }}" \
+            --code-4 "${{ github.event.inputs.code_4 }}" \
+            --quantity-4 "${{ github.event.inputs.quantity_4 }}" \
+            --avg-cost-4 "${{ github.event.inputs.avg_cost_4 }}" \
+            --code-5 "${{ github.event.inputs.code_5 }}" \
+            --quantity-5 "${{ github.event.inputs.quantity_5 }}" \
+            --avg-cost-5 "${{ github.event.inputs.avg_cost_5 }}"
+
+      - name: Save database cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data/stock_analysis.db
+          key: stock-db-${{ runner.os }}
