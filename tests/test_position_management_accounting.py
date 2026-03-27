@@ -2,6 +2,8 @@
 
 import os
 import tempfile
+import threading
+import time
 import unittest
 from datetime import date
 from unittest.mock import patch
@@ -38,6 +40,34 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         r.event_risk = "LOW"
         r.data_quality_flag = "OK"
         return r
+
+    def _run_parallel_position_updates(self, *, pipeline: StockAnalysisPipeline, codes: list[str], query_prefix: str) -> None:
+        start_gate = threading.Event()
+        errors = []
+        threads = []
+
+        def worker(code: str):
+            try:
+                start_gate.wait(timeout=2)
+                result = self._result(code, final_decision="BUY")
+                pipeline._apply_position_management(
+                    result=result,
+                    query_id=f"{query_prefix}_{code}",
+                    current_price=100,
+                )
+            except Exception as exc:  # pragma: no cover - helper for test diagnostics
+                errors.append(exc)
+
+        for code in codes:
+            t = threading.Thread(target=worker, args=(code,), daemon=True)
+            threads.append(t)
+            t.start()
+
+        start_gate.set()
+        for t in threads:
+            t.join(timeout=5)
+
+        self.assertFalse(errors, f"parallel workers failed: {errors}")
 
     def test_reduce_does_not_overstate_equity(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=1000, equity_value=9000, total_value=10000)
@@ -96,6 +126,66 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
 
         holdings = self.db.get_portfolio_positions(only_open=True)
         self.assertEqual(len(holdings), 2)
+
+    def test_concurrent_without_automatic_lock_can_drift_account_snapshot(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+        self.pipeline.query_source = "api"  # 非自动路径：不启用串行化锁
+
+        barrier = threading.Barrier(2, timeout=2)
+        original_get_latest = self.db.get_latest_account_snapshot
+
+        def synchronized_get_latest():
+            snapshot = original_get_latest()
+            barrier.wait()
+            return snapshot
+
+        with patch.object(self.db, "get_latest_account_snapshot", side_effect=synchronized_get_latest):
+            self._run_parallel_position_updates(
+                pipeline=self.pipeline,
+                codes=["A01", "B01"],
+                query_prefix="q_race_unlocked",
+            )
+
+        # 两个线程都在同一旧快照基线上计算，会导致快照总资产偏离恒等式（现金+权益）
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot)
+        self.assertNotAlmostEqual(snapshot.total_value, 10000.0, places=2)
+
+    def test_concurrent_cli_automatic_updates_are_serialized_and_consistent(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+        self.pipeline.query_source = "cli"  # main.py 自动路径：启用串行化锁
+
+        original_get_latest = self.db.get_latest_account_snapshot
+        active_counter = {"value": 0, "max": 0}
+        counter_lock = threading.Lock()
+
+        def tracked_get_latest():
+            with counter_lock:
+                active_counter["value"] += 1
+                active_counter["max"] = max(active_counter["max"], active_counter["value"])
+            try:
+                time.sleep(0.05)
+                return original_get_latest()
+            finally:
+                with counter_lock:
+                    active_counter["value"] -= 1
+
+        with patch.object(self.db, "get_latest_account_snapshot", side_effect=tracked_get_latest):
+            self._run_parallel_position_updates(
+                pipeline=self.pipeline,
+                codes=["A02", "B02"],
+                query_prefix="q_race_locked",
+            )
+
+        # 读取基线阶段应被串行化（最大并发读取为 1）
+        self.assertEqual(active_counter["max"], 1)
+
+        # 自动路径并发执行后仍应保持组合快照一致
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot)
+        self.assertAlmostEqual(snapshot.cash, 8000.0, places=2)
+        self.assertAlmostEqual(snapshot.equity_value, 2000.0, places=2)
+        self.assertAlmostEqual(snapshot.total_value, 10000.0, places=2)
 
     def test_journal_and_history_delta_amount_match_actual_notional(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=1000, equity_value=9000, total_value=10000)
