@@ -568,6 +568,20 @@ class StockAnalysisPipeline:
         price = float(current_price) if current_price and current_price > 0 else 0.0
         if price <= 0 and existing and existing.current_price and existing.current_price > 0:
             price = float(existing.current_price)
+
+        # 无可执行价格时，不得变更账户状态（持仓/交易日志/快照）
+        if price <= 0:
+            result.position_action = "HOLD"
+            result.current_weight = round(current_weight, 4)
+            result.target_weight = round(current_weight, 4)
+            result.delta_amount = 0.0
+            result.action_reason = f"{decision.reason}, execution_blocked=price_unavailable"
+            logger.warning(
+                "[%s] 仓位管理跳过：缺少可执行价格，保持账户状态不变",
+                result.code,
+            )
+            return
+
         current_value = float(existing.market_value or 0.0) if existing else 0.0
         if price > 0 and quantity > 0:
             current_value = quantity * price
