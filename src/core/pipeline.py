@@ -558,6 +558,7 @@ class StockAnalysisPipeline:
             current_weight=current_weight,
             avg_cost=avg_cost,
             available_cash=cash,
+            total_value=total_value,
             final_decision=result.final_decision,
             market_regime=result.market_regime,
             event_risk=result.event_risk,
@@ -567,16 +568,36 @@ class StockAnalysisPipeline:
         price = float(current_price) if current_price and current_price > 0 else 0.0
         if price <= 0 and existing and existing.current_price and existing.current_price > 0:
             price = float(existing.current_price)
+        current_value = float(existing.market_value or 0.0) if existing else 0.0
+        if price > 0 and quantity > 0:
+            current_value = quantity * price
         target_value = decision.target_weight * total_value
         target_quantity = round(target_value / price, 4) if price > 0 else quantity
-        delta_qty = target_quantity - quantity
-        cash_after = cash - max(decision.delta_amount, 0.0) + max(-decision.delta_amount, 0.0)
-        cash_after = max(cash_after, 0.0)
+        delta_amount = round(target_value - current_value, 2)
+        cash_after = round(cash - delta_amount, 2)
+        if cash_after < 0 and price > 0:
+            # 兜底：按剩余现金回退到可执行目标仓位
+            affordable_target_value = current_value + cash
+            target_quantity = round(max(affordable_target_value, 0.0) / price, 4)
+            target_value = round(target_quantity * price, 2)
+            delta_amount = round(target_value - current_value, 2)
+            cash_after = round(cash - delta_amount, 2)
 
-        result.position_action = decision.action
+        if quantity <= 0 and target_quantity > 0:
+            action = "OPEN"
+        elif quantity > 0 and target_quantity <= 0:
+            action = "CLOSE"
+        elif target_quantity > quantity:
+            action = "ADD"
+        elif target_quantity < quantity:
+            action = "REDUCE"
+        else:
+            action = "HOLD"
+
+        result.position_action = action
         result.current_weight = round(current_weight, 4)
-        result.target_weight = decision.target_weight
-        result.delta_amount = decision.delta_amount
+        result.target_weight = round(target_value / total_value, 4) if total_value > 0 else 0.0
+        result.delta_amount = delta_amount
         result.action_reason = decision.reason
 
         self.db.upsert_portfolio_position(
@@ -585,21 +606,21 @@ class StockAnalysisPipeline:
             quantity=target_quantity,
             avg_cost=avg_cost if quantity > 0 else (price if target_quantity > 0 else 0.0),
             current_price=price or None,
-            weight=decision.target_weight,
+            weight=result.target_weight,
             market_value=target_value,
         )
         self.db.save_trade_journal(
             query_id=query_id,
             code=result.code,
             action_date=date.today(),
-            action=decision.action,
+            action=action,
             final_decision=result.final_decision,
             market_regime=result.market_regime,
             event_risk=result.event_risk,
             data_quality_flag=result.data_quality_flag,
             current_weight=current_weight,
-            target_weight=decision.target_weight,
-            delta_amount=decision.delta_amount,
+            target_weight=result.target_weight,
+            delta_amount=delta_amount,
             current_quantity=quantity,
             target_quantity=target_quantity,
             current_price=price or None,
@@ -607,12 +628,14 @@ class StockAnalysisPipeline:
             available_cash_after=cash_after,
             reason=decision.reason,
         )
-        equity_value = total_value - cash + max(target_value, 0.0)
+        open_positions = self.db.get_portfolio_positions(only_open=True)
+        equity_value = round(sum(float(p.market_value or 0.0) for p in open_positions), 2)
+        total_value_after = round(cash_after + equity_value, 2)
         self.db.save_account_snapshot(
             snapshot_date=date.today(),
             cash=cash_after,
             equity_value=max(equity_value, 0.0),
-            total_value=max(cash_after + max(equity_value, 0.0), 0.0),
+            total_value=max(total_value_after, 0.0),
             note="updated_by_position_manager",
         )
     
