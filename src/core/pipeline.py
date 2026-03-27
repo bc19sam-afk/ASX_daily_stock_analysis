@@ -561,7 +561,7 @@ class StockAnalysisPipeline:
         )
 
     def _should_serialize_automatic_portfolio_transition(self) -> bool:
-        return str(getattr(self, "query_source", "") or "").lower() == "system"
+        return str(getattr(self, "query_source", "") or "").lower() in {"system", "cli"}
 
     def _apply_position_management_unlocked(
         self,
