@@ -126,6 +126,32 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         history = self.db.get_analysis_history(query_id="q_delta", limit=1)[0]
         self.assertAlmostEqual(history.delta_amount, expected_delta, places=2)
 
+    def test_missing_price_non_executable_path_does_not_mutate_account_state(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+
+        result = self._result("DDD", final_decision="BUY")
+        self.pipeline._apply_position_management(result=result, query_id="q_missing_price", current_price=None)
+
+        # Portfolio position should remain unchanged (no new row created)
+        self.assertIsNone(self.db.get_portfolio_position("DDD"))
+
+        # No executed adjustment should be recorded in journal
+        self.assertEqual(self.db.get_trade_journal(code="DDD", limit=10), [])
+
+        # Account snapshot should remain unchanged
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot)
+        self.assertAlmostEqual(snapshot.cash, 10000.0, places=2)
+        self.assertAlmostEqual(snapshot.equity_value, 0.0, places=2)
+        self.assertAlmostEqual(snapshot.total_value, 10000.0, places=2)
+
+        # Analysis result should clearly indicate non-executable hold
+        self.assertEqual(result.position_action, "HOLD")
+        self.assertAlmostEqual(result.current_weight, 0.0, places=4)
+        self.assertAlmostEqual(result.target_weight, 0.0, places=4)
+        self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
+        self.assertIn("execution_blocked=price_unavailable", result.action_reason)
+
 
 if __name__ == "__main__":
     unittest.main()

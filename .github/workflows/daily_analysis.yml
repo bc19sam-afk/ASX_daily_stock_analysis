@@ -40,9 +40,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data/stock_analysis.db
-          key: stock-db-${{ runner.os }}
+          key: stock-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
-            stock-db-
+            stock-db-${{ runner.os }}-${{ github.ref_name }}-
       
       - name: 设置 Python 环境
         uses: actions/setup-python@v5
@@ -215,7 +215,7 @@ jobs:
         if: always()
         with:
           path: data/stock_analysis.db
-          key: stock-db-${{ runner.os }}
+          key: stock-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
       
       - name: 上传分析报告
         uses: actions/upload-artifact@v4
