@@ -484,8 +484,6 @@ class BacktestEngine:
                 direction = "not_down" if invested else "flat"
 
             source = "final_decision" if final in ("BUY", "SELL", "HOLD") else "position_action"
-            if final not in ("BUY", "SELL", "HOLD") and alpha in ("BUY", "SELL", "HOLD"):
-                source = "alpha_decision"
             return {
                 "position_recommendation": position,
                 "direction_expected": direction,
@@ -493,9 +491,18 @@ class BacktestEngine:
             }
 
         if alpha in ("BUY", "SELL", "HOLD"):
+            if alpha == "HOLD":
+                position = "long" if invested else "cash"
+                direction = "not_down" if invested else "flat"
+            elif alpha == "BUY":
+                position = "long"
+                direction = "up"
+            else:
+                position = "cash"
+                direction = "down"
             return {
-                "position_recommendation": "long" if alpha in ("BUY", "HOLD") else "cash",
-                "direction_expected": "up" if alpha == "BUY" else ("down" if alpha == "SELL" else "not_down"),
+                "position_recommendation": position,
+                "direction_expected": direction,
                 "decision_source": "alpha_decision",
             }
 

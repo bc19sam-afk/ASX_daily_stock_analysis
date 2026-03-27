@@ -249,6 +249,47 @@ class BacktestServiceTestCase(unittest.TestCase):
             self.assertEqual(row.position_recommendation, "cash")
             self.assertEqual(row.outcome, "win")
 
+    def test_position_action_source_not_overridden_by_alpha_decision(self) -> None:
+        old_created_at = datetime(2024, 1, 1, 0, 0, 0)
+        with self.db.get_session() as session:
+            session.add(
+                AnalysisHistory(
+                    query_id="q4",
+                    code="300002",
+                    name="神州泰岳",
+                    report_type="simple",
+                    sentiment_score=65,
+                    operation_advice="买入",
+                    trend_prediction="震荡",
+                    analysis_summary="action_source",
+                    alpha_decision="BUY",
+                    final_decision=None,
+                    position_action="CLOSE",
+                    target_weight=0.0,
+                    current_weight=0.25,
+                    delta_amount=-2500.0,
+                    stop_loss=None,
+                    take_profit=None,
+                    created_at=old_created_at,
+                    context_snapshot='{"enhanced_context": {"date": "2024-01-01"}}',
+                )
+            )
+            session.add(StockDaily(code="300002", date=date(2024, 1, 1), open=15.0, high=15.3, low=14.9, close=15.0))
+            session.add_all([
+                StockDaily(code="300002", date=date(2024, 1, 2), high=15.2, low=14.7, close=14.9),
+                StockDaily(code="300002", date=date(2024, 1, 3), high=15.0, low=14.5, close=14.8),
+                StockDaily(code="300002", date=date(2024, 1, 4), high=14.9, low=14.3, close=14.6),
+            ])
+            session.commit()
+
+        service = BacktestService(self.db)
+        stats = service.run_backtest(code="300002", force=False, eval_window_days=3, min_age_days=0, limit=10)
+        self.assertEqual(stats["saved"], 1)
+        with self.db.get_session() as session:
+            row = session.query(BacktestResult).filter(BacktestResult.code == "300002").one()
+            self.assertEqual(row.decision_source, "position_action")
+            self.assertEqual(row.position_recommendation, "cash")
+
     def test_multi_stock_summaries(self) -> None:
         """Verify separate summaries for multiple stocks + correct overall aggregate."""
         old_created_at = datetime(2024, 1, 1, 0, 0, 0)
