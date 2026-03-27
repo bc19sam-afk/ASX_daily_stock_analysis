@@ -70,8 +70,18 @@ def _ensure_not_initialized(db: DatabaseManager) -> None:
         )
 
 
+def _ensure_initialized(db: DatabaseManager) -> None:
+    snapshot_count = _count_rows(db, AccountSnapshot)
+    position_count = _count_rows(db, PortfolioPosition)
+    if snapshot_count <= 0 and position_count <= 0:
+        raise ValueError(
+            "Portfolio is not initialized yet. Please run Init Portfolio workflow first."
+        )
+
+
 def _parse_holding_rows(args: argparse.Namespace) -> List[HoldingInput]:
     rows: List[HoldingInput] = []
+    seen_codes = set()
     for idx in range(1, 6):
         code = (getattr(args, f"code_{idx}", "") or "").strip()
         quantity_raw = (getattr(args, f"quantity_{idx}", "") or "").strip()
@@ -85,9 +95,14 @@ def _parse_holding_rows(args: argparse.Namespace) -> List[HoldingInput]:
                 f"Row {idx}: code, quantity, avg_cost must all be filled or all be empty"
             )
 
+        normalized_code = _normalize_code(code)
+        if normalized_code in seen_codes:
+            raise ValueError(f"Duplicate code detected in Init Portfolio rows: {normalized_code}")
+        seen_codes.add(normalized_code)
+
         rows.append(
             HoldingInput(
-                code=_normalize_code(code),
+                code=normalized_code,
                 quantity=_positive_float(quantity_raw, field_name=f"quantity_{idx}"),
                 avg_cost=_positive_float(avg_cost_raw, field_name=f"avg_cost_{idx}"),
             )
@@ -142,6 +157,8 @@ def record_trade(
     price: float,
     fee: float,
 ) -> None:
+    _ensure_initialized(db)
+
     code = _normalize_code(code)
     side = str(side or "").strip().upper()
     if side not in {"BUY", "SELL"}:

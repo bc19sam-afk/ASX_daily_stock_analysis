@@ -3,9 +3,15 @@
 import os
 import tempfile
 import unittest
+from argparse import Namespace
 
 from src.storage import DatabaseManager
-from scripts.manual_portfolio_workflows import HoldingInput, init_portfolio, record_trade
+from scripts.manual_portfolio_workflows import (
+    HoldingInput,
+    _parse_holding_rows,
+    init_portfolio,
+    record_trade,
+)
 
 
 class ManualPortfolioWorkflowTestCase(unittest.TestCase):
@@ -103,6 +109,24 @@ class ManualPortfolioWorkflowTestCase(unittest.TestCase):
         record_trade(self.db, code="AAA", side="SELL", quantity=10, price=12, fee=3)
         snapshot_after_sell = self.db.get_latest_account_snapshot()
         self.assertAlmostEqual(snapshot_after_sell.cash, 1012.0, places=2)
+
+    def test_init_rejects_duplicate_codes(self):
+        args = Namespace(
+            code_1="AAA", quantity_1="10", avg_cost_1="10",
+            code_2="aaa", quantity_2="5", avg_cost_2="9",
+            code_3="", quantity_3="", avg_cost_3="",
+            code_4="", quantity_4="", avg_cost_4="",
+            code_5="", quantity_5="", avg_cost_5="",
+        )
+
+        with self.assertRaises(ValueError) as exc:
+            _parse_holding_rows(args)
+        self.assertIn("Duplicate code", str(exc.exception))
+
+    def test_record_trade_requires_init_first(self):
+        with self.assertRaises(ValueError) as exc:
+            record_trade(self.db, code="AAA", side="BUY", quantity=1, price=10, fee=0)
+        self.assertIn("Init Portfolio workflow first", str(exc.exception))
 
 
 if __name__ == "__main__":

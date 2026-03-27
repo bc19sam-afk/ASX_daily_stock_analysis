@@ -80,9 +80,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: data/stock_analysis.db
-          key: stock-db-${{ runner.os }}
+          key: stock-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
-            stock-db-
+            stock-db-${{ runner.os }}-${{ github.ref_name }}-
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -98,7 +98,7 @@ jobs:
       - name: Init portfolio from form inputs
         run: |
           mkdir -p data
-          python scripts/manual_portfolio_workflows.py init-portfolio \
+          python -m scripts.manual_portfolio_workflows init-portfolio \
             --cash "${{ github.event.inputs.cash }}" \
             --code-1 "${{ github.event.inputs.code_1 }}" \
             --quantity-1 "${{ github.event.inputs.quantity_1 }}" \
@@ -121,4 +121,4 @@ jobs:
         if: always()
         with:
           path: data/stock_analysis.db
-          key: stock-db-${{ runner.os }}
+          key: stock-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
