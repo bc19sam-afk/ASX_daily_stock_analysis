@@ -37,104 +37,86 @@ class BacktestService:
         limit: int = 200,
     ) -> Dict[str, Any]:
         config = get_config()
-
-        if eval_window_days is None:
-            eval_window_days = getattr(config, "backtest_eval_window_days", 10)
         if min_age_days is None:
             min_age_days = getattr(config, "backtest_min_age_days", 14)
+        windows = [int(eval_window_days)] if eval_window_days is not None else [5, 10, 20]
+        summary: Dict[str, Any] = {"windows": {}}
+        agg = {"processed": 0, "saved": 0, "completed": 0, "insufficient": 0, "errors": 0}
+        for window in windows:
+            stats = self._run_backtest_single_window(
+                code=code,
+                force=force,
+                eval_window_days=window,
+                min_age_days=int(min_age_days),
+                limit=int(limit),
+            )
+            summary["windows"][str(window)] = stats
+            for key in agg:
+                agg[key] += int(stats.get(key, 0))
+        summary.update(agg)
+        return summary
 
+    def _run_backtest_single_window(
+        self,
+        *,
+        code: Optional[str],
+        force: bool,
+        eval_window_days: int,
+        min_age_days: int,
+        limit: int,
+    ) -> Dict[str, Any]:
+        config = get_config()
         engine_version = getattr(config, "backtest_engine_version", "v1")
         neutral_band_pct = float(getattr(config, "backtest_neutral_band_pct", 2.0))
-
         eval_config = EvaluationConfig(
             eval_window_days=int(eval_window_days),
             neutral_band_pct=neutral_band_pct,
             engine_version=str(engine_version),
         )
-
         candidates = self.repo.get_candidates(
             code=code,
-            min_age_days=int(min_age_days),
-            limit=int(limit),
+            min_age_days=min_age_days,
+            limit=limit,
             eval_window_days=int(eval_window_days),
             engine_version=str(engine_version),
             force=force,
         )
-
-        processed = 0
-        completed = 0
-        insufficient = 0
-        errors = 0
+        processed = completed = insufficient = errors = 0
         touched_codes: set[str] = set()
-
         results_to_save: List[BacktestResult] = []
-
         for analysis in candidates:
             processed += 1
             touched_codes.add(analysis.code)
-
             try:
                 analysis_date = self._resolve_analysis_date(analysis)
                 if analysis_date is None:
                     errors += 1
-                    results_to_save.append(
-                        BacktestResult(
-                            analysis_history_id=analysis.id,
-                            code=analysis.code,
-                            eval_window_days=int(eval_window_days),
-                            engine_version=str(engine_version),
-                            eval_status="error",
-                            evaluated_at=datetime.now(),
-                            operation_advice=analysis.operation_advice,
-                        )
-                    )
+                    results_to_save.append(BacktestResult(
+                        analysis_history_id=analysis.id, code=analysis.code, eval_window_days=int(eval_window_days),
+                        engine_version=str(engine_version), eval_status="error", evaluated_at=datetime.now(),
+                        operation_advice=analysis.operation_advice,
+                    ))
                     continue
                 start_daily = self.stock_repo.get_start_daily(code=analysis.code, analysis_date=analysis_date)
-
                 if start_daily is None or start_daily.close is None:
                     self._try_fill_daily_data(code=analysis.code, analysis_date=analysis_date, eval_window_days=eval_window_days)
                     start_daily = self.stock_repo.get_start_daily(code=analysis.code, analysis_date=analysis_date)
-
                 if start_daily is None or start_daily.close is None:
                     insufficient += 1
-                    results_to_save.append(
-                        BacktestResult(
-                            analysis_history_id=analysis.id,
-                            code=analysis.code,
-                            analysis_date=analysis_date,
-                            eval_window_days=int(eval_window_days),
-                            engine_version=str(engine_version),
-                            eval_status="insufficient_data",
-                            evaluated_at=datetime.now(),
-                            operation_advice=analysis.operation_advice,
-                        )
-                    )
+                    results_to_save.append(BacktestResult(
+                        analysis_history_id=analysis.id, code=analysis.code, analysis_date=analysis_date,
+                        eval_window_days=int(eval_window_days), engine_version=str(engine_version),
+                        eval_status="insufficient_data", evaluated_at=datetime.now(), operation_advice=analysis.operation_advice,
+                    ))
                     continue
-
-                forward_bars = self.stock_repo.get_forward_bars(
-                    code=analysis.code,
-                    analysis_date=start_daily.date,
-                    eval_window_days=int(eval_window_days),
-                )
-
+                forward_bars = self.stock_repo.get_forward_bars(code=analysis.code, analysis_date=start_daily.date, eval_window_days=int(eval_window_days))
                 if len(forward_bars) < int(eval_window_days):
                     self._try_fill_daily_data(code=analysis.code, analysis_date=start_daily.date, eval_window_days=eval_window_days)
-                    forward_bars = self.stock_repo.get_forward_bars(
-                        code=analysis.code,
-                        analysis_date=start_daily.date,
-                        eval_window_days=int(eval_window_days),
-                    )
-
+                    forward_bars = self.stock_repo.get_forward_bars(code=analysis.code, analysis_date=start_daily.date, eval_window_days=int(eval_window_days))
                 evaluation = BacktestEngine.evaluate_single(
-                    operation_advice=analysis.operation_advice,
-                    analysis_date=start_daily.date,
-                    start_price=float(start_daily.close),
-                    forward_bars=forward_bars,
-                    stop_loss=analysis.stop_loss,
-                    take_profit=analysis.take_profit,
-                    config=eval_config,
+                    operation_advice=analysis.operation_advice, analysis_date=start_daily.date, start_price=float(start_daily.close),
+                    forward_bars=forward_bars, stop_loss=analysis.stop_loss, take_profit=analysis.take_profit, config=eval_config,
                 )
-
                 status = evaluation.get("eval_status")
                 if status == "insufficient_data":
                     insufficient += 1
@@ -142,74 +124,34 @@ class BacktestService:
                     completed += 1
                 else:
                     errors += 1
-
-                results_to_save.append(
-                    BacktestResult(
-                        analysis_history_id=analysis.id,
-                        code=analysis.code,
-                        analysis_date=evaluation.get("analysis_date"),
-                        eval_window_days=int(evaluation.get("eval_window_days") or eval_window_days),
-                        engine_version=str(evaluation.get("engine_version") or engine_version),
-                        eval_status=str(evaluation.get("eval_status") or "error"),
-                        evaluated_at=datetime.now(),
-                        operation_advice=evaluation.get("operation_advice"),
-                        position_recommendation=evaluation.get("position_recommendation"),
-                        start_price=evaluation.get("start_price"),
-                        end_close=evaluation.get("end_close"),
-                        max_high=evaluation.get("max_high"),
-                        min_low=evaluation.get("min_low"),
-                        stock_return_pct=evaluation.get("stock_return_pct"),
-                        direction_expected=evaluation.get("direction_expected"),
-                        direction_correct=evaluation.get("direction_correct"),
-                        outcome=evaluation.get("outcome"),
-                        stop_loss=evaluation.get("stop_loss"),
-                        take_profit=evaluation.get("take_profit"),
-                        hit_stop_loss=evaluation.get("hit_stop_loss"),
-                        hit_take_profit=evaluation.get("hit_take_profit"),
-                        first_hit=evaluation.get("first_hit"),
-                        first_hit_date=evaluation.get("first_hit_date"),
-                        first_hit_trading_days=evaluation.get("first_hit_trading_days"),
-                        simulated_entry_price=evaluation.get("simulated_entry_price"),
-                        simulated_exit_price=evaluation.get("simulated_exit_price"),
-                        simulated_exit_reason=evaluation.get("simulated_exit_reason"),
-                        simulated_return_pct=evaluation.get("simulated_return_pct"),
-                    )
-                )
-
+                results_to_save.append(BacktestResult(
+                    analysis_history_id=analysis.id, code=analysis.code, analysis_date=evaluation.get("analysis_date"),
+                    eval_window_days=int(evaluation.get("eval_window_days") or eval_window_days),
+                    engine_version=str(evaluation.get("engine_version") or engine_version),
+                    eval_status=str(evaluation.get("eval_status") or "error"), evaluated_at=datetime.now(),
+                    operation_advice=evaluation.get("operation_advice"), position_recommendation=evaluation.get("position_recommendation"),
+                    start_price=evaluation.get("start_price"), end_close=evaluation.get("end_close"), max_high=evaluation.get("max_high"),
+                    min_low=evaluation.get("min_low"), stock_return_pct=evaluation.get("stock_return_pct"),
+                    direction_expected=evaluation.get("direction_expected"), direction_correct=evaluation.get("direction_correct"),
+                    outcome=evaluation.get("outcome"), stop_loss=evaluation.get("stop_loss"), take_profit=evaluation.get("take_profit"),
+                    hit_stop_loss=evaluation.get("hit_stop_loss"), hit_take_profit=evaluation.get("hit_take_profit"),
+                    first_hit=evaluation.get("first_hit"), first_hit_date=evaluation.get("first_hit_date"),
+                    first_hit_trading_days=evaluation.get("first_hit_trading_days"),
+                    simulated_entry_price=evaluation.get("simulated_entry_price"), simulated_exit_price=evaluation.get("simulated_exit_price"),
+                    simulated_exit_reason=evaluation.get("simulated_exit_reason"), simulated_return_pct=evaluation.get("simulated_return_pct"),
+                ))
             except Exception as exc:
                 errors += 1
                 logger.error(f"回测失败: {analysis.code}#{analysis.id}: {exc}")
-                results_to_save.append(
-                    BacktestResult(
-                        analysis_history_id=analysis.id,
-                        code=analysis.code,
-                        analysis_date=self._resolve_analysis_date(analysis),
-                        eval_window_days=int(eval_window_days),
-                        engine_version=str(engine_version),
-                        eval_status="error",
-                        evaluated_at=datetime.now(),
-                        operation_advice=analysis.operation_advice,
-                    )
-                )
-
-        saved = 0
-        if results_to_save:
-            saved = self.repo.save_results_batch(results_to_save, replace_existing=force)
-
+                results_to_save.append(BacktestResult(
+                    analysis_history_id=analysis.id, code=analysis.code, analysis_date=self._resolve_analysis_date(analysis),
+                    eval_window_days=int(eval_window_days), engine_version=str(engine_version), eval_status="error",
+                    evaluated_at=datetime.now(), operation_advice=analysis.operation_advice,
+                ))
+        saved = self.repo.save_results_batch(results_to_save, replace_existing=force) if results_to_save else 0
         if saved:
-            self._recompute_summaries(
-                touched_codes=sorted(touched_codes),
-                eval_window_days=int(eval_window_days),
-                engine_version=str(engine_version),
-            )
-
-        return {
-            "processed": processed,
-            "saved": saved,
-            "completed": completed,
-            "insufficient": insufficient,
-            "errors": errors,
-        }
+            self._recompute_summaries(touched_codes=sorted(touched_codes), eval_window_days=int(eval_window_days), engine_version=str(engine_version))
+        return {"processed": processed, "saved": saved, "completed": completed, "insufficient": insufficient, "errors": errors}
 
     def get_recent_evaluations(self, *, code: Optional[str], eval_window_days: Optional[int] = None, limit: int = 50, page: int = 1) -> Dict[str, Any]:
         offset = max(page - 1, 0) * limit

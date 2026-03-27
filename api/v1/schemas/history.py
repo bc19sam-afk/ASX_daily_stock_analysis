@@ -122,6 +122,11 @@ class ReportSummary(BaseModel):
     sentiment_label: Optional[str] = Field(None, description="情绪标签")
     alpha_decision: Optional[str] = Field(None, description="规则层决策(BUY/HOLD/SELL)")
     final_decision: Optional[str] = Field(None, description="最终决策(BUY/HOLD/SELL)")
+    position_action: Optional[str] = Field(None, description="仓位动作(OPEN/ADD/HOLD/REDUCE/CLOSE)")
+    target_weight: Optional[float] = Field(None, description="目标仓位(0-1)")
+    current_weight: Optional[float] = Field(None, description="当前仓位(0-1)")
+    delta_amount: Optional[float] = Field(None, description="建议调仓金额")
+    action_reason: Optional[str] = Field(None, description="仓位决策原因")
     watchlist_state: Optional[str] = Field(None, description="观察池状态(OBSERVE/ACTIVE/DROP)")
     market_regime: Optional[str] = Field(None, description="市场状态(RISK_ON/NEUTRAL/RISK_OFF)")
     news_sentiment: Optional[str] = Field(None, description="新闻情绪(POS/NEU/NEG)")
@@ -154,6 +159,7 @@ class AnalysisReport(BaseModel):
     summary: ReportSummary = Field(..., description="概览区")
     strategy: Optional[ReportStrategy] = Field(None, description="策略点位区")
     details: Optional[ReportDetails] = Field(None, description="详情区")
+    portfolio: Optional[Any] = Field(None, description="组合快照与持仓明细")
     
     class Config:
         json_schema_extra = {

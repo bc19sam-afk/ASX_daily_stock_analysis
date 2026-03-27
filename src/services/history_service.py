@@ -158,6 +158,11 @@ class HistoryService:
                 "sentiment_label": sentiment_label,
                 "alpha_decision": record.alpha_decision,
                 "final_decision": record.final_decision,
+                "position_action": record.position_action,
+                "target_weight": record.target_weight,
+                "current_weight": record.current_weight,
+                "delta_amount": record.delta_amount,
+                "action_reason": record.action_reason,
                 "watchlist_state": record.watchlist_state,
                 "market_regime": record.market_regime,
                 "news_sentiment": record.news_sentiment,
@@ -171,6 +176,7 @@ class HistoryService:
                 "news_content": record.news_content,
                 "raw_result": raw_result,
                 "context_snapshot": context_snapshot,
+                "portfolio": self.db.get_portfolio_overview(),
             }
             
         except Exception as e:

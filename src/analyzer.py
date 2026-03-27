@@ -145,6 +145,11 @@ class AnalysisResult:
     event_risk: str = "MEDIUM"         # LOW/MEDIUM/HIGH（overlay，稳定值）
     sector_tone: str = "NEU"           # POS/NEU/NEG（overlay，稳定值）
     data_quality_flag: str = "OK"      # OK/MISSING（gate）
+    position_action: str = "HOLD"      # OPEN/ADD/HOLD/REDUCE/CLOSE
+    target_weight: float = 0.0         # 目标仓位(0-1)
+    current_weight: float = 0.0        # 当前仓位(0-1)
+    delta_amount: float = 0.0          # 本次建议调仓金额(货币)
+    action_reason: str = ""            # 持仓决策理由
     # 原始提取状态（允许 UNKNOWN；排错与复盘使用）
     news_sentiment_raw: str = "UNKNOWN"
     event_risk_raw: str = "UNKNOWN"
@@ -210,6 +215,11 @@ class AnalysisResult:
             'event_risk': self.event_risk,
             'sector_tone': self.sector_tone,
             'data_quality_flag': self.data_quality_flag,
+            'position_action': self.position_action,
+            'target_weight': self.target_weight,
+            'current_weight': self.current_weight,
+            'delta_amount': self.delta_amount,
+            'action_reason': self.action_reason,
             'news_sentiment_raw': self.news_sentiment_raw,
             'event_risk_raw': self.event_risk_raw,
             'sector_tone_raw': self.sector_tone_raw,

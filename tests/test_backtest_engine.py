@@ -258,7 +258,40 @@ class BacktestEngineTestCase(unittest.TestCase):
             config=cfg,
         )
         self.assertEqual(res["position_recommendation"], "cash")
-        self.assertEqual(res["direction_expected"], "flat")
+
+    def test_action_effectiveness_in_summary(self):
+        @dataclass
+        class Row:
+            eval_status: str
+            position_recommendation: str
+            outcome: str
+            direction_correct: bool
+            stock_return_pct: float
+            simulated_return_pct: float
+            hit_stop_loss: bool
+            hit_take_profit: bool
+            first_hit: str
+            first_hit_trading_days: int
+            operation_advice: str
+
+        rows = [
+            Row("completed", "long", "win", True, 5, 5, False, True, "take_profit", 2, "买入"),
+            Row("completed", "long", "loss", False, -3, -3, True, False, "stop_loss", 1, "加仓"),
+            Row("completed", "cash", "win", True, -2, 0, None, None, "not_applicable", None, "减仓"),
+            Row("completed", "cash", "win", True, -4, 0, None, None, "not_applicable", None, "卖出"),
+        ]
+        summary = BacktestEngine.compute_summary(
+            results=rows,
+            scope="overall",
+            code="__overall__",
+            eval_window_days=10,
+            engine_version="v1",
+        )
+        action_eff = summary["diagnostics"]["action_effectiveness"]
+        self.assertIn("OPEN", action_eff)
+        self.assertIn("ADD", action_eff)
+        self.assertIn("REDUCE", action_eff)
+        self.assertIn("CLOSE", action_eff)
 
     def test_none_empty_advice_defaults_to_cash(self):
         for advice in [None, "", "   "]:

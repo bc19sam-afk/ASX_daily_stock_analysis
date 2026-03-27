@@ -36,6 +36,34 @@ router = APIRouter()
 
 
 @router.get(
+    "/portfolio/summary",
+    responses={200: {"description": "组合汇总与持仓快照"}},
+    summary="获取组合汇总",
+    description="返回账户汇总、当前持仓、最近交易动作。"
+)
+def get_portfolio_summary(
+    db_manager: DatabaseManager = Depends(get_database_manager)
+) -> dict:
+    overview = db_manager.get_portfolio_overview()
+    journal = db_manager.get_trade_journal(limit=20)
+    return {
+        "portfolio": overview,
+        "today_actions": [
+            {
+                "code": item.code,
+                "action": item.action,
+                "target_weight": item.target_weight,
+                "current_weight": item.current_weight,
+                "delta_amount": item.delta_amount,
+                "reason": item.reason,
+                "action_date": item.action_date.isoformat() if item.action_date else None,
+            }
+            for item in journal
+        ],
+    }
+
+
+@router.get(
     "",
     response_model=HistoryListResponse,
     responses={
@@ -194,6 +222,11 @@ def get_history_detail(
             sentiment_label=result.get("sentiment_label"),
             alpha_decision=result.get("alpha_decision"),
             final_decision=result.get("final_decision"),
+            position_action=result.get("position_action"),
+            target_weight=result.get("target_weight"),
+            current_weight=result.get("current_weight"),
+            delta_amount=result.get("delta_amount"),
+            action_reason=result.get("action_reason"),
             watchlist_state=result.get("watchlist_state"),
             market_regime=result.get("market_regime"),
             news_sentiment=result.get("news_sentiment"),
@@ -219,7 +252,8 @@ def get_history_detail(
             meta=meta,
             summary=summary,
             strategy=strategy,
-            details=details
+            details=details,
+            portfolio=result.get("portfolio"),
         )
         
     except HTTPException:
