@@ -274,6 +274,14 @@ def record_trade(
         gross_amount = round(quantity * price, 2)
 
         if side == "BUY":
+            required_cash = round(gross_amount + fee, 2)
+            if required_cash > cash_before:
+                raise ValueError(
+                    "BUY rejected: insufficient cash. "
+                    f"Required {required_cash:.2f} (quantity × price + fee), "
+                    f"but available cash is {cash_before:.2f}. "
+                    "Please reduce quantity/price, or add cash first."
+                )
             cash_change = round(-(gross_amount + fee), 2)
             after_qty = round(before_qty + quantity, 6)
             total_cost = (before_qty * before_avg) + gross_amount + fee
@@ -346,6 +354,12 @@ def record_trade(
             total_value=total_after,
             note="updated_by_manual_trade_workflow",
         )
+
+        integrity = db.check_portfolio_account_integrity(session=session, journal_code=code)
+        if not integrity["is_valid"]:
+            detail = "; ".join(integrity["errors"])
+            raise ValueError(f"Manual trade aborted by integrity check: {detail}")
+
         session.commit()
 
 

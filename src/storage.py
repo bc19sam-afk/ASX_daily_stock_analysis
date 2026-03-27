@@ -34,6 +34,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Text,
     select,
+    func,
     and_,
     desc,
     inspect,
@@ -1394,6 +1395,116 @@ class DatabaseManager:
                 query.order_by(desc(TradeJournal.action_date), desc(TradeJournal.created_at)).limit(limit)
             ).scalars().all()
             return list(rows)
+
+    def check_portfolio_account_integrity(
+        self,
+        *,
+        session: Optional[Session] = None,
+        tolerance: float = 0.01,
+        journal_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """检查账户/持仓状态完整性，返回结构化结果。"""
+        if session is None:
+            with self.get_session() as inner_session:
+                return self.check_portfolio_account_integrity(
+                    session=inner_session,
+                    tolerance=tolerance,
+                    journal_code=journal_code,
+                )
+
+        errors: List[str] = []
+        warnings: List[str] = []
+        session.flush()
+
+        latest_snapshot = session.execute(
+            select(AccountSnapshot)
+            .order_by(desc(AccountSnapshot.snapshot_date), desc(AccountSnapshot.created_at))
+            .limit(1)
+        ).scalar_one_or_none()
+
+        positions = session.execute(select(PortfolioPosition)).scalars().all()
+        journals_count = int(session.execute(select(func.count(TradeJournal.id))).scalar() or 0)
+
+        if latest_snapshot is None:
+            if positions or journals_count > 0:
+                errors.append(
+                    "Missing account snapshot: initialized account state must have at least one snapshot."
+                )
+            else:
+                warnings.append("No snapshot/positions/journal found: account appears not initialized yet.")
+            return {
+                "is_valid": len(errors) == 0,
+                "errors": errors,
+                "warnings": warnings,
+            }
+
+        open_positions = [p for p in positions if (p.status or "").upper() == "OPEN"]
+        open_market_value_sum = round(sum(float(p.market_value or 0.0) for p in open_positions), 2)
+        snapshot_equity = round(float(latest_snapshot.equity_value or 0.0), 2)
+        if abs(open_market_value_sum - snapshot_equity) > tolerance:
+            errors.append(
+                f"Snapshot equity mismatch: snapshot.equity_value={snapshot_equity:.2f}, "
+                f"sum_open_market_value={open_market_value_sum:.2f}."
+            )
+
+        snapshot_cash = round(float(latest_snapshot.cash or 0.0), 2)
+        snapshot_total = round(float(latest_snapshot.total_value or 0.0), 2)
+        expected_total = round(snapshot_cash + snapshot_equity, 2)
+        if abs(snapshot_total - expected_total) > tolerance:
+            errors.append(
+                f"Snapshot total mismatch: snapshot.total_value={snapshot_total:.2f}, "
+                f"cash+equity={expected_total:.2f}."
+            )
+
+        for pos in positions:
+            code = pos.code or "UNKNOWN"
+            qty = float(pos.quantity or 0.0)
+            avg_cost = float(pos.avg_cost or 0.0)
+            weight = float(pos.weight or 0.0)
+            status = (pos.status or "").upper()
+
+            if status == "OPEN" and qty <= 0:
+                errors.append(f"Invalid OPEN position {code}: quantity must be > 0, got {qty:.6f}.")
+            if status == "CLOSED" and qty > 0:
+                errors.append(f"Invalid CLOSED position {code}: quantity must be <= 0, got {qty:.6f}.")
+            if avg_cost < 0:
+                errors.append(f"Invalid position {code}: avg_cost must be >= 0, got {avg_cost:.6f}.")
+            if weight < 0:
+                errors.append(f"Invalid position {code}: weight must be >= 0, got {weight:.6f}.")
+
+        latest_journal_query = select(TradeJournal)
+        if journal_code:
+            latest_journal_query = latest_journal_query.where(TradeJournal.code == journal_code)
+        latest_journal = session.execute(
+            latest_journal_query
+            .order_by(desc(TradeJournal.action_date), desc(TradeJournal.created_at))
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if latest_journal is not None:
+            journal_cash_after = float(latest_journal.available_cash_after or 0.0)
+            if abs(journal_cash_after - snapshot_cash) > tolerance:
+                warnings.append(
+                    f"Latest journal cash_after ({journal_cash_after:.2f}) differs from snapshot cash "
+                    f"({snapshot_cash:.2f})."
+                )
+
+            related_position = session.execute(
+                select(PortfolioPosition).where(PortfolioPosition.code == latest_journal.code).limit(1)
+            ).scalar_one_or_none()
+            target_qty = float(latest_journal.target_quantity or 0.0)
+            current_qty = float(related_position.quantity or 0.0) if related_position else 0.0
+            if abs(current_qty - target_qty) > 1e-6:
+                warnings.append(
+                    f"Latest journal target_quantity ({target_qty:.6f}) differs from current stored quantity "
+                    f"for {latest_journal.code} ({current_qty:.6f})."
+                )
+
+        return {
+            "is_valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+        }
 
     def get_portfolio_overview(self) -> Dict[str, Any]:
         """获取组合汇总 + 持仓明细。"""

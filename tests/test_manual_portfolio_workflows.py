@@ -112,6 +112,24 @@ class ManualPortfolioWorkflowTestCase(unittest.TestCase):
         snapshot_after_sell = self.db.get_latest_account_snapshot()
         self.assertAlmostEqual(snapshot_after_sell.cash, 1012.0, places=2)
 
+    def test_buy_exceeding_cash_fails_without_mutation(self):
+        init_portfolio(self.db, cash=100.0, holdings=[])
+        snapshot_before = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot_before)
+        journal_before = len(self.db.get_trade_journal(limit=10))
+
+        with self.assertRaises(ValueError) as exc:
+            record_trade(self.db, code="AAA", side="BUY", quantity=10, price=11, fee=1)
+        self.assertIn("insufficient cash", str(exc.exception).lower())
+
+        self.assertIsNone(self.db.get_portfolio_position("AAA"))
+        self.assertEqual(len(self.db.get_trade_journal(limit=10)), journal_before)
+
+        snapshot_after = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot_after.cash, snapshot_before.cash, places=2)
+        self.assertAlmostEqual(snapshot_after.equity_value, snapshot_before.equity_value, places=2)
+        self.assertAlmostEqual(snapshot_after.total_value, snapshot_before.total_value, places=2)
+
     def test_init_rejects_duplicate_codes(self):
         args = Namespace(
             code_1="AAA", quantity_1="10", avg_cost_1="10",
