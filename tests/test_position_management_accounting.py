@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from datetime import date
+from unittest.mock import patch
 
 from src.analyzer import AnalysisResult
 from src.core.pipeline import StockAnalysisPipeline
@@ -151,6 +152,88 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertAlmostEqual(result.target_weight, 0.0, places=4)
         self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
         self.assertIn("execution_blocked=price_unavailable", result.action_reason)
+
+    def test_atomic_rollback_when_journal_fails_for_new_position_insert(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+        result = self._result("EEE", final_decision="BUY")
+
+        with patch.object(
+            self.db,
+            "save_trade_journal_in_session",
+            side_effect=RuntimeError("journal failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.pipeline._apply_position_management(result=result, query_id="q_atomic_insert", current_price=100)
+
+        # position insert should be rolled back
+        self.assertIsNone(self.db.get_portfolio_position("EEE"))
+        # journal should not exist
+        self.assertEqual(self.db.get_trade_journal(code="EEE", limit=10), [])
+        # snapshot should not be overwritten
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot)
+        self.assertAlmostEqual(snapshot.cash, 10000.0, places=2)
+        self.assertAlmostEqual(snapshot.equity_value, 0.0, places=2)
+        self.assertAlmostEqual(snapshot.total_value, 10000.0, places=2)
+
+    def test_atomic_rollback_when_snapshot_fails_for_existing_position_update(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="FFF",
+            name="FFF",
+            quantity=10,
+            avg_cost=100,
+            current_price=100,
+            weight=0.1,
+            market_value=1000,
+        )
+        before_pos = self.db.get_portfolio_position("FFF")
+        self.assertIsNotNone(before_pos)
+
+        result = self._result("FFF", final_decision="SELL")
+        with patch.object(
+            self.db,
+            "save_account_snapshot_in_session",
+            side_effect=RuntimeError("snapshot failed"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.pipeline._apply_position_management(result=result, query_id="q_atomic_update", current_price=100)
+
+        # existing position update should be rolled back to previous value
+        after_pos = self.db.get_portfolio_position("FFF")
+        self.assertIsNotNone(after_pos)
+        self.assertAlmostEqual(after_pos.quantity, 10.0, places=4)
+        self.assertAlmostEqual(after_pos.market_value, 1000.0, places=2)
+
+        # journal insert should also be rolled back
+        self.assertEqual(self.db.get_trade_journal(code="FFF", limit=10), [])
+
+        # snapshot remains unchanged
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot)
+        self.assertAlmostEqual(snapshot.cash, 10000.0, places=2)
+        self.assertAlmostEqual(snapshot.equity_value, 0.0, places=2)
+        self.assertAlmostEqual(snapshot.total_value, 10000.0, places=2)
+
+    def test_atomic_success_persists_position_journal_and_snapshot(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+        result = self._result("GGG", final_decision="BUY")
+
+        self.pipeline._apply_position_management(result=result, query_id="q_atomic_success", current_price=100)
+
+        pos = self.db.get_portfolio_position("GGG")
+        self.assertIsNotNone(pos)
+        self.assertGreater(pos.quantity, 0)
+        self.assertGreater(pos.market_value, 0)
+
+        journal = self.db.get_trade_journal(code="GGG", limit=10)
+        self.assertEqual(len(journal), 1)
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot)
+        self.assertLess(snapshot.cash, 10000.0)
+        self.assertGreater(snapshot.equity_value, 0.0)
+        self.assertAlmostEqual(snapshot.total_value, 10000.0, places=2)
 
 
 if __name__ == "__main__":

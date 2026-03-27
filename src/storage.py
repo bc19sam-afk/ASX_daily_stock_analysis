@@ -1224,27 +1224,15 @@ class DatabaseManager:
     ) -> None:
         """写入或更新账户快照。"""
         with self.get_session() as session:
-            row = session.execute(
-                select(AccountSnapshot).where(AccountSnapshot.snapshot_date == snapshot_date).limit(1)
-            ).scalar_one_or_none()
-
-            if row is None:
-                row = AccountSnapshot(
-                    snapshot_date=snapshot_date,
-                    cash=float(cash),
-                    equity_value=float(equity_value),
-                    total_value=float(total_value),
-                    daily_pnl=daily_pnl,
-                    note=note,
-                    created_at=datetime.now(),
-                )
-                session.add(row)
-            else:
-                row.cash = float(cash)
-                row.equity_value = float(equity_value)
-                row.total_value = float(total_value)
-                row.daily_pnl = daily_pnl
-                row.note = note
+            self.save_account_snapshot_in_session(
+                session=session,
+                snapshot_date=snapshot_date,
+                cash=cash,
+                equity_value=equity_value,
+                total_value=total_value,
+                daily_pnl=daily_pnl,
+                note=note,
+            )
             session.commit()
 
     def get_portfolio_positions(self, only_open: bool = True) -> List[PortfolioPosition]:
@@ -1275,53 +1263,126 @@ class DatabaseManager:
         market_value: float,
     ) -> None:
         """更新当前持仓。quantity<=0 时标记为 CLOSED。"""
-        now = datetime.now()
         with self.get_session() as session:
-            row = session.execute(
-                select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
-            ).scalar_one_or_none()
-            if row is None:
-                row = PortfolioPosition(
-                    code=code,
-                    name=name,
-                    quantity=max(float(quantity), 0.0),
-                    avg_cost=max(float(avg_cost), 0.0),
-                    current_price=current_price,
-                    weight=max(float(weight), 0.0),
-                    market_value=max(float(market_value), 0.0),
-                    unrealized_pnl=None,
-                    status="OPEN" if quantity > 0 else "CLOSED",
-                    opened_at=now if quantity > 0 else None,
-                    closed_at=None if quantity > 0 else now,
-                    updated_at=now,
-                )
-                session.add(row)
-            else:
-                prev_qty = float(row.quantity or 0.0)
-                row.name = name or row.name
-                row.quantity = max(float(quantity), 0.0)
-                row.avg_cost = max(float(avg_cost), 0.0) if quantity > 0 else 0.0
-                row.current_price = current_price
-                row.weight = max(float(weight), 0.0)
-                row.market_value = max(float(market_value), 0.0)
-                if row.quantity > 0:
-                    row.status = "OPEN"
-                    row.closed_at = None
-                    if row.opened_at is None:
-                        row.opened_at = now if prev_qty <= 0 else row.opened_at
-                else:
-                    row.status = "CLOSED"
-                    if row.closed_at is None:
-                        row.closed_at = now
-                row.updated_at = now
+            self.upsert_portfolio_position_in_session(
+                session=session,
+                code=code,
+                name=name,
+                quantity=quantity,
+                avg_cost=avg_cost,
+                current_price=current_price,
+                weight=weight,
+                market_value=market_value,
+            )
             session.commit()
 
     def save_trade_journal(self, **kwargs: Any) -> None:
         """保存单条交易日志。"""
-        entry = TradeJournal(created_at=datetime.now(), **kwargs)
         with self.get_session() as session:
-            session.add(entry)
+            self.save_trade_journal_in_session(session=session, **kwargs)
             session.commit()
+
+    def get_open_portfolio_positions_in_session(self, session: Session) -> List[PortfolioPosition]:
+        """在给定 session 中获取 OPEN 持仓列表。"""
+        rows = session.execute(
+            select(PortfolioPosition)
+            .where(PortfolioPosition.status == "OPEN")
+            .order_by(desc(PortfolioPosition.market_value))
+        ).scalars().all()
+        return list(rows)
+
+    def upsert_portfolio_position_in_session(
+        self,
+        *,
+        session: Session,
+        code: str,
+        name: Optional[str],
+        quantity: float,
+        avg_cost: float,
+        current_price: Optional[float],
+        weight: float,
+        market_value: float,
+    ) -> None:
+        """在给定 session 中更新当前持仓（不提交事务）。quantity<=0 时标记为 CLOSED。"""
+        now = datetime.now()
+        row = session.execute(
+            select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
+        ).scalar_one_or_none()
+        if row is None:
+            row = PortfolioPosition(
+                code=code,
+                name=name,
+                quantity=max(float(quantity), 0.0),
+                avg_cost=max(float(avg_cost), 0.0),
+                current_price=current_price,
+                weight=max(float(weight), 0.0),
+                market_value=max(float(market_value), 0.0),
+                unrealized_pnl=None,
+                status="OPEN" if quantity > 0 else "CLOSED",
+                opened_at=now if quantity > 0 else None,
+                closed_at=None if quantity > 0 else now,
+                updated_at=now,
+            )
+            session.add(row)
+            return
+
+        prev_qty = float(row.quantity or 0.0)
+        row.name = name or row.name
+        row.quantity = max(float(quantity), 0.0)
+        row.avg_cost = max(float(avg_cost), 0.0) if quantity > 0 else 0.0
+        row.current_price = current_price
+        row.weight = max(float(weight), 0.0)
+        row.market_value = max(float(market_value), 0.0)
+        if row.quantity > 0:
+            row.status = "OPEN"
+            row.closed_at = None
+            if row.opened_at is None:
+                row.opened_at = now if prev_qty <= 0 else row.opened_at
+        else:
+            row.status = "CLOSED"
+            if row.closed_at is None:
+                row.closed_at = now
+        row.updated_at = now
+
+    def save_trade_journal_in_session(self, *, session: Session, **kwargs: Any) -> None:
+        """在给定 session 中保存单条交易日志（不提交事务）。"""
+        entry = TradeJournal(created_at=datetime.now(), **kwargs)
+        session.add(entry)
+
+    def save_account_snapshot_in_session(
+        self,
+        *,
+        session: Session,
+        snapshot_date: date,
+        cash: float,
+        equity_value: float,
+        total_value: float,
+        daily_pnl: Optional[float] = None,
+        note: Optional[str] = None,
+    ) -> None:
+        """在给定 session 中写入或更新账户快照（不提交事务）。"""
+        row = session.execute(
+            select(AccountSnapshot).where(AccountSnapshot.snapshot_date == snapshot_date).limit(1)
+        ).scalar_one_or_none()
+
+        if row is None:
+            row = AccountSnapshot(
+                snapshot_date=snapshot_date,
+                cash=float(cash),
+                equity_value=float(equity_value),
+                total_value=float(total_value),
+                daily_pnl=daily_pnl,
+                note=note,
+                created_at=datetime.now(),
+            )
+            session.add(row)
+            return
+
+        row.cash = float(cash)
+        row.equity_value = float(equity_value)
+        row.total_value = float(total_value)
+        row.daily_pnl = daily_pnl
+        row.note = note
 
     def get_trade_journal(self, code: Optional[str] = None, limit: int = 100) -> List[TradeJournal]:
         """获取交易日志。"""

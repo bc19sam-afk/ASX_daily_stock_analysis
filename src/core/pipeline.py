@@ -614,44 +614,57 @@ class StockAnalysisPipeline:
         result.delta_amount = delta_amount
         result.action_reason = decision.reason
 
-        self.db.upsert_portfolio_position(
-            code=result.code,
-            name=result.name,
-            quantity=target_quantity,
-            avg_cost=avg_cost if quantity > 0 else (price if target_quantity > 0 else 0.0),
-            current_price=price or None,
-            weight=result.target_weight,
-            market_value=target_value,
-        )
-        self.db.save_trade_journal(
-            query_id=query_id,
-            code=result.code,
-            action_date=date.today(),
-            action=action,
-            final_decision=result.final_decision,
-            market_regime=result.market_regime,
-            event_risk=result.event_risk,
-            data_quality_flag=result.data_quality_flag,
-            current_weight=current_weight,
-            target_weight=result.target_weight,
-            delta_amount=delta_amount,
-            current_quantity=quantity,
-            target_quantity=target_quantity,
-            current_price=price or None,
-            available_cash_before=cash,
-            available_cash_after=cash_after,
-            reason=decision.reason,
-        )
-        open_positions = self.db.get_portfolio_positions(only_open=True)
-        equity_value = round(sum(float(p.market_value or 0.0) for p in open_positions), 2)
-        total_value_after = round(cash_after + equity_value, 2)
-        self.db.save_account_snapshot(
-            snapshot_date=date.today(),
-            cash=cash_after,
-            equity_value=max(equity_value, 0.0),
-            total_value=max(total_value_after, 0.0),
-            note="updated_by_position_manager",
-        )
+        session = None
+        try:
+            with self.db.get_session() as session:
+                self.db.upsert_portfolio_position_in_session(
+                    session=session,
+                    code=result.code,
+                    name=result.name,
+                    quantity=target_quantity,
+                    avg_cost=avg_cost if quantity > 0 else (price if target_quantity > 0 else 0.0),
+                    current_price=price or None,
+                    weight=result.target_weight,
+                    market_value=target_value,
+                )
+                self.db.save_trade_journal_in_session(
+                    session=session,
+                    query_id=query_id,
+                    code=result.code,
+                    action_date=date.today(),
+                    action=action,
+                    final_decision=result.final_decision,
+                    market_regime=result.market_regime,
+                    event_risk=result.event_risk,
+                    data_quality_flag=result.data_quality_flag,
+                    current_weight=current_weight,
+                    target_weight=result.target_weight,
+                    delta_amount=delta_amount,
+                    current_quantity=quantity,
+                    target_quantity=target_quantity,
+                    current_price=price or None,
+                    available_cash_before=cash,
+                    available_cash_after=cash_after,
+                    reason=decision.reason,
+                )
+                session.flush()
+                open_positions = self.db.get_open_portfolio_positions_in_session(session)
+                equity_value = round(sum(float(p.market_value or 0.0) for p in open_positions), 2)
+                total_value_after = round(cash_after + equity_value, 2)
+                self.db.save_account_snapshot_in_session(
+                    session=session,
+                    snapshot_date=date.today(),
+                    cash=cash_after,
+                    equity_value=max(equity_value, 0.0),
+                    total_value=max(total_value_after, 0.0),
+                    note="updated_by_position_manager",
+                )
+                session.commit()
+        except Exception:
+            if session is not None:
+                session.rollback()
+            logger.exception("[%s] 仓位管理事务提交失败，已回滚", result.code)
+            raise
     
     def _enhance_context(
         self,
