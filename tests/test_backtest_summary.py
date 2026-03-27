@@ -46,8 +46,9 @@ class BacktestSummaryTestCase(unittest.TestCase):
 
         # ambiguous_rate denominator should be 2 (any target applicable)
         self.assertEqual(summary["ambiguous_rate"], 0.0)
+        self.assertEqual(summary["decision_accuracy_pct"], summary["direction_accuracy_pct"])
+        self.assertEqual(summary["decision_win_rate_pct"], summary["win_rate_pct"])
 
 
 if __name__ == "__main__":
     unittest.main()
-

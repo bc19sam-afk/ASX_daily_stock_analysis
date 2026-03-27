@@ -42,6 +42,12 @@ class BacktestServiceTestCase(unittest.TestCase):
                     operation_advice="买入",
                     trend_prediction="看多",
                     analysis_summary="test",
+                    alpha_decision="BUY",
+                    final_decision="BUY",
+                    position_action="OPEN",
+                    target_weight=0.2,
+                    current_weight=0.0,
+                    delta_amount=2000.0,
                     stop_loss=95.0,
                     take_profit=110.0,
                     created_at=old_created_at,
@@ -111,6 +117,10 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(result.code, "600519")
         self.assertEqual(result.analysis_date, date(2024, 1, 1))
         self.assertEqual(result.operation_advice, "买入")
+        self.assertEqual(result.final_decision, "BUY")
+        self.assertEqual(result.position_action, "OPEN")
+        self.assertAlmostEqual(result.target_weight, 0.2)
+        self.assertEqual(result.decision_source, "final_decision")
         self.assertEqual(result.position_recommendation, "long")
         self.assertEqual(result.direction_expected, "up")
 
@@ -191,6 +201,53 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(item["outcome"], "win")
         self.assertEqual(item["direction_expected"], "up")
         self.assertTrue(item["direction_correct"])
+        self.assertEqual(item["decision_source"], "final_decision")
+
+    def test_structured_fields_win_over_conflicting_legacy_operation_advice(self) -> None:
+        old_created_at = datetime(2024, 1, 1, 0, 0, 0)
+        with self.db.get_session() as session:
+            session.add(
+                AnalysisHistory(
+                    query_id="q3",
+                    code="300001",
+                    name="特锐德",
+                    report_type="simple",
+                    sentiment_score=75,
+                    operation_advice="买入",  # conflicts with structured SELL
+                    trend_prediction="震荡",
+                    analysis_summary="conflict",
+                    alpha_decision="BUY",
+                    final_decision="SELL",
+                    position_action="CLOSE",
+                    target_weight=0.0,
+                    current_weight=0.3,
+                    delta_amount=-3000.0,
+                    stop_loss=None,
+                    take_profit=None,
+                    created_at=old_created_at,
+                    context_snapshot='{"enhanced_context": {"date": "2024-01-01"}}',
+                )
+            )
+            session.add(StockDaily(code="300001", date=date(2024, 1, 1), open=20.0, high=20.5, low=19.8, close=20.0))
+            session.add_all([
+                StockDaily(code="300001", date=date(2024, 1, 2), high=20.2, low=19.0, close=19.4),
+                StockDaily(code="300001", date=date(2024, 1, 3), high=19.8, low=18.7, close=19.0),
+                StockDaily(code="300001", date=date(2024, 1, 4), high=19.4, low=18.5, close=18.8),
+            ])
+            session.commit()
+
+        service = BacktestService(self.db)
+        stats = service.run_backtest(code="300001", force=False, eval_window_days=3, min_age_days=0, limit=10)
+        self.assertEqual(stats["saved"], 1)
+        with self.db.get_session() as session:
+            row = session.query(BacktestResult).filter(BacktestResult.code == "300001").one()
+            self.assertEqual(row.operation_advice, "买入")
+            self.assertEqual(row.final_decision, "SELL")
+            self.assertEqual(row.position_action, "CLOSE")
+            self.assertEqual(row.decision_source, "final_decision")
+            self.assertEqual(row.direction_expected, "down")
+            self.assertEqual(row.position_recommendation, "cash")
+            self.assertEqual(row.outcome, "win")
 
     def test_multi_stock_summaries(self) -> None:
         """Verify separate summaries for multiple stocks + correct overall aggregate."""
@@ -255,4 +312,3 @@ class BacktestServiceTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

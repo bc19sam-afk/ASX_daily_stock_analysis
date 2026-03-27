@@ -150,6 +150,8 @@ class BacktestRepository:
                     "win_count",
                     "loss_count",
                     "neutral_count",
+                    "decision_accuracy_pct",
+                    "decision_win_rate_pct",
                     "direction_accuracy_pct",
                     "win_rate_pct",
                     "neutral_rate_pct",

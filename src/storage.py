@@ -298,6 +298,13 @@ class BacktestResult(Base):
     # 建议快照（避免未来分析字段变化导致回测不可解释）
     operation_advice = Column(String(20))
     position_recommendation = Column(String(8))  # long/cash
+    alpha_decision = Column(String(8))
+    final_decision = Column(String(8))
+    position_action = Column(String(16))
+    target_weight = Column(Float)
+    current_weight = Column(Float)
+    delta_amount = Column(Float)
+    decision_source = Column(String(32))
 
     # 价格与收益
     start_price = Column(Float)
@@ -363,6 +370,8 @@ class BacktestSummary(Base):
     neutral_count = Column(Integer, default=0)
 
     # 准确率/胜率
+    decision_accuracy_pct = Column(Float)
+    decision_win_rate_pct = Column(Float)
     direction_accuracy_pct = Column(Float)
     win_rate_pct = Column(Float)
     neutral_rate_pct = Column(Float)
@@ -512,6 +521,7 @@ class DatabaseManager:
         # 创建所有表
         Base.metadata.create_all(self._engine)
         self._ensure_analysis_history_columns()
+        self._ensure_backtest_columns()
 
         self._initialized = True
         logger.info(f"数据库初始化完成: {db_url}")
@@ -569,6 +579,54 @@ class DatabaseManager:
         logger.info(
             "analysis_history 自动迁移完成，新增列: %s",
             ", ".join(col for col, _ in missing),
+        )
+
+    def _ensure_backtest_columns(self) -> None:
+        """启动时自动补齐 backtest_results/backtest_summaries 新增列（SQLite）。"""
+        if self._engine.dialect.name != "sqlite":
+            return
+
+        required_results = {
+            "alpha_decision": "TEXT",
+            "final_decision": "TEXT",
+            "position_action": "TEXT",
+            "target_weight": "REAL",
+            "current_weight": "REAL",
+            "delta_amount": "REAL",
+            "decision_source": "TEXT",
+        }
+        required_summaries = {
+            "decision_accuracy_pct": "REAL",
+            "decision_win_rate_pct": "REAL",
+        }
+
+        inspector = inspect(self._engine)
+        table_names = set(inspector.get_table_names())
+        tasks = []
+        if "backtest_results" in table_names:
+            existing = {col["name"] for col in inspector.get_columns("backtest_results")}
+            tasks.extend(
+                ("backtest_results", col, typ)
+                for col, typ in required_results.items()
+                if col not in existing
+            )
+        if "backtest_summaries" in table_names:
+            existing = {col["name"] for col in inspector.get_columns("backtest_summaries")}
+            tasks.extend(
+                ("backtest_summaries", col, typ)
+                for col, typ in required_summaries.items()
+                if col not in existing
+            )
+        if not tasks:
+            return
+
+        with self._engine.begin() as conn:
+            for table, col, col_type in tasks:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+
+        logger.info(
+            "backtest 自动迁移完成，新增列: %s",
+            ", ".join(f"{table}.{col}" for table, col, _ in tasks),
         )
     
     @classmethod
