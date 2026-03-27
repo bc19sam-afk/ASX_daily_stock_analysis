@@ -12,6 +12,7 @@ A股自选股智能分析系统 - 核心分析流水线
 """
 
 import logging
+import threading
 import time
 import uuid
 from collections import defaultdict
@@ -44,6 +45,7 @@ class StockAnalysisPipeline:
     2. 协调数据获取、存储、搜索、分析、通知等模块
     3. 实现并发控制和异常处理
     """
+    _automatic_portfolio_transition_lock = threading.RLock()
     
     def __init__(
         self,
@@ -537,6 +539,31 @@ class StockAnalysisPipeline:
         result.watchlist_state = "ACTIVE"
 
     def _apply_position_management(
+        self,
+        *,
+        result: AnalysisResult,
+        query_id: str,
+        current_price: Optional[float],
+    ) -> None:
+        if self._should_serialize_automatic_portfolio_transition():
+            with self._automatic_portfolio_transition_lock:
+                self._apply_position_management_unlocked(
+                    result=result,
+                    query_id=query_id,
+                    current_price=current_price,
+                )
+            return
+
+        self._apply_position_management_unlocked(
+            result=result,
+            query_id=query_id,
+            current_price=current_price,
+        )
+
+    def _should_serialize_automatic_portfolio_transition(self) -> bool:
+        return str(getattr(self, "query_source", "") or "").lower() == "system"
+
+    def _apply_position_management_unlocked(
         self,
         *,
         result: AnalysisResult,
