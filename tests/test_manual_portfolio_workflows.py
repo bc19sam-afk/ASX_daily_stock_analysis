@@ -4,8 +4,10 @@ import os
 import tempfile
 import unittest
 from argparse import Namespace
+from unittest.mock import patch
 
 from src.storage import DatabaseManager
+import scripts.manual_portfolio_workflows as manual_workflows
 from scripts.manual_portfolio_workflows import (
     HoldingInput,
     _parse_holding_rows,
@@ -127,6 +129,43 @@ class ManualPortfolioWorkflowTestCase(unittest.TestCase):
         with self.assertRaises(ValueError) as exc:
             record_trade(self.db, code="AAA", side="BUY", quantity=1, price=10, fee=0)
         self.assertIn("Init Portfolio workflow first", str(exc.exception))
+
+    def test_init_portfolio_is_atomic_on_failure(self):
+        original_snapshot_upsert = manual_workflows._upsert_snapshot_in_session
+
+        def fail_snapshot_once(*args, **kwargs):
+            raise RuntimeError("forced snapshot failure")
+
+        with patch.object(manual_workflows, "_upsert_snapshot_in_session", side_effect=fail_snapshot_once):
+            with self.assertRaises(RuntimeError):
+                init_portfolio(
+                    self.db,
+                    cash=1000,
+                    holdings=[HoldingInput(code="AAA", quantity=10, avg_cost=10)],
+                )
+
+        # Position should rollback together with snapshot write failure.
+        self.assertEqual(len(self.db.get_portfolio_positions(only_open=False)), 0)
+        self.assertIsNone(self.db.get_latest_account_snapshot())
+
+        # Ensure helper still works after patch context.
+        self.assertIsNotNone(original_snapshot_upsert)
+
+    def test_record_trade_is_atomic_on_failure(self):
+        init_portfolio(self.db, cash=1000, holdings=[])
+
+        def fail_snapshot_once(*args, **kwargs):
+            raise RuntimeError("forced snapshot failure")
+
+        with patch.object(manual_workflows, "_upsert_snapshot_in_session", side_effect=fail_snapshot_once):
+            with self.assertRaises(RuntimeError):
+                record_trade(self.db, code="AAA", side="BUY", quantity=10, price=10, fee=0)
+
+        # Position + journal should rollback when snapshot update fails.
+        self.assertIsNone(self.db.get_portfolio_position("AAA"))
+        self.assertEqual(len(self.db.get_trade_journal(limit=10)), 0)
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.cash, 1000.0, places=2)
 
 
 if __name__ == "__main__":
