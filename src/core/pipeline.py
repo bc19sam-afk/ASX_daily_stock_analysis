@@ -12,7 +12,6 @@ A股自选股智能分析系统 - 核心分析流水线
 """
 
 import logging
-import threading
 import time
 import uuid
 from collections import defaultdict
@@ -45,8 +44,6 @@ class StockAnalysisPipeline:
     2. 协调数据获取、存储、搜索、分析、通知等模块
     3. 实现并发控制和异常处理
     """
-    _automatic_portfolio_transition_lock = threading.RLock()
-    
     def __init__(
         self,
         config: Optional[Config] = None,
@@ -547,8 +544,8 @@ class StockAnalysisPipeline:
         current_price: Optional[float],
         persist: bool = True,
     ) -> None:
-        if self._should_serialize_automatic_portfolio_transition():
-            with self._automatic_portfolio_transition_lock:
+        if persist:
+            with self.db.get_portfolio_write_lock():
                 self._apply_position_management_unlocked(
                     result=result,
                     query_id=query_id,
@@ -564,9 +561,6 @@ class StockAnalysisPipeline:
             persist=persist,
         )
 
-    def _should_serialize_automatic_portfolio_transition(self) -> bool:
-        return str(getattr(self, "query_source", "") or "").lower() in {"system", "cli"}
-
     def _apply_position_management_unlocked(
         self,
         *,
@@ -575,84 +569,118 @@ class StockAnalysisPipeline:
         current_price: Optional[float],
         persist: bool = True,
     ) -> None:
-        latest_snapshot = self.db.get_latest_account_snapshot()
-        cash = float(latest_snapshot.cash) if latest_snapshot else 10000.0
-        total_value = float(latest_snapshot.total_value) if latest_snapshot else cash
-        if total_value <= 0:
-            total_value = max(cash, 10000.0)
-
-        existing = self.db.get_portfolio_position(result.code)
-        quantity = float(existing.quantity) if existing else 0.0
-        avg_cost = float(existing.avg_cost) if existing else 0.0
-        current_weight = float(existing.weight) if existing else 0.0
-
-        decision = self.position_manager.decide(
-            current_weight=current_weight,
-            avg_cost=avg_cost,
-            available_cash=cash,
-            total_value=total_value,
-            final_decision=result.final_decision,
-            market_regime=result.market_regime,
-            event_risk=result.event_risk,
-            data_quality_flag=result.data_quality_flag,
-        )
-
-        price = float(current_price) if current_price and current_price > 0 else 0.0
-        if price <= 0 and existing and existing.current_price and existing.current_price > 0:
-            price = float(existing.current_price)
-
-        # 无可执行价格时，不得变更账户状态（持仓/交易日志/快照）
-        if price <= 0:
-            result.position_action = "HOLD"
-            result.current_weight = round(current_weight, 4)
-            result.target_weight = round(current_weight, 4)
-            result.delta_amount = 0.0
-            result.action_reason = f"{decision.reason}, execution_blocked=price_unavailable"
-            logger.warning(
-                "[%s] 仓位管理跳过：缺少可执行价格，保持账户状态不变",
-                result.code,
-            )
-            return
-
-        current_value = float(existing.market_value or 0.0) if existing else 0.0
-        if price > 0 and quantity > 0:
-            current_value = quantity * price
-        target_value = decision.target_weight * total_value
-        target_quantity = round(target_value / price, 4) if price > 0 else quantity
-        delta_amount = round(target_value - current_value, 2)
-        cash_after = round(cash - delta_amount, 2)
-        if cash_after < 0 and price > 0:
-            # 兜底：按剩余现金回退到可执行目标仓位
-            affordable_target_value = current_value + cash
-            target_quantity = round(max(affordable_target_value, 0.0) / price, 4)
-            target_value = round(target_quantity * price, 2)
-            delta_amount = round(target_value - current_value, 2)
-            cash_after = round(cash - delta_amount, 2)
-
-        if quantity <= 0 and target_quantity > 0:
-            action = "OPEN"
-        elif quantity > 0 and target_quantity <= 0:
-            action = "CLOSE"
-        elif target_quantity > quantity:
-            action = "ADD"
-        elif target_quantity < quantity:
-            action = "REDUCE"
-        else:
-            action = "HOLD"
-
-        result.position_action = action
-        result.current_weight = round(current_weight, 4)
-        result.target_weight = round(target_value / total_value, 4) if total_value > 0 else 0.0
-        result.delta_amount = delta_amount
-        result.action_reason = decision.reason
-
         if not persist:
+            latest_snapshot = self.db.get_latest_account_snapshot()
+            cash = float(latest_snapshot.cash) if latest_snapshot else 10000.0
+            total_value = float(latest_snapshot.total_value) if latest_snapshot else cash
+            if total_value <= 0:
+                total_value = max(cash, 10000.0)
+            existing = self.db.get_portfolio_position(result.code)
+            quantity = float(existing.quantity) if existing else 0.0
+            avg_cost = float(existing.avg_cost) if existing else 0.0
+            current_weight = float(existing.weight) if existing else 0.0
+            decision = self.position_manager.decide(
+                current_weight=current_weight,
+                avg_cost=avg_cost,
+                available_cash=cash,
+                total_value=total_value,
+                final_decision=result.final_decision,
+                market_regime=result.market_regime,
+                event_risk=result.event_risk,
+                data_quality_flag=result.data_quality_flag,
+            )
+            price = float(current_price) if current_price and current_price > 0 else 0.0
+            if price <= 0 and existing and existing.current_price and existing.current_price > 0:
+                price = float(existing.current_price)
+            if price <= 0:
+                result.position_action = "HOLD"
+                result.current_weight = round(current_weight, 4)
+                result.target_weight = round(current_weight, 4)
+                result.delta_amount = 0.0
+                result.action_reason = f"{decision.reason}, execution_blocked=price_unavailable"
+                logger.warning("[%s] 仓位管理跳过：缺少可执行价格，保持账户状态不变", result.code)
+                return
+            current_value = quantity * price if price > 0 and quantity > 0 else float(existing.market_value or 0.0) if existing else 0.0
+            target_value = decision.target_weight * total_value
+            delta_amount = round(target_value - current_value, 2)
+            result.position_action = decision.action
+            result.current_weight = round(current_weight, 4)
+            result.target_weight = round(target_value / total_value, 4) if total_value > 0 else 0.0
+            result.delta_amount = delta_amount
+            result.action_reason = decision.reason
             logger.info("[%s] 分析只读模式：仅计算仓位建议，不写入账户状态", result.code)
             return
 
         session = None
         try:
+            # 复合写入在单一事务内完成，并通过 SQLite BEGIN IMMEDIATE 先拿写锁，
+            # 防止并发写路径基于同一旧快照计算后覆盖，造成 cash/equity/total 漂移。
             with self.db.get_session() as session:
+                self.db.begin_portfolio_write_transaction(session)
+                latest_snapshot = self.db.get_latest_account_snapshot_in_session(session)
+                cash = float(latest_snapshot.cash) if latest_snapshot else 10000.0
+                total_value = float(latest_snapshot.total_value) if latest_snapshot else cash
+                if total_value <= 0:
+                    total_value = max(cash, 10000.0)
+
+                existing = self.db.get_portfolio_position_in_session(session, result.code)
+                quantity = float(existing.quantity) if existing else 0.0
+                avg_cost = float(existing.avg_cost) if existing else 0.0
+                current_weight = float(existing.weight) if existing else 0.0
+                decision = self.position_manager.decide(
+                    current_weight=current_weight,
+                    avg_cost=avg_cost,
+                    available_cash=cash,
+                    total_value=total_value,
+                    final_decision=result.final_decision,
+                    market_regime=result.market_regime,
+                    event_risk=result.event_risk,
+                    data_quality_flag=result.data_quality_flag,
+                )
+
+                price = float(current_price) if current_price and current_price > 0 else 0.0
+                if price <= 0 and existing and existing.current_price and existing.current_price > 0:
+                    price = float(existing.current_price)
+                if price <= 0:
+                    result.position_action = "HOLD"
+                    result.current_weight = round(current_weight, 4)
+                    result.target_weight = round(current_weight, 4)
+                    result.delta_amount = 0.0
+                    result.action_reason = f"{decision.reason}, execution_blocked=price_unavailable"
+                    logger.warning("[%s] 仓位管理跳过：缺少可执行价格，保持账户状态不变", result.code)
+                    return
+
+                current_value = float(existing.market_value or 0.0) if existing else 0.0
+                if price > 0 and quantity > 0:
+                    current_value = quantity * price
+                target_value = decision.target_weight * total_value
+                target_quantity = round(target_value / price, 4) if price > 0 else quantity
+                delta_amount = round(target_value - current_value, 2)
+                cash_after = round(cash - delta_amount, 2)
+                if cash_after < 0 and price > 0:
+                    affordable_target_value = current_value + cash
+                    target_quantity = round(max(affordable_target_value, 0.0) / price, 4)
+                    target_value = round(target_quantity * price, 2)
+                    delta_amount = round(target_value - current_value, 2)
+                    cash_after = round(cash - delta_amount, 2)
+
+                if quantity <= 0 and target_quantity > 0:
+                    action = "OPEN"
+                elif quantity > 0 and target_quantity <= 0:
+                    action = "CLOSE"
+                elif target_quantity > quantity:
+                    action = "ADD"
+                elif target_quantity < quantity:
+                    action = "REDUCE"
+                else:
+                    action = "HOLD"
+
+                result.position_action = action
+                result.current_weight = round(current_weight, 4)
+                result.target_weight = round(target_value / total_value, 4) if total_value > 0 else 0.0
+                result.delta_amount = delta_amount
+                result.action_reason = decision.reason
+
                 self.db.upsert_portfolio_position_in_session(
                     session=session,
                     code=result.code,
