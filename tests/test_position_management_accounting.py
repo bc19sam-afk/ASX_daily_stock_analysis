@@ -387,6 +387,45 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertAlmostEqual(snapshot_after.equity_value, float(snapshot_before.equity_value), places=2)
         self.assertAlmostEqual(snapshot_after.total_value, float(snapshot_before.total_value), places=2)
 
+    def test_read_only_matches_persisted_executable_math_with_affordability_fallback(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=100, equity_value=9900, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="AFB",
+            name="AFB",
+            quantity=10,
+            avg_cost=100,
+            current_price=100,
+            weight=0.30,  # 故意制造权重与数量不一致，覆盖漂移场景
+            market_value=1000,
+        )
+
+        ro_result = self._result("AFB", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=ro_result,
+            query_id="q_ro_fallback",
+            current_price=100,
+            persist=False,
+        )
+
+        rw_result = self._result("AFB", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=rw_result,
+            query_id="q_rw_fallback",
+            current_price=100,
+            persist=True,
+        )
+
+        self.assertEqual(ro_result.position_action, rw_result.position_action)
+        self.assertAlmostEqual(ro_result.target_weight, rw_result.target_weight, places=4)
+        self.assertAlmostEqual(ro_result.delta_amount, rw_result.delta_amount, places=2)
+        self.assertEqual(ro_result.position_action, "ADD")
+        self.assertAlmostEqual(ro_result.target_weight, 0.11, places=4)
+        self.assertAlmostEqual(ro_result.delta_amount, 100.0, places=2)
+
+        latest_journal = self.db.get_trade_journal(code="AFB", limit=1)[0]
+        self.assertAlmostEqual(latest_journal.target_quantity, 11.0, places=4)
+        self.assertAlmostEqual(latest_journal.delta_amount, ro_result.delta_amount, places=2)
+
     def test_analyze_stock_defaults_to_read_only_position_management(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.db = self.db
