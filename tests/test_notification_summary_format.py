@@ -81,8 +81,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("## B. Recommended Actions Today", report)
         self.assertIn("## C. Hypothetical Target Allocation (Simulated / Recommended)", report)
         self.assertIn("- 可用现金: **100,000.00**", report)
-        self.assertIn("- 持仓市值: **200,000.00**", report)
-        self.assertIn("- 账户总值: **300,000.00**", report)
+        self.assertIn("- 持仓市值: **0.00**", report)
+        self.assertIn("- 账户总值: **100,000.00**", report)
         self.assertIn("| Stock | AI View | Recommended Action Today (Not Executed) |", report)
         self.assertIn("| Stock | Current Executed Weight | Simulated Target Weight | Simulated Delta Amount |", report)
         self.assertIn("**超长股票名称用于验证表格列宽稳定性与渲染一致性示例股份有限公司(600519)**", report)
@@ -152,8 +152,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         wechat = service.generate_wechat_dashboard([result])
         self.assertIn("**A) 当前账户状态（已执行）**", wechat)
         self.assertIn("现金: 120,000.00", wechat)
-        self.assertIn("持仓市值: 180,000.00", wechat)
-        self.assertIn("总资产: 300,000.00", wechat)
+        self.assertIn("持仓市值: 0.00", wechat)
+        self.assertIn("总资产: 120,000.00", wechat)
         self.assertIn("**B) 今日建议动作（未执行）**", wechat)
         self.assertIn("ADD · 分批执行 | 严格止损", wechat)
         self.assertIn("**C) 目标仓位（模拟，不代表已成交）**", wechat)
@@ -167,8 +167,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             "equity_value": 300000.0,
             "total_value": 500000.0,
             "holdings": [
-                {"code": "600519", "name": "贵州茅台", "quantity": 100, "weight": 0.36},
-                {"code": "000858", "name": "五粮液", "quantity": 200, "weight": 0.24},
+                {"code": "600519", "name": "贵州茅台", "quantity": 100, "weight": 0.36, "market_value": 180000.0},
+                {"code": "000858", "name": "五粮液", "quantity": 200, "weight": 0.24, "market_value": 120000.0},
             ],
         }
         mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
@@ -237,8 +237,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 **A) 当前账户状态（已执行）**
 - 现金: 200,000.00
-- 持仓市值: 300,000.00
-- 总资产: 500,000.00
+- 持仓市值: 0.00
+- 总资产: 200,000.00
 
 **B) 今日建议动作（未执行）**
 
@@ -259,8 +259,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             "equity_value": 300000.0,
             "total_value": 500000.0,
             "holdings": [
-                {"code": "600519", "name": "贵州茅台", "quantity": 100, "weight": 0.36},
-                {"code": "000858", "name": "五粮液", "quantity": 200, "weight": 0.24},
+                {"code": "600519", "name": "贵州茅台", "quantity": 100, "weight": 0.36, "market_value": 180000.0},
+                {"code": "000858", "name": "五粮液", "quantity": 200, "weight": 0.24, "market_value": 120000.0},
             ],
         }
         mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
@@ -300,6 +300,62 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 *报告生成时间：2026-03-30 09:30:45*"""
         self.assertEqual(expected, feishu)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_overview_uses_executed_quantities_cash_and_report_time_prices(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 112.01,
+            "holdings": [
+                {"code": "BHP.AX", "name": "BHP", "quantity": 66, "market_value": 10.0, "weight": 0.99},
+                {"code": "SHL.AX", "name": "SHL", "quantity": 172, "market_value": 10.0, "weight": 0.01},
+            ],
+        }
+        service = self._build_service()
+        results = [
+            self._build_result(code="BHP.AX", name="BHP", current_price=50.0),
+            self._build_result(code="SHL.AX", name="SHL", current_price=20.0),
+        ]
+
+        report = service.generate_dashboard_report(results, report_date="2026-03-30")
+        self.assertIn("- 可用现金: **112.01**", report)
+        self.assertIn("- 持仓市值: **6,740.00**", report)
+        self.assertIn("- 账户总值: **6,852.01**", report)
+        self.assertIn("| BHP(BHP.AX) | 66.00 | 48.16% |", report)
+        self.assertIn("| SHL(SHL.AX) | 172.00 | 50.20% |", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_overview_falls_back_to_stored_market_value_when_fresh_price_missing(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 112.01,
+            "holdings": [
+                {"code": "BHP.AX", "name": "BHP", "quantity": 66, "market_value": 3432.0},
+                {"code": "LAU.AX", "name": "LAU", "quantity": 2958, "market_value": 1996.65},
+            ],
+        }
+        service = self._build_service()
+        results = [
+            self._build_result(code="BHP.AX", name="BHP", current_price=52.0),
+            self._build_result(code="LAU.AX", name="LAU", current_price=None),
+        ]
+
+        report = service.generate_dashboard_report(results, report_date="2026-03-30")
+        # BHP uses report-time price (66*52=3432), LAU falls back to stored market_value
+        self.assertIn("- 持仓市值: **5,428.65**", report)
+        self.assertIn("- 账户总值: **5,540.66**", report)
+        self.assertIn("| BHP(BHP.AX) | 66.00 | 61.94% |", report)
+        self.assertIn("| LAU(LAU.AX) | 2,958.00 | 36.04% |", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_report_generation_is_read_only_against_db(self, mock_get_db) -> None:
+        db = mock_get_db.return_value
+        db.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        _ = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
+
+        db.get_portfolio_overview.assert_called_once()
+        db.upsert_portfolio_position.assert_not_called()
+        db.save_account_snapshot.assert_not_called()
+        db.save_trade_journal.assert_not_called()
 
 
 if __name__ == "__main__":
