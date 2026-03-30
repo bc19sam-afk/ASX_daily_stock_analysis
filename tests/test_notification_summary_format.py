@@ -430,6 +430,35 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("**🧭 确定性动作(主指令)**: HOLD | 目标仓位 18.00% | 模拟Δ 3,200.00", report)
         self.assertIn("⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。", report)
 
+    @patch("src.notification.get_db")
+    def test_position_advice_fallback_escapes_pipe_for_markdown_table_and_feishu(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            final_decision="BUY",
+            position_action="ADD",
+            target_weight=0.18,
+            delta_amount=3200.0,
+            dashboard={
+                "core_conclusion": {
+                    "one_sentence": "按计划执行",
+                    "time_sensitivity": "今日",
+                    "position_advice": {
+                        "has_position": "继续持有等待确认",
+                    },
+                }
+            },
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        self.assertIn("| 🆕 **空仓者** | ADD \\| 目标仓位 18.00% \\| 模拟Δ 3,200.00 |", report)
+        self.assertIn("| 💼 **持仓者** | 继续持有等待确认 |", report)
+
+        feishu = format_feishu_markdown(report)
+        self.assertIn("空仓者", feishu)
+        self.assertIn("ADD | 目标仓位 18.00% | 模拟Δ 3,200.00", feishu)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1044,11 +1044,17 @@ class NotificationService:
                     ])
                 # 持仓分类建议
                 if pos_advice:
+                    no_position_text = pos_advice.get('no_position')
+                    if not no_position_text:
+                        no_position_text = self._to_markdown_table_cell(self._format_primary_action_text(result))
+                    has_position_text = pos_advice.get('has_position')
+                    if not has_position_text:
+                        has_position_text = self._to_markdown_table_cell(self._format_primary_action_text(result))
                     report_lines.extend([
                         "| 持仓情况 | 操作建议 |",
                         "|---------|---------|",
-                        f"| 🆕 **空仓者** | {pos_advice.get('no_position', self._format_primary_action_text(result))} |",
-                        f"| 💼 **持仓者** | {pos_advice.get('has_position', self._format_primary_action_text(result))} |",
+                        f"| 🆕 **空仓者** | {no_position_text} |",
+                        f"| 💼 **持仓者** | {has_position_text} |",
                         "",
                     ])
 
