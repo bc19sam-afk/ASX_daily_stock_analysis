@@ -1630,7 +1630,7 @@ class DatabaseManager:
                 )
 
             if abs(current_weight - target_weight) > tolerance:
-                errors.append(
+                warnings.append(
                     f"Journal/position weight mismatch for {code}: "
                     f"journal.target_weight={target_weight:.6f}, stored_weight={current_weight:.6f}."
                 )

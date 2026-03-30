@@ -105,7 +105,7 @@ daily_stock_analysis/
 
 - **A. Current Portfolio Overview (Executed / Real State)**：仅展示已执行的真实账户状态。
 - **B. Recommended Actions Today (Recommended / Not Executed)**：仅展示建议，不代表已成交。
-- **C. Hypothetical Target Allocation (Simulated / Target Allocation)**：仅展示模拟目标仓位与调仓金额，用于计划参考。
+- **C. Hypothetical Target Allocation (Simulated / Recommended)**：仅展示模拟目标仓位与调仓金额，用于计划参考。
 
 `Portfolio Overview` 应基于当前已执行账户状态进行安全重算（cash/equity/total/holdings），不要盲目信任历史快照字段或陈旧权重缓存。
 

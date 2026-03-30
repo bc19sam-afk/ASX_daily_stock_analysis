@@ -101,7 +101,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 
 - **A. Current Portfolio Overview (Executed / Real State)**: executed/live account state only.
 - **B. Recommended Actions Today (Recommended / Not Executed)**: recommendations only; not executed trades.
-- **C. Hypothetical Target Allocation (Simulated / Target Allocation)**: simulated target weights/deltas for planning.
+- **C. Hypothetical Target Allocation (Simulated / Recommended)**: simulated target weights/deltas for planning.
 
 `Portfolio Overview` values should be safely recomputed from executed state (cash/equity/total/holdings), rather than blindly trusting stale stored weights or snapshot-derived fields.
 
