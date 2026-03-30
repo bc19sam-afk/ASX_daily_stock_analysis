@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from src.analyzer import AnalysisResult
-from src.formatters import markdown_to_html_document
+from src.formatters import format_feishu_markdown, markdown_to_html_document
 from src.notification import NotificationService
 
 
@@ -65,6 +65,25 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("<table>", html)
         self.assertIn("<th>Stock</th>", html)
         self.assertIn("<th>Action</th>", html)
+
+    @patch("src.notification.get_db")
+    def test_feishu_formatter_keeps_escaped_pipe_inside_cells(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+        result = self._build_result(
+            operation_advice="区间交易 | 高抛低吸",
+            action_reason="分批执行 | 严格止损",
+        )
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        feishu = format_feishu_markdown(report)
+        expected_line = (
+            "• Stock：🟢 **贵州茅台(600519)** | "
+            "AI View：区间交易 | 高抛低吸 · 评分 75 · 震荡上行 | "
+            "Action：ADD · 分批执行 | 严格止损 | "
+            "Current Weight：12.00% | Target Weight：18.00% | Delta Amount：3,200.00"
+        )
+        self.assertIn(expected_line, feishu)
 
 
 if __name__ == "__main__":
