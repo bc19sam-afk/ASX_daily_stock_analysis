@@ -174,8 +174,14 @@ def format_feishu_markdown(content: str) -> str:
 
         def _parse_row(row: str) -> List[str]:
             """解析表格行，提取单元格"""
-            cells = [c.strip() for c in row.strip().strip('|').split('|')]
-            return [c for c in cells if c]
+            raw = row.strip()
+            if raw.startswith('|'):
+                raw = raw[1:]
+            if raw.endswith('|'):
+                raw = raw[:-1]
+            # 仅按未转义的竖线分列；保留单元格中的 \| 字面量
+            cells = [c.strip() for c in re.split(r'(?<!\\)\|', raw)]
+            return [c.replace(r'\|', '|') for c in cells]
 
         rows = []
         for raw in buffer:

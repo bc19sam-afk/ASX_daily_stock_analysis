@@ -641,6 +641,51 @@ class NotificationService:
                 return value[len(prefix):]
         return value
 
+    @staticmethod
+    def _to_markdown_table_cell(value: Any) -> str:
+        """Normalize text for deterministic markdown table rendering."""
+        if value is None:
+            return "-"
+        text = str(value).strip()
+        if not text:
+            return "-"
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = text.replace("|", r"\|")
+        return text.replace("\n", "<br>")
+
+    def _build_analysis_results_summary_table(self, results: List[AnalysisResult]) -> List[str]:
+        """Build a stable summary table for markdown/html/image/pdf output paths."""
+        lines = [
+            "| Stock | AI View | Action | Current Weight | Target Weight | Delta Amount |",
+            "|---|---|---|---:|---:|---:|",
+        ]
+
+        for r in results:
+            _, signal_emoji, _ = self._get_signal_level(r)
+            stock_cell = self._to_markdown_table_cell(
+                f"{signal_emoji} **{self._escape_md(r.name)}({r.code})**"
+            )
+            ai_view_cell = self._to_markdown_table_cell(
+                f"{r.operation_advice} · 评分 {r.sentiment_score} · {r.trend_prediction}"
+            )
+            action_reason = getattr(r, 'action_reason', '')
+            action_text = str(getattr(r, 'position_action', 'HOLD') or 'HOLD')
+            if action_reason:
+                action_text = f"{action_text} · {action_reason}"
+            action_cell = self._to_markdown_table_cell(action_text)
+
+            lines.append(
+                "| "
+                f"{stock_cell} | "
+                f"{ai_view_cell} | "
+                f"{action_cell} | "
+                f"{getattr(r, 'current_weight', 0.0):.2%} | "
+                f"{getattr(r, 'target_weight', 0.0):.2%} | "
+                f"{getattr(r, 'delta_amount', 0.0):,.2f} "
+                "|"
+            )
+        return lines
+
     def _get_signal_level(self, result: AnalysisResult) -> tuple:
         """
         Get signal level and color based on operation advice.
@@ -751,16 +796,7 @@ class NotificationService:
                 "## 📊 分析结果摘要",
                 "",
             ])
-            for r in sorted_results:
-                _, signal_emoji, _ = self._get_signal_level(r)
-                display_name = self._escape_md(r.name)
-                report_lines.append(
-                    f"{signal_emoji} **{display_name}({r.code})**: {r.operation_advice} | "
-                    f"评分 {r.sentiment_score} | {r.trend_prediction}"
-                )
-                report_lines.append(
-                    f"   - 今日动作: `{getattr(r, 'position_action', 'HOLD')}` | 当前仓位 {getattr(r, 'current_weight', 0.0):.2%} → 目标仓位 {getattr(r, 'target_weight', 0.0):.2%} | 调整金额 {getattr(r, 'delta_amount', 0.0):,.2f}"
-                )
+            report_lines.extend(self._build_analysis_results_summary_table(sorted_results))
             report_lines.extend([
                 "",
                 "---",
