@@ -399,6 +399,40 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertTrue(mock_apply.called)
         self.assertFalse(mock_apply.call_args.kwargs["persist"])
 
+    def test_analyze_stock_persists_when_analysis_read_only_disabled(self):
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.db = self.db
+        pipeline.config = SimpleNamespace(analysis_read_only=False, save_context_snapshot=False)
+        pipeline.fetcher_manager = SimpleNamespace(
+            get_realtime_quote=lambda code: SimpleNamespace(name=f"股票{code}", price=100.0, change_pct=1.2),
+            get_chip_distribution=lambda code: None,
+        )
+        pipeline.trend_analyzer = MagicMock()
+        pipeline.search_service = SimpleNamespace(is_available=False)
+        pipeline.analyzer = MagicMock()
+        pipeline.analyzer.analyze.return_value = self._result("RW1", final_decision="BUY")
+        pipeline.position_manager = PositionManager()
+        pipeline.save_context_snapshot = False
+
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+
+        with patch.object(pipeline, "_apply_decision_structure") as mock_decision:
+            mock_decision.return_value = None
+            result = pipeline.analyze_stock(
+                code="RW1",
+                report_type=ReportType.SIMPLE,
+                query_id="q_analyze_rw",
+                df_attrs={},
+                market_overview=None,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertIsNotNone(self.db.get_portfolio_position("RW1"))
+        self.assertEqual(len(self.db.get_trade_journal(code="RW1", limit=10)), 1)
+        snapshot_after = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot_after)
+        self.assertLess(snapshot_after.cash, 10000.0)
+
 
 if __name__ == "__main__":
     unittest.main()

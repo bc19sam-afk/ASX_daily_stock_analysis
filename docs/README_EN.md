@@ -106,6 +106,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `CUSTOM_WEBHOOK_BEARER_TOKEN` | Bearer token for custom webhooks (if required) | Optional |
 | `SINGLE_STOCK_NOTIFY` | Send notification immediately after each stock | Optional |
 | `REPORT_TYPE` | `simple` or `full` (Docker recommended: `full`) | Optional |
+| `ANALYSIS_READ_ONLY` | Read-only analysis switch (default `true`). With default settings, daily analysis/report generation does not write real portfolio/account state; use manual workflows (`init-portfolio`, `record-trade`) for real account changes unless explicitly overridden | Optional |
 | `ANALYSIS_DELAY` | Delay between stocks and market review (seconds) | Optional |
 
 > Note: Configure at least one channel; multiple channels will all receive notifications.
