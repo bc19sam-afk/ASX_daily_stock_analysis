@@ -270,6 +270,45 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
         self.assertIn("execution_blocked=price_unavailable", result.action_reason)
 
+    def test_missing_price_uses_existing_market_value_for_nonzero_exposure_and_path_parity(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=9000, equity_value=1000, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="NOPX",
+            name="NOPX",
+            quantity=10,
+            avg_cost=100,
+            current_price=None,
+            weight=0.0,  # stale/invalid stored weight should not zero-out exposure
+            market_value=1000,
+        )
+
+        ro_result = self._result("NOPX", final_decision="HOLD")
+        self.pipeline._apply_position_management(
+            result=ro_result,
+            query_id="q_missing_price_ro",
+            current_price=None,
+            persist=False,
+        )
+
+        rw_result = self._result("NOPX", final_decision="HOLD")
+        self.pipeline._apply_position_management(
+            result=rw_result,
+            query_id="q_missing_price_rw",
+            current_price=None,
+            persist=True,
+        )
+
+        self.assertEqual(ro_result.position_action, "HOLD")
+        self.assertEqual(rw_result.position_action, "HOLD")
+        self.assertAlmostEqual(ro_result.current_weight, 0.1, places=4)
+        self.assertAlmostEqual(rw_result.current_weight, 0.1, places=4)
+        self.assertAlmostEqual(ro_result.target_weight, rw_result.target_weight, places=4)
+        self.assertAlmostEqual(ro_result.delta_amount, 0.0, places=2)
+        self.assertAlmostEqual(rw_result.delta_amount, 0.0, places=2)
+
+        # Non-executable branch should not write journal rows in persist mode either.
+        self.assertEqual(self.db.get_trade_journal(code="NOPX", limit=10), [])
+
     def test_atomic_rollback_when_journal_fails_for_new_position_insert(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
         result = self._result("EEE", final_decision="BUY")
@@ -416,15 +455,43 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         )
 
         self.assertEqual(ro_result.position_action, rw_result.position_action)
+        self.assertAlmostEqual(ro_result.current_weight, rw_result.current_weight, places=4)
         self.assertAlmostEqual(ro_result.target_weight, rw_result.target_weight, places=4)
         self.assertAlmostEqual(ro_result.delta_amount, rw_result.delta_amount, places=2)
         self.assertEqual(ro_result.position_action, "ADD")
+        self.assertAlmostEqual(ro_result.current_weight, 0.1, places=4)
         self.assertAlmostEqual(ro_result.target_weight, 0.11, places=4)
         self.assertAlmostEqual(ro_result.delta_amount, 100.0, places=2)
 
         latest_journal = self.db.get_trade_journal(code="AFB", limit=1)[0]
         self.assertAlmostEqual(latest_journal.target_quantity, 11.0, places=4)
         self.assertAlmostEqual(latest_journal.delta_amount, ro_result.delta_amount, places=2)
+
+    def test_stale_stored_weight_does_not_drive_position_decision_math(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=9000, equity_value=1000, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="STL",
+            name="STL",
+            quantity=10,
+            avg_cost=100,
+            current_price=100,
+            weight=0.90,  # stale weight should be ignored by decision logic
+            market_value=1000,
+        )
+
+        result = self._result("STL", final_decision="HOLD")
+        self.pipeline._apply_position_management(
+            result=result,
+            query_id="q_stale_weight",
+            current_price=100,
+            persist=False,
+        )
+
+        # With live recompute current_weight=1000/10000=0.1, HOLD should remain HOLD.
+        self.assertEqual(result.position_action, "HOLD")
+        self.assertAlmostEqual(result.current_weight, 0.1, places=4)
+        self.assertAlmostEqual(result.target_weight, 0.1, places=4)
+        self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
 
     def test_analyze_stock_defaults_to_read_only_position_management(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
