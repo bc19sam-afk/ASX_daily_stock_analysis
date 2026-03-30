@@ -402,6 +402,7 @@ class StockAnalysisPipeline:
                     result=result,
                     query_id=query_id,
                     current_price=result.current_price,
+                    persist=not getattr(self.config, "analysis_read_only", True),
                 )
 
             # Step 8: 保存分析历史记录
@@ -544,6 +545,7 @@ class StockAnalysisPipeline:
         result: AnalysisResult,
         query_id: str,
         current_price: Optional[float],
+        persist: bool = True,
     ) -> None:
         if self._should_serialize_automatic_portfolio_transition():
             with self._automatic_portfolio_transition_lock:
@@ -551,6 +553,7 @@ class StockAnalysisPipeline:
                     result=result,
                     query_id=query_id,
                     current_price=current_price,
+                    persist=persist,
                 )
             return
 
@@ -558,6 +561,7 @@ class StockAnalysisPipeline:
             result=result,
             query_id=query_id,
             current_price=current_price,
+            persist=persist,
         )
 
     def _should_serialize_automatic_portfolio_transition(self) -> bool:
@@ -569,6 +573,7 @@ class StockAnalysisPipeline:
         result: AnalysisResult,
         query_id: str,
         current_price: Optional[float],
+        persist: bool = True,
     ) -> None:
         latest_snapshot = self.db.get_latest_account_snapshot()
         cash = float(latest_snapshot.cash) if latest_snapshot else 10000.0
@@ -640,6 +645,10 @@ class StockAnalysisPipeline:
         result.target_weight = round(target_value / total_value, 4) if total_value > 0 else 0.0
         result.delta_amount = delta_amount
         result.action_reason = decision.reason
+
+        if not persist:
+            logger.info("[%s] 分析只读模式：仅计算仓位建议，不写入账户状态", result.code)
+            return
 
         session = None
         try:

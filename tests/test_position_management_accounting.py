@@ -6,11 +6,13 @@ import threading
 import time
 import unittest
 from datetime import date
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import patch, MagicMock
 
 from src.analyzer import AnalysisResult
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.position_manager import PositionManager
+from src.enums import ReportType
 from src.storage import DatabaseManager
 
 
@@ -334,6 +336,68 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertLess(snapshot.cash, 10000.0)
         self.assertGreater(snapshot.equity_value, 0.0)
         self.assertAlmostEqual(snapshot.total_value, 10000.0, places=2)
+
+    def test_read_only_position_management_does_not_persist_accounting_tables(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="HHH",
+            name="HHH",
+            quantity=10,
+            avg_cost=100,
+            current_price=100,
+            weight=0.1,
+            market_value=1000,
+        )
+        snapshot_before = self.db.get_latest_account_snapshot()
+        pos_before = self.db.get_portfolio_position("HHH")
+        journal_count_before = len(self.db.get_trade_journal(limit=100))
+
+        result = self._result("HHH", final_decision="SELL")
+        self.pipeline._apply_position_management(
+            result=result,
+            query_id="q_read_only",
+            current_price=100,
+            persist=False,
+        )
+
+        pos_after = self.db.get_portfolio_position("HHH")
+        self.assertIsNotNone(pos_after)
+        self.assertAlmostEqual(pos_after.quantity, float(pos_before.quantity), places=4)
+        self.assertAlmostEqual(pos_after.market_value, float(pos_before.market_value), places=2)
+        self.assertEqual(len(self.db.get_trade_journal(limit=100)), journal_count_before)
+
+        snapshot_after = self.db.get_latest_account_snapshot()
+        self.assertIsNotNone(snapshot_after)
+        self.assertAlmostEqual(snapshot_after.cash, float(snapshot_before.cash), places=2)
+        self.assertAlmostEqual(snapshot_after.equity_value, float(snapshot_before.equity_value), places=2)
+        self.assertAlmostEqual(snapshot_after.total_value, float(snapshot_before.total_value), places=2)
+
+    def test_analyze_stock_defaults_to_read_only_position_management(self):
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.db = self.db
+        pipeline.config = SimpleNamespace(analysis_read_only=True, save_context_snapshot=False)
+        pipeline.fetcher_manager = SimpleNamespace(
+            get_realtime_quote=lambda code: None,
+            get_chip_distribution=lambda code: None,
+        )
+        pipeline.trend_analyzer = MagicMock()
+        pipeline.search_service = SimpleNamespace(is_available=False)
+        pipeline.analyzer = MagicMock(return_value=None)
+        pipeline.analyzer.analyze.return_value = self._result("RO1", final_decision="BUY")
+        pipeline.save_context_snapshot = False
+
+        with patch.object(pipeline, "_apply_position_management") as mock_apply:
+            result = pipeline.analyze_stock(
+                code="RO1",
+                report_type=ReportType.SIMPLE,
+                query_id="q_analyze_ro",
+                df_attrs={},
+                market_overview=None,
+            )
+
+        self.assertIsNotNone(result)
+        self.assertTrue(mock_apply.called)
+        self.assertFalse(mock_apply.call_args.kwargs["persist"])
 
 
 if __name__ == "__main__":
