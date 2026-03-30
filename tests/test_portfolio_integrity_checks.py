@@ -209,6 +209,53 @@ class PortfolioIntegrityChecksTestCase(unittest.TestCase):
 
             session.rollback()
 
+    def test_journal_target_weight_drift_is_warning_only_when_qty_and_status_match(self):
+        with self.db.get_session() as session:
+            self.db.save_account_snapshot_in_session(
+                session=session,
+                snapshot_date=date.today(),
+                cash=900.0,
+                equity_value=100.0,
+                total_value=1000.0,
+            )
+            self.db.upsert_portfolio_position_in_session(
+                session=session,
+                code="AAA",
+                name="AAA",
+                quantity=10.0,
+                avg_cost=10.0,
+                current_price=10.0,
+                weight=0.05,  # stale weight
+                market_value=100.0,
+            )
+            self.db.save_trade_journal_in_session(
+                session=session,
+                query_id="manual_trade_workflow",
+                code="AAA",
+                action_date=date.today(),
+                action="OPEN",
+                final_decision="BUY",
+                market_regime="MANUAL",
+                event_risk="NA",
+                data_quality_flag="MANUAL",
+                current_weight=0.0,
+                target_weight=0.10,  # differs from stored 0.05
+                delta_amount=100.0,
+                current_quantity=0.0,
+                target_quantity=10.0,  # matches position quantity
+                current_price=10.0,
+                available_cash_before=1000.0,
+                available_cash_after=900.0,  # matches snapshot cash
+                reason="manual_open fee=0",
+            )
+
+            result = self.db.check_portfolio_account_integrity(session=session, journal_code="AAA")
+            self.assertTrue(result["is_valid"])
+            self.assertEqual(result["errors"], [])
+            self.assertTrue(any("Journal/position weight mismatch" in msg for msg in result["warnings"]))
+
+            session.rollback()
+
     def test_portfolio_overview_values_are_recomputed_consistently(self):
         self.db.save_account_snapshot(
             snapshot_date=date.today(),
