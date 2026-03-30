@@ -1516,7 +1516,7 @@ class DatabaseManager:
                 f"cash+recomputed_equity={recomputed_total:.2f}."
             )
 
-        effective_total = snapshot_total if snapshot_total > tolerance else recomputed_total
+        effective_total = recomputed_total
         total_open_weight = 0.0
 
         for pos in positions:
@@ -1542,7 +1542,7 @@ class DatabaseManager:
                 total_open_weight += weight
                 expected_weight = (market_value / effective_total) if effective_total > tolerance else 0.0
                 if abs(weight - expected_weight) > tolerance:
-                    errors.append(
+                    warnings.append(
                         f"Position weight mismatch for {code}: stored_weight={weight:.6f}, "
                         f"expected_weight={expected_weight:.6f}."
                     )
@@ -1555,7 +1555,7 @@ class DatabaseManager:
         if effective_total > tolerance:
             expected_open_weight = open_market_value_sum / effective_total
             if abs(total_open_weight - expected_open_weight) > tolerance:
-                errors.append(
+                warnings.append(
                     f"Open weight sum mismatch: sum_open_weight={total_open_weight:.6f}, "
                     f"expected_equity_weight={expected_open_weight:.6f}."
                 )

@@ -7,6 +7,7 @@ from datetime import date
 
 from sqlalchemy import select
 
+from scripts.manual_portfolio_workflows import record_trade
 from src.storage import DatabaseManager, PortfolioPosition
 
 
@@ -102,7 +103,7 @@ class PortfolioIntegrityChecksTestCase(unittest.TestCase):
 
             session.rollback()
 
-    def test_stale_weight_does_not_mislead_overview_and_is_detected(self):
+    def test_stale_weight_does_not_mislead_overview_and_is_warning_only(self):
         self.db.save_account_snapshot(
             snapshot_date=date.today(),
             cash=200.0,
@@ -129,8 +130,8 @@ class PortfolioIntegrityChecksTestCase(unittest.TestCase):
         )
 
         integrity = self.db.check_portfolio_account_integrity()
-        self.assertFalse(integrity["is_valid"])
-        self.assertTrue(any("Position weight mismatch" in msg for msg in integrity["errors"]))
+        self.assertTrue(integrity["is_valid"])
+        self.assertTrue(any("Position weight mismatch" in msg for msg in integrity["warnings"]))
 
         overview = self.db.get_portfolio_overview()
         weights = {item["code"]: item["weight"] for item in overview["holdings"]}
@@ -239,6 +240,41 @@ class PortfolioIntegrityChecksTestCase(unittest.TestCase):
         self.assertAlmostEqual(overview["equity_value"], 300.0, places=2)
         self.assertAlmostEqual(overview["total_value"], 600.0, places=2)
         self.assertAlmostEqual(sum(item["weight"] for item in overview["holdings"]), 0.5, places=6)
+
+    def test_trade_on_one_symbol_does_not_fail_integrity_due_to_other_stale_weight(self):
+        self.db.save_account_snapshot(
+            snapshot_date=date.today(),
+            cash=1000.0,
+            equity_value=1000.0,
+            total_value=2000.0,
+        )
+        self.db.upsert_portfolio_position(
+            code="AAA",
+            name="AAA",
+            quantity=50.0,
+            avg_cost=10.0,
+            current_price=10.0,
+            weight=0.25,
+            market_value=500.0,
+        )
+        self.db.upsert_portfolio_position(
+            code="BBB",
+            name="BBB",
+            quantity=50.0,
+            avg_cost=10.0,
+            current_price=10.0,
+            weight=0.25,
+            market_value=500.0,
+        )
+
+        record_trade(self.db, code="AAA", side="BUY", quantity=10, price=10, fee=100)
+
+        # record_trade only rewrites traded symbol weight today; untouched BBB may stay stale.
+        # Integrity should remain valid and only emit weight warnings.
+        result = self.db.check_portfolio_account_integrity()
+        self.assertTrue(result["is_valid"])
+        self.assertEqual(result["errors"], [])
+        self.assertTrue(any("weight mismatch" in msg.lower() for msg in result["warnings"]))
 
 
 if __name__ == "__main__":
