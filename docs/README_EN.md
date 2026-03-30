@@ -361,6 +361,16 @@ PUSHPLUS_TOKEN=your_token_here
 
 ## 🔧 Advanced Configuration
 
+### Report State Semantics (Regression Contract)
+
+- **A. Current Portfolio Overview (Executed / Real State)**: executed/live account state only (cash, equity value, total value, current holdings).
+- **B. Recommended Actions Today (Recommended / Not Executed)**: analysis recommendations only; not executed trades.
+- **C. Hypothetical Target Allocation (Simulated / Target Allocation)**: simulated target weights and delta amounts for planning, not actual fills.
+
+With default `ANALYSIS_READ_ONLY=true`, daily analysis and report generation are read-only and do **not** mutate real account state. Real account changes should be done via manual workflows (`init-portfolio`, `record-trade`) unless explicitly overridden.
+
+Portfolio overview values should be safely recomputed from executed state, and should not blindly trust stale stored weights or snapshot-derived fields.
+
 ### Environment Variables
 
 ```bash

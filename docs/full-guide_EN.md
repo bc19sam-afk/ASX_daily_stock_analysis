@@ -93,7 +93,17 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 |------------|------|:----:|
 | `SINGLE_STOCK_NOTIFY` | Single stock push mode: set to `true` to push immediately after each stock analysis | Optional |
 | `REPORT_TYPE` | Report type: `simple` (brief) or `full` (complete), Docker environment recommended: `full` | Optional |
+| `REPORT_SUMMARY_ONLY` | Summary-only report mode. Set to `true` to send only summary sections without per-stock detail blocks | Optional |
+| `ANALYSIS_READ_ONLY` | Read-only analysis switch (default `true`). Daily analysis/report does not mutate real account state unless explicitly overridden; use manual workflows (`init-portfolio`, `record-trade`) for real account changes | Optional |
 | `ANALYSIS_DELAY` | Delay between stock analysis and market review (seconds) to avoid API rate limits, e.g., `10` | Optional |
+
+#### Report State Semantics (Regression Contract)
+
+- **A. Current Portfolio Overview (Executed / Real State)**: executed/live account state only.
+- **B. Recommended Actions Today (Recommended / Not Executed)**: recommendations only; not executed trades.
+- **C. Hypothetical Target Allocation (Simulated / Target Allocation)**: simulated target weights/deltas for planning.
+
+`Portfolio Overview` values should be safely recomputed from executed state (cash/equity/total/holdings), rather than blindly trusting stale stored weights or snapshot-derived fields.
 
 #### Other Configuration
 

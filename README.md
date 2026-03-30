@@ -201,6 +201,16 @@ python main.py
 
 > 📖 完整环境变量、定时任务配置请参考 [完整配置指南](docs/full-guide.md)
 
+### 报告状态语义（回归保护约定）
+
+- **A. Current Portfolio Overview (Executed / Real State)**：仅展示已执行/真实账户状态（现金、持仓市值、总资产、当前持仓）。
+- **B. Recommended Actions Today (Recommended / Not Executed)**：仅展示当日建议动作，不代表已成交或已写入账户。
+- **C. Hypothetical Target Allocation (Simulated / Target Allocation)**：仅展示模拟目标仓位与调仓金额，用于计划参考。
+
+默认情况下（`ANALYSIS_READ_ONLY=true`），日常分析和日报是**只读**流程：不会改写真实账户。真实账户变更应通过人工工作流（如 `init-portfolio`、`record-trade`）执行，除非你明确关闭只读并采用覆盖流程。
+
+Portfolio Overview 的数值应以当前已执行账户状态安全重算（cash/equity/total/holdings），不要盲目信任历史快照字段或陈旧权重缓存。
+
 
 ## 🖥️ Web 界面
 
