@@ -395,10 +395,14 @@ class StockAnalysisPipeline:
                     enhanced_context=enhanced_context,
                     trend_result=trend_result,
                 )
+                execution_price = self._resolve_execution_price(
+                    enhanced_context=enhanced_context,
+                )
+                result.current_price = execution_price
                 self._apply_position_management(
                     result=result,
                     query_id=query_id,
-                    current_price=result.current_price,
+                    current_price=execution_price,
                     persist=not getattr(self.config, "analysis_read_only", True),
                 )
 
@@ -535,6 +539,34 @@ class StockAnalysisPipeline:
         result.data_quality_flag = data_quality_flag
         result.final_decision = final_decision
         result.watchlist_state = "ACTIVE"
+
+    @staticmethod
+    def _resolve_execution_price(
+        *,
+        enhanced_context: Dict[str, Any],
+    ) -> Optional[float]:
+        """Resolve executable price for position sizing.
+
+        Priority:
+        1) realtime quote price
+        2) today's close from context
+        """
+        candidates: List[Any] = []
+        realtime = enhanced_context.get("realtime") if isinstance(enhanced_context, dict) else None
+        if isinstance(realtime, dict):
+            candidates.append(realtime.get("price"))
+        today = enhanced_context.get("today") if isinstance(enhanced_context, dict) else None
+        if isinstance(today, dict):
+            candidates.append(today.get("close"))
+
+        for value in candidates:
+            try:
+                price = float(value)
+            except (TypeError, ValueError):
+                continue
+            if price > 0:
+                return price
+        return None
 
     def _apply_position_management(
         self,
