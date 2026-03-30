@@ -83,6 +83,25 @@ class DecisionStructureTestCase(unittest.TestCase):
         self.assertEqual(GeminiAnalyzer._fold_unknown("UNKNOWN", fallback="NEU"), "NEU")
         self.assertEqual(GeminiAnalyzer._fold_unknown("NEG", fallback="NEU"), "NEG")
 
+    def test_resolve_execution_price_prefers_realtime_then_today_close(self):
+        self.assertEqual(
+            StockAnalysisPipeline._resolve_execution_price(
+                enhanced_context={"realtime": {"price": 52.31}, "today": {"close": 51.8}},
+            ),
+            52.31,
+        )
+        self.assertEqual(
+            StockAnalysisPipeline._resolve_execution_price(
+                enhanced_context={"realtime": {"price": None}, "today": {"close": 51.8}},
+            ),
+            51.8,
+        )
+        self.assertIsNone(
+            StockAnalysisPipeline._resolve_execution_price(
+                enhanced_context={"realtime": {"price": None}, "today": {"close": None}},
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
