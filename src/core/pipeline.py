@@ -797,6 +797,10 @@ class StockAnalysisPipeline:
             current_symbol_price = float(existing.current_price)
 
         current_position_value = quantity * current_symbol_price if quantity > 0 and current_symbol_price > 0 else 0.0
+        if current_position_value <= 0 and existing and quantity > 0:
+            fallback_market_value = float(existing.market_value or 0.0)
+            if fallback_market_value > 0:
+                current_position_value = fallback_market_value
 
         current_equity_value = 0.0
         for position in open_positions or []:
