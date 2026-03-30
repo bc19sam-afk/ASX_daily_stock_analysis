@@ -95,10 +95,19 @@ daily_stock_analysis/
 | `SINGLE_STOCK_NOTIFY` | 单股推送模式：设为 `true` 则每分析完一只股票立即推送 | 可选 |
 | `REPORT_TYPE` | 报告类型：`simple`(精简) 或 `full`(完整)，Docker环境推荐设为 `full` | 可选 |
 | `REPORT_SUMMARY_ONLY` | 仅分析结果摘要：设为 `true` 时只推送汇总，不含个股详情；多股时适合快速浏览（默认 false，Issue #262） | 可选 |
+| `ANALYSIS_READ_ONLY` | 分析流程只读开关（默认 `true`）。默认情况下日常分析/报告不会写入真实账户；真实账户变更应通过人工流程（`init-portfolio`、`record-trade`）执行，除非显式覆盖 | 可选 |
 | `ANALYSIS_DELAY` | 个股分析和大盘分析之间的延迟（秒），避免API限流，如 `10` | 可选 |
 | `MERGE_EMAIL_NOTIFICATION` | 个股与大盘复盘合并推送（默认 false），减少邮件数量、降低垃圾邮件风险；与 `SINGLE_STOCK_NOTIFY` 互斥（单股模式下合并不生效） | 可选 |
 | `MARKDOWN_TO_IMAGE_CHANNELS` | 将 Markdown 转为图片发送的渠道（用逗号分隔）：telegram,wechat,custom,email，需安装 wkhtmltopdf | 可选 |
 | `MARKDOWN_TO_IMAGE_MAX_CHARS` | 超过此长度不转图片，避免超大图片（默认 15000） | 可选 |
+
+#### 报告状态语义（防回归约定）
+
+- **A. Current Portfolio Overview (Executed / Real State)**：仅展示已执行的真实账户状态。
+- **B. Recommended Actions Today (Recommended / Not Executed)**：仅展示建议，不代表已成交。
+- **C. Hypothetical Target Allocation (Simulated / Target Allocation)**：仅展示模拟目标仓位与调仓金额，用于计划参考。
+
+`Portfolio Overview` 应基于当前已执行账户状态进行安全重算（cash/equity/total/holdings），不要盲目信任历史快照字段或陈旧权重缓存。
 
 #### 其他配置
 

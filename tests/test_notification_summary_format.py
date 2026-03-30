@@ -3,6 +3,7 @@
 
 import unittest
 from unittest.mock import patch
+from datetime import datetime as real_datetime
 
 from src.analyzer import AnalysisResult
 from src.formatters import format_feishu_markdown, markdown_to_html_document
@@ -30,6 +31,36 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         base.update(overrides)
         return AnalysisResult(**base)
+
+    def _build_regression_results(self) -> list[AnalysisResult]:
+        return [
+            self._build_result(
+                code="600519",
+                name="贵州茅台",
+                sentiment_score=78,
+                trend_prediction="震荡上行",
+                operation_advice="区间交易",
+                position_action="ADD",
+                current_weight=0.10,
+                target_weight=0.16,
+                delta_amount=15000.0,
+                action_reason="回撤到支撑位后分批执行",
+                final_decision="BUY",
+            ),
+            self._build_result(
+                code="000858",
+                name="五粮液",
+                sentiment_score=52,
+                trend_prediction="区间震荡",
+                operation_advice="持有观察",
+                position_action="HOLD",
+                current_weight=0.08,
+                target_weight=0.08,
+                delta_amount=0.0,
+                action_reason="等待放量突破再调整",
+                final_decision="HOLD",
+            ),
+        ]
 
     @patch("src.notification.get_db")
     def test_dashboard_summary_renders_table_with_long_stock_name(self, mock_get_db) -> None:
@@ -127,6 +158,148 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("ADD · 分批执行 | 严格止损", wechat)
         self.assertIn("**C) 目标仓位（模拟，不代表已成交）**", wechat)
         self.assertIn("执行中 12.00% → 模拟目标 18.00% (Δ3,200.00)", wechat)
+
+    @patch("src.notification.datetime")
+    @patch("src.notification.get_db")
+    def test_dashboard_report_snapshot_regression(self, mock_get_db, mock_datetime) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 200000.0,
+            "equity_value": 300000.0,
+            "total_value": 500000.0,
+            "holdings": [
+                {"code": "600519", "name": "贵州茅台", "quantity": 100, "weight": 0.36},
+                {"code": "000858", "name": "五粮液", "quantity": 200, "weight": 0.24},
+            ],
+        }
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        service = self._build_service()
+
+        report = service.generate_dashboard_report(self._build_regression_results(), report_date="2026-03-30")
+
+        expected = """# 🎯 2026-03-30 决策仪表盘
+
+> 共分析 **2** 只股票 | 🟢买入:1 🟡观望:1 🔴卖出:0
+
+## A. Current Portfolio Overview (Executed / Real State)
+
+- 可用现金: **200,000.00**
+- 持仓市值: **300,000.00**
+- 账户总值: **500,000.00**
+
+| 当前持仓 | 数量 | 权重 |
+|---------|------|------|
+| 贵州茅台(600519) | 100.00 | 36.00% |
+| 五粮液(000858) | 200.00 | 24.00% |
+
+## B. Recommended Actions Today
+
+> 以下内容为今日分析建议，尚未执行，不代表真实账户已变化。
+
+| Stock | AI View | Recommended Action Today (Not Executed) |
+|---|---|---|
+| 🟢 **贵州茅台(600519)** | 区间交易 · 评分 78 · 震荡上行 | ADD · 回撤到支撑位后分批执行 |
+| ⚪ **五粮液(000858)** | 持有观察 · 评分 52 · 区间震荡 | HOLD · 等待放量突破再调整 |
+
+## C. Hypothetical Target Allocation (Simulated / Recommended)
+
+> 以下目标仓位为模拟结果，仅用于计划参考。Portfolio Overview 始终展示已执行的真实状态。
+
+| Stock | Current Executed Weight | Simulated Target Weight | Simulated Delta Amount |
+|---|---:|---:|---:|
+| 🟢 **贵州茅台(600519)** | 10.00% | 16.00% | 15,000.00 |
+| ⚪ **五粮液(000858)** | 8.00% | 8.00% | 0.00 |
+
+---
+
+
+*报告生成时间：2026-03-30 09:30:45*"""
+        self.assertEqual(expected, report)
+        self.assertIn("## A. Current Portfolio Overview (Executed / Real State)", report)
+        self.assertIn("## B. Recommended Actions Today", report)
+        self.assertIn("## C. Hypothetical Target Allocation (Simulated / Recommended)", report)
+
+    @patch("src.notification.datetime")
+    @patch("src.notification.get_db")
+    def test_wechat_report_snapshot_regression(self, mock_get_db, mock_datetime) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 200000.0,
+            "equity_value": 300000.0,
+            "total_value": 500000.0,
+            "holdings": [],
+        }
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        service = self._build_service()
+
+        report = service.generate_wechat_dashboard(self._build_regression_results())
+        expected = """## 🎯 2026-03-30 决策仪表盘
+
+> 2只股票 | 🟢买入:1 🟡观望:1 🔴卖出:0
+
+**A) 当前账户状态（已执行）**
+- 现金: 200,000.00
+- 持仓市值: 300,000.00
+- 总资产: 500,000.00
+
+**B) 今日建议动作（未执行）**
+
+🟢 **贵州茅台(600519)**: ADD · 回撤到支撑位后分批执行 (AI: 区间交易 / 78)
+⚪ **五粮液(000858)**: HOLD · 等待放量突破再调整 (AI: 持有观察 / 52)
+
+**C) 目标仓位（模拟，不代表已成交）**
+🟢 贵州茅台(600519): 执行中 10.00% → 模拟目标 16.00% (Δ15,000.00)
+⚪ 五粮液(000858): 执行中 8.00% → 模拟目标 8.00% (Δ0.00)
+*生成时间: 09:30*"""
+        self.assertEqual(expected, report)
+
+    @patch("src.notification.datetime")
+    @patch("src.notification.get_db")
+    def test_feishu_report_snapshot_regression(self, mock_get_db, mock_datetime) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 200000.0,
+            "equity_value": 300000.0,
+            "total_value": 500000.0,
+            "holdings": [
+                {"code": "600519", "name": "贵州茅台", "quantity": 100, "weight": 0.36},
+                {"code": "000858", "name": "五粮液", "quantity": 200, "weight": 0.24},
+            ],
+        }
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        service = self._build_service()
+        dashboard = service.generate_dashboard_report(self._build_regression_results(), report_date="2026-03-30")
+
+        feishu = format_feishu_markdown(dashboard)
+        expected = """**🎯 2026-03-30 决策仪表盘**
+
+💬 共分析 **2** 只股票 | 🟢买入:1 🟡观望:1 🔴卖出:0
+
+**A. Current Portfolio Overview (Executed / Real State)**
+
+• 可用现金: **200,000.00**
+• 持仓市值: **300,000.00**
+• 账户总值: **500,000.00**
+
+• 当前持仓：贵州茅台(600519) | 数量：100.00 | 权重：36.00%
+• 当前持仓：五粮液(000858) | 数量：200.00 | 权重：24.00%
+
+**B. Recommended Actions Today**
+
+💬 以下内容为今日分析建议，尚未执行，不代表真实账户已变化。
+
+• Stock：🟢 **贵州茅台(600519)** | AI View：区间交易 · 评分 78 · 震荡上行 | Recommended Action Today (Not Executed)：ADD · 回撤到支撑位后分批执行
+• Stock：⚪ **五粮液(000858)** | AI View：持有观察 · 评分 52 · 区间震荡 | Recommended Action Today (Not Executed)：HOLD · 等待放量突破再调整
+
+**C. Hypothetical Target Allocation (Simulated / Recommended)**
+
+💬 以下目标仓位为模拟结果，仅用于计划参考。Portfolio Overview 始终展示已执行的真实状态。
+
+• Stock：🟢 **贵州茅台(600519)** | Current Executed Weight：10.00% | Simulated Target Weight：16.00% | Simulated Delta Amount：15,000.00
+• Stock：⚪ **五粮液(000858)** | Current Executed Weight：8.00% | Simulated Target Weight：8.00% | Simulated Delta Amount：0.00
+
+────────
+
+
+*报告生成时间：2026-03-30 09:30:45*"""
+        self.assertEqual(expected, feishu)
 
 
 if __name__ == "__main__":
