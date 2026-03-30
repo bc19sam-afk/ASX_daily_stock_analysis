@@ -104,6 +104,30 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn(expected_action_line, feishu)
         self.assertIn(expected_sim_line, feishu)
 
+    @patch("src.notification.get_db")
+    def test_wechat_dashboard_separates_executed_recommended_and_simulated(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 120000.0,
+            "equity_value": 180000.0,
+            "total_value": 300000.0,
+            "holdings": [],
+        }
+        service = self._build_service()
+        result = self._build_result(
+            operation_advice="区间交易 | 高抛低吸",
+            action_reason="分批执行 | 严格止损",
+        )
+
+        wechat = service.generate_wechat_dashboard([result])
+        self.assertIn("**A) 当前账户状态（已执行）**", wechat)
+        self.assertIn("现金: 120,000.00", wechat)
+        self.assertIn("持仓市值: 180,000.00", wechat)
+        self.assertIn("总资产: 300,000.00", wechat)
+        self.assertIn("**B) 今日建议动作（未执行）**", wechat)
+        self.assertIn("ADD · 分批执行 | 严格止损", wechat)
+        self.assertIn("**C) 目标仓位（模拟，不代表已成交）**", wechat)
+        self.assertIn("执行中 12.00% → 模拟目标 18.00% (Δ3,200.00)", wechat)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1074,17 +1074,46 @@ class NotificationService:
             f"> {len(results)}只股票 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
             "",
         ]
+
+        try:
+            overview = get_db().get_portfolio_overview()
+        except Exception:
+            overview = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
+
+        lines.extend([
+            "**A) 当前账户状态（已执行）**",
+            f"- 现金: {overview.get('cash', 0.0):,.2f}",
+            f"- 持仓市值: {overview.get('equity_value', 0.0):,.2f}",
+            f"- 总资产: {overview.get('total_value', 0.0):,.2f}",
+            "",
+            "**B) 今日建议动作（未执行）**",
+            "",
+        ])
         
         # Issue #262: summary_only 时仅输出摘要列表
         if self._report_summary_only:
-            lines.append("**📊 分析结果摘要**")
-            lines.append("")
+            for r in sorted_results:
+                _, signal_emoji, _ = self._get_signal_level(r)
+                stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
+                action_reason = getattr(r, 'action_reason', '')
+                action_text = str(getattr(r, 'position_action', 'HOLD') or 'HOLD')
+                if action_reason:
+                    action_text = f"{action_text} · {action_reason}"
+                lines.append(
+                    f"{signal_emoji} **{stock_name}({r.code})**: {action_text[:70]} "
+                    f"(AI: {r.operation_advice} / {r.sentiment_score})"
+                )
+            lines.extend([
+                "",
+                "**C) 目标仓位（模拟，不代表已成交）**",
+            ])
             for r in sorted_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 lines.append(
-                    f"{signal_emoji} **{stock_name}({r.code})**: {r.operation_advice} | "
-                    f"评分 {r.sentiment_score} | {r.trend_prediction}"
+                    f"{signal_emoji} {stock_name}({r.code}): 执行中 {getattr(r, 'current_weight', 0.0):.2%} "
+                    f"→ 模拟目标 {getattr(r, 'target_weight', 0.0):.2%} "
+                    f"(Δ{getattr(r, 'delta_amount', 0.0):,.2f})"
                 )
         else:
             for result in sorted_results:
@@ -1100,6 +1129,13 @@ class NotificationService:
                 
                 # 标题行：信号等级 + 股票名称
                 lines.append(f"### {signal_emoji} **{signal_text}** | {stock_name}({result.code})")
+                lines.append("")
+
+                action_reason = getattr(result, 'action_reason', '')
+                action_text = str(getattr(result, 'position_action', 'HOLD') or 'HOLD')
+                if action_reason:
+                    action_text = f"{action_text} · {action_reason}"
+                lines.append(f"📋 今日建议(未执行): {action_text[:80]}")
                 lines.append("")
                 
                 # 核心决策（一句话）
@@ -1178,6 +1214,13 @@ class NotificationService:
                         for check in failed_checks[:3]:
                             lines.append(f"   {check[:40]}")
                         lines.append("")
+
+                lines.append(
+                    f"🧮 模拟仓位: 已执行 {getattr(result, 'current_weight', 0.0):.2%} "
+                    f"→ 目标 {getattr(result, 'target_weight', 0.0):.2%} "
+                    f"(模拟Δ{getattr(result, 'delta_amount', 0.0):,.2f})"
+                )
+                lines.append("")
                 
                 lines.append("---")
                 lines.append("")
