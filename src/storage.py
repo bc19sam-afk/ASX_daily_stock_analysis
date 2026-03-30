@@ -1496,29 +1496,35 @@ class DatabaseManager:
                 "warnings": warnings,
             }
 
+        snapshot_cash = round(float(latest_snapshot.cash or 0.0), 2)
+        snapshot_equity = round(float(latest_snapshot.equity_value or 0.0), 2)
+        snapshot_total = round(float(latest_snapshot.total_value or 0.0), 2)
+
         open_positions = [p for p in positions if (p.status or "").upper() == "OPEN"]
         open_market_value_sum = round(sum(float(p.market_value or 0.0) for p in open_positions), 2)
-        snapshot_equity = round(float(latest_snapshot.equity_value or 0.0), 2)
+        recomputed_total = round(snapshot_cash + open_market_value_sum, 2)
+
         if abs(open_market_value_sum - snapshot_equity) > tolerance:
             errors.append(
                 f"Snapshot equity mismatch: snapshot.equity_value={snapshot_equity:.2f}, "
                 f"sum_open_market_value={open_market_value_sum:.2f}."
             )
 
-        snapshot_cash = round(float(latest_snapshot.cash or 0.0), 2)
-        snapshot_total = round(float(latest_snapshot.total_value or 0.0), 2)
-        expected_total = round(snapshot_cash + snapshot_equity, 2)
-        if abs(snapshot_total - expected_total) > tolerance:
+        if abs(snapshot_total - recomputed_total) > tolerance:
             errors.append(
                 f"Snapshot total mismatch: snapshot.total_value={snapshot_total:.2f}, "
-                f"cash+equity={expected_total:.2f}."
+                f"cash+recomputed_equity={recomputed_total:.2f}."
             )
+
+        effective_total = recomputed_total
+        total_open_weight = 0.0
 
         for pos in positions:
             code = pos.code or "UNKNOWN"
             qty = float(pos.quantity or 0.0)
             avg_cost = float(pos.avg_cost or 0.0)
             weight = float(pos.weight or 0.0)
+            market_value = float(pos.market_value or 0.0)
             status = (pos.status or "").upper()
 
             if status == "OPEN" and qty <= 0:
@@ -1529,33 +1535,86 @@ class DatabaseManager:
                 errors.append(f"Invalid position {code}: avg_cost must be >= 0, got {avg_cost:.6f}.")
             if weight < 0:
                 errors.append(f"Invalid position {code}: weight must be >= 0, got {weight:.6f}.")
+            if market_value < 0:
+                errors.append(f"Invalid position {code}: market_value must be >= 0, got {market_value:.6f}.")
 
-        latest_journal_query = select(TradeJournal)
-        if journal_code:
-            latest_journal_query = latest_journal_query.where(TradeJournal.code == journal_code)
-        latest_journal = session.execute(
-            latest_journal_query
-            .order_by(desc(TradeJournal.action_date), desc(TradeJournal.created_at))
-            .limit(1)
-        ).scalar_one_or_none()
-
-        if latest_journal is not None:
-            journal_cash_after = float(latest_journal.available_cash_after or 0.0)
-            if abs(journal_cash_after - snapshot_cash) > tolerance:
-                warnings.append(
-                    f"Latest journal cash_after ({journal_cash_after:.2f}) differs from snapshot cash "
-                    f"({snapshot_cash:.2f})."
+            if status == "OPEN":
+                total_open_weight += weight
+                expected_weight = (market_value / effective_total) if effective_total > tolerance else 0.0
+                if abs(weight - expected_weight) > tolerance:
+                    warnings.append(
+                        f"Position weight mismatch for {code}: stored_weight={weight:.6f}, "
+                        f"expected_weight={expected_weight:.6f}."
+                    )
+            elif status == "CLOSED" and (market_value > tolerance or weight > tolerance):
+                errors.append(
+                    f"Invalid CLOSED position {code}: market_value/weight should be ~0, "
+                    f"got market_value={market_value:.6f}, weight={weight:.6f}."
                 )
 
-            related_position = session.execute(
-                select(PortfolioPosition).where(PortfolioPosition.code == latest_journal.code).limit(1)
-            ).scalar_one_or_none()
-            target_qty = float(latest_journal.target_quantity or 0.0)
-            current_qty = float(related_position.quantity or 0.0) if related_position else 0.0
-            if abs(current_qty - target_qty) > 1e-6:
+        if effective_total > tolerance:
+            expected_open_weight = open_market_value_sum / effective_total
+            if abs(total_open_weight - expected_open_weight) > tolerance:
                 warnings.append(
-                    f"Latest journal target_quantity ({target_qty:.6f}) differs from current stored quantity "
-                    f"for {latest_journal.code} ({current_qty:.6f})."
+                    f"Open weight sum mismatch: sum_open_weight={total_open_weight:.6f}, "
+                    f"expected_equity_weight={expected_open_weight:.6f}."
+                )
+
+        latest_journals_stmt = (
+            select(TradeJournal)
+            .order_by(
+                TradeJournal.code.asc(),
+                desc(TradeJournal.action_date),
+                desc(TradeJournal.created_at),
+                desc(TradeJournal.id),
+            )
+        )
+        if journal_code:
+            latest_journals_stmt = latest_journals_stmt.where(TradeJournal.code == journal_code)
+        journals = session.execute(latest_journals_stmt).scalars().all()
+        latest_by_code: Dict[str, TradeJournal] = {}
+        for journal in journals:
+            if journal.code not in latest_by_code:
+                latest_by_code[journal.code] = journal
+
+        for code, journal in latest_by_code.items():
+            related_position = session.execute(
+                select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
+            ).scalar_one_or_none()
+
+            target_qty = float(journal.target_quantity or 0.0)
+            target_weight = float(journal.target_weight or 0.0)
+            current_qty = float(related_position.quantity or 0.0) if related_position else 0.0
+            current_weight = float(related_position.weight or 0.0) if related_position else 0.0
+
+            if abs(current_qty - target_qty) > 1e-6:
+                errors.append(
+                    f"Journal/position quantity mismatch for {code}: "
+                    f"journal.target_quantity={target_qty:.6f}, stored_quantity={current_qty:.6f}."
+                )
+
+            if abs(current_weight - target_weight) > tolerance:
+                errors.append(
+                    f"Journal/position weight mismatch for {code}: "
+                    f"journal.target_weight={target_weight:.6f}, stored_weight={current_weight:.6f}."
+                )
+
+            if target_qty <= 0 and related_position and (related_position.status or "").upper() == "OPEN":
+                errors.append(
+                    f"Journal/position status mismatch for {code}: "
+                    "journal target_quantity<=0 but position is OPEN."
+                )
+
+        if latest_by_code:
+            latest_journal = max(
+                latest_by_code.values(),
+                key=lambda row: (row.action_date, row.created_at, row.id),
+            )
+            journal_cash_after = float(latest_journal.available_cash_after or 0.0)
+            if abs(journal_cash_after - snapshot_cash) > tolerance:
+                errors.append(
+                    f"Latest journal cash_after ({journal_cash_after:.2f}) differs from snapshot cash "
+                    f"({snapshot_cash:.2f})."
                 )
 
         return {
@@ -1565,26 +1624,36 @@ class DatabaseManager:
         }
 
     def get_portfolio_overview(self) -> Dict[str, Any]:
-        """获取组合汇总 + 持仓明细。"""
+        """获取组合汇总 + 持仓明细（数值按当前状态重算，避免读取过期快照字段）。"""
         latest = self.get_latest_account_snapshot()
         positions = self.get_portfolio_positions(only_open=True)
-        return {
-            "snapshot_date": latest.snapshot_date.isoformat() if latest else None,
-            "cash": float(latest.cash) if latest else 0.0,
-            "equity_value": float(latest.equity_value) if latest else 0.0,
-            "total_value": float(latest.total_value) if latest else 0.0,
-            "holdings": [
+
+        cash = round(float(latest.cash or 0.0), 2) if latest else 0.0
+        equity_value = round(sum(float(p.market_value or 0.0) for p in positions), 2)
+        total_value = round(cash + equity_value, 2)
+
+        holdings: List[Dict[str, Any]] = []
+        for p in positions:
+            market_value = float(p.market_value or 0.0)
+            weight = round(market_value / total_value, 6) if total_value > 0 else 0.0
+            holdings.append(
                 {
                     "code": p.code,
                     "name": p.name,
                     "quantity": float(p.quantity or 0.0),
                     "avg_cost": float(p.avg_cost or 0.0),
                     "current_price": p.current_price,
-                    "weight": float(p.weight or 0.0),
-                    "market_value": float(p.market_value or 0.0),
+                    "weight": weight,
+                    "market_value": market_value,
                 }
-                for p in positions
-            ],
+            )
+
+        return {
+            "snapshot_date": latest.snapshot_date.isoformat() if latest else None,
+            "cash": cash,
+            "equity_value": equity_value,
+            "total_value": total_value,
+            "holdings": holdings,
         }
 
     def get_analysis_context(
