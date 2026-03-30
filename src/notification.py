@@ -653,11 +653,11 @@ class NotificationService:
         text = text.replace("|", r"\|")
         return text.replace("\n", "<br>")
 
-    def _build_analysis_results_summary_table(self, results: List[AnalysisResult]) -> List[str]:
-        """Build a stable summary table for markdown/html/image/pdf output paths."""
+    def _build_recommended_actions_table(self, results: List[AnalysisResult]) -> List[str]:
+        """Build recommended actions table (analysis output; not yet executed)."""
         lines = [
-            "| Stock | AI View | Action | Current Weight | Target Weight | Delta Amount |",
-            "|---|---|---|---:|---:|---:|",
+            "| Stock | AI View | Recommended Action Today (Not Executed) |",
+            "|---|---|---|",
         ]
 
         for r in results:
@@ -678,7 +678,26 @@ class NotificationService:
                 "| "
                 f"{stock_cell} | "
                 f"{ai_view_cell} | "
-                f"{action_cell} | "
+                f"{action_cell} "
+                "|"
+            )
+        return lines
+
+    def _build_simulated_target_allocation_table(self, results: List[AnalysisResult]) -> List[str]:
+        """Build simulated target allocation table; clearly separated from executed state."""
+        lines = [
+            "| Stock | Current Executed Weight | Simulated Target Weight | Simulated Delta Amount |",
+            "|---|---:|---:|---:|",
+        ]
+
+        for r in results:
+            _, signal_emoji, _ = self._get_signal_level(r)
+            stock_cell = self._to_markdown_table_cell(
+                f"{signal_emoji} **{self._escape_md(r.name)}({r.code})**"
+            )
+            lines.append(
+                "| "
+                f"{stock_cell} | "
                 f"{getattr(r, 'current_weight', 0.0):.2%} | "
                 f"{getattr(r, 'target_weight', 0.0):.2%} | "
                 f"{getattr(r, 'delta_amount', 0.0):,.2f} "
@@ -771,7 +790,7 @@ class NotificationService:
             overview = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
 
         report_lines.extend([
-            "## 💼 组合概览",
+            "## A. Current Portfolio Overview (Executed / Real State)",
             "",
             f"- 可用现金: **{overview.get('cash', 0.0):,.2f}**",
             f"- 持仓市值: **{overview.get('equity_value', 0.0):,.2f}**",
@@ -790,13 +809,23 @@ class NotificationService:
                 )
             report_lines.append("")
 
-        # === 新增：分析结果摘要 (Issue #112) ===
+        # === 分离展示：实际账户状态 vs 今日建议/模拟结果 ===
         if results:
             report_lines.extend([
-                "## 📊 分析结果摘要",
+                "## B. Recommended Actions Today",
+                "",
+                "> 以下内容为今日分析建议，尚未执行，不代表真实账户已变化。",
                 "",
             ])
-            report_lines.extend(self._build_analysis_results_summary_table(sorted_results))
+            report_lines.extend(self._build_recommended_actions_table(sorted_results))
+            report_lines.extend([
+                "",
+                "## C. Hypothetical Target Allocation (Simulated / Recommended)",
+                "",
+                "> 以下目标仓位为模拟结果，仅用于计划参考。Portfolio Overview 始终展示已执行的真实状态。",
+                "",
+            ])
+            report_lines.extend(self._build_simulated_target_allocation_table(sorted_results))
             report_lines.extend([
                 "",
                 "---",
@@ -1045,17 +1074,46 @@ class NotificationService:
             f"> {len(results)}只股票 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
             "",
         ]
+
+        try:
+            overview = get_db().get_portfolio_overview()
+        except Exception:
+            overview = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
+
+        lines.extend([
+            "**A) 当前账户状态（已执行）**",
+            f"- 现金: {overview.get('cash', 0.0):,.2f}",
+            f"- 持仓市值: {overview.get('equity_value', 0.0):,.2f}",
+            f"- 总资产: {overview.get('total_value', 0.0):,.2f}",
+            "",
+            "**B) 今日建议动作（未执行）**",
+            "",
+        ])
         
         # Issue #262: summary_only 时仅输出摘要列表
         if self._report_summary_only:
-            lines.append("**📊 分析结果摘要**")
-            lines.append("")
+            for r in sorted_results:
+                _, signal_emoji, _ = self._get_signal_level(r)
+                stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
+                action_reason = getattr(r, 'action_reason', '')
+                action_text = str(getattr(r, 'position_action', 'HOLD') or 'HOLD')
+                if action_reason:
+                    action_text = f"{action_text} · {action_reason}"
+                lines.append(
+                    f"{signal_emoji} **{stock_name}({r.code})**: {action_text[:70]} "
+                    f"(AI: {r.operation_advice} / {r.sentiment_score})"
+                )
+            lines.extend([
+                "",
+                "**C) 目标仓位（模拟，不代表已成交）**",
+            ])
             for r in sorted_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 lines.append(
-                    f"{signal_emoji} **{stock_name}({r.code})**: {r.operation_advice} | "
-                    f"评分 {r.sentiment_score} | {r.trend_prediction}"
+                    f"{signal_emoji} {stock_name}({r.code}): 执行中 {getattr(r, 'current_weight', 0.0):.2%} "
+                    f"→ 模拟目标 {getattr(r, 'target_weight', 0.0):.2%} "
+                    f"(Δ{getattr(r, 'delta_amount', 0.0):,.2f})"
                 )
         else:
             for result in sorted_results:
@@ -1071,6 +1129,13 @@ class NotificationService:
                 
                 # 标题行：信号等级 + 股票名称
                 lines.append(f"### {signal_emoji} **{signal_text}** | {stock_name}({result.code})")
+                lines.append("")
+
+                action_reason = getattr(result, 'action_reason', '')
+                action_text = str(getattr(result, 'position_action', 'HOLD') or 'HOLD')
+                if action_reason:
+                    action_text = f"{action_text} · {action_reason}"
+                lines.append(f"📋 今日建议(未执行): {action_text[:80]}")
                 lines.append("")
                 
                 # 核心决策（一句话）
@@ -1149,6 +1214,13 @@ class NotificationService:
                         for check in failed_checks[:3]:
                             lines.append(f"   {check[:40]}")
                         lines.append("")
+
+                lines.append(
+                    f"🧮 模拟仓位: 已执行 {getattr(result, 'current_weight', 0.0):.2%} "
+                    f"→ 目标 {getattr(result, 'target_weight', 0.0):.2%} "
+                    f"(模拟Δ{getattr(result, 'delta_amount', 0.0):,.2f})"
+                )
+                lines.append("")
                 
                 lines.append("---")
                 lines.append("")
