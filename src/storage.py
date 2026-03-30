@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple
 
@@ -481,6 +482,7 @@ class DatabaseManager:
     """
     
     _instance: Optional['DatabaseManager'] = None
+    _portfolio_write_lock = threading.RLock()
     _initialized: bool = False
     
     def __new__(cls, *args, **kwargs):
@@ -682,6 +684,40 @@ class DatabaseManager:
         except Exception:
             session.close()
             raise
+
+    def get_portfolio_write_lock(self) -> threading.RLock:
+        """
+        获取组合账户写入锁（进程内）。
+
+        说明：
+        - 用于串行化 portfolio_positions/trade_journal/account_snapshots 的复合写入；
+        - 与 SQLite `BEGIN IMMEDIATE` 搭配，分别覆盖进程内并发与跨连接并发。
+        """
+        return self._portfolio_write_lock
+
+    def begin_portfolio_write_transaction(self, session: Session) -> None:
+        """
+        在给定 session 上开启账户写事务。
+
+        SQLite 下使用 BEGIN IMMEDIATE，提前获取写锁，避免并发写路径同时读取同一旧快照
+        后再分别提交导致的 cash/equity/total 漂移（lost update）。
+        """
+        if self._engine.dialect.name == "sqlite":
+            session.execute(text("BEGIN IMMEDIATE"))
+
+    def get_latest_account_snapshot_in_session(self, session: Session) -> Optional[AccountSnapshot]:
+        """在给定 session 中获取最新账户快照。"""
+        return session.execute(
+            select(AccountSnapshot)
+            .order_by(desc(AccountSnapshot.snapshot_date), desc(AccountSnapshot.created_at))
+            .limit(1)
+        ).scalar_one_or_none()
+
+    def get_portfolio_position_in_session(self, session: Session, code: str) -> Optional[PortfolioPosition]:
+        """在给定 session 中获取单只股票持仓。"""
+        return session.execute(
+            select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
+        ).scalar_one_or_none()
     
     def has_today_data(self, code: str, target_date: Optional[date] = None) -> bool:
         """
