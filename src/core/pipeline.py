@@ -571,19 +571,20 @@ class StockAnalysisPipeline:
     ) -> None:
         if not persist:
             latest_snapshot = self.db.get_latest_account_snapshot()
-            cash = float(latest_snapshot.cash) if latest_snapshot else 10000.0
-            total_value = float(latest_snapshot.total_value) if latest_snapshot else cash
-            if total_value <= 0:
-                total_value = max(cash, 10000.0)
             existing = self.db.get_portfolio_position(result.code)
-            quantity = float(existing.quantity) if existing else 0.0
-            avg_cost = float(existing.avg_cost) if existing else 0.0
-            current_weight = float(existing.weight) if existing else 0.0
+            open_positions = self.db.get_portfolio_positions(only_open=True)
+            portfolio_state = self._build_live_portfolio_state(
+                code=result.code,
+                existing=existing,
+                open_positions=open_positions,
+                latest_snapshot=latest_snapshot,
+                current_price=current_price,
+            )
             decision = self.position_manager.decide(
-                current_weight=current_weight,
-                avg_cost=avg_cost,
-                available_cash=cash,
-                total_value=total_value,
+                current_weight=portfolio_state["current_weight"],
+                avg_cost=portfolio_state["avg_cost"],
+                available_cash=portfolio_state["cash"],
+                total_value=portfolio_state["total_value"],
                 final_decision=result.final_decision,
                 market_regime=result.market_regime,
                 event_risk=result.event_risk,
@@ -591,24 +592,29 @@ class StockAnalysisPipeline:
             )
             calc = self._calculate_position_transition(
                 existing=existing,
-                quantity=quantity,
-                current_weight=current_weight,
+                quantity=portfolio_state["quantity"],
+                current_weight=portfolio_state["current_weight"],
                 decision=decision,
-                cash=cash,
-                total_value=total_value,
+                cash=portfolio_state["cash"],
+                total_value=portfolio_state["total_value"],
                 current_price=current_price,
+                current_value=portfolio_state["current_position_value"],
             )
             if calc is None:
                 result.position_action = "HOLD"
-                result.current_weight = round(current_weight, 4)
-                result.target_weight = round(current_weight, 4)
+                result.current_weight = round(portfolio_state["current_weight"], 4)
+                result.target_weight = round(portfolio_state["current_weight"], 4)
                 result.delta_amount = 0.0
                 result.action_reason = f"{decision.reason}, execution_blocked=price_unavailable"
                 logger.warning("[%s] 仓位管理跳过：缺少可执行价格，保持账户状态不变", result.code)
                 return
             result.position_action = calc["action"]
-            result.current_weight = round(current_weight, 4)
-            result.target_weight = round(calc["target_value"] / total_value, 4) if total_value > 0 else 0.0
+            result.current_weight = round(portfolio_state["current_weight"], 4)
+            result.target_weight = (
+                round(calc["target_value"] / portfolio_state["total_value"], 4)
+                if portfolio_state["total_value"] > 0
+                else 0.0
+            )
             result.delta_amount = calc["delta_amount"]
             result.action_reason = decision.reason
             logger.info("[%s] 分析只读模式：仅计算仓位建议，不写入账户状态", result.code)
@@ -621,20 +627,20 @@ class StockAnalysisPipeline:
             with self.db.get_session() as session:
                 self.db.begin_portfolio_write_transaction(session)
                 latest_snapshot = self.db.get_latest_account_snapshot_in_session(session)
-                cash = float(latest_snapshot.cash) if latest_snapshot else 10000.0
-                total_value = float(latest_snapshot.total_value) if latest_snapshot else cash
-                if total_value <= 0:
-                    total_value = max(cash, 10000.0)
-
                 existing = self.db.get_portfolio_position_in_session(session, result.code)
-                quantity = float(existing.quantity) if existing else 0.0
-                avg_cost = float(existing.avg_cost) if existing else 0.0
-                current_weight = float(existing.weight) if existing else 0.0
+                open_positions = self.db.get_open_portfolio_positions_in_session(session)
+                portfolio_state = self._build_live_portfolio_state(
+                    code=result.code,
+                    existing=existing,
+                    open_positions=open_positions,
+                    latest_snapshot=latest_snapshot,
+                    current_price=current_price,
+                )
                 decision = self.position_manager.decide(
-                    current_weight=current_weight,
-                    avg_cost=avg_cost,
-                    available_cash=cash,
-                    total_value=total_value,
+                    current_weight=portfolio_state["current_weight"],
+                    avg_cost=portfolio_state["avg_cost"],
+                    available_cash=portfolio_state["cash"],
+                    total_value=portfolio_state["total_value"],
                     final_decision=result.final_decision,
                     market_regime=result.market_regime,
                     event_risk=result.event_risk,
@@ -642,24 +648,29 @@ class StockAnalysisPipeline:
                 )
                 calc = self._calculate_position_transition(
                     existing=existing,
-                    quantity=quantity,
-                    current_weight=current_weight,
+                    quantity=portfolio_state["quantity"],
+                    current_weight=portfolio_state["current_weight"],
                     decision=decision,
-                    cash=cash,
-                    total_value=total_value,
+                    cash=portfolio_state["cash"],
+                    total_value=portfolio_state["total_value"],
                     current_price=current_price,
+                    current_value=portfolio_state["current_position_value"],
                 )
                 if calc is None:
                     result.position_action = "HOLD"
-                    result.current_weight = round(current_weight, 4)
-                    result.target_weight = round(current_weight, 4)
+                    result.current_weight = round(portfolio_state["current_weight"], 4)
+                    result.target_weight = round(portfolio_state["current_weight"], 4)
                     result.delta_amount = 0.0
                     result.action_reason = f"{decision.reason}, execution_blocked=price_unavailable"
                     logger.warning("[%s] 仓位管理跳过：缺少可执行价格，保持账户状态不变", result.code)
                     return
                 result.position_action = calc["action"]
-                result.current_weight = round(current_weight, 4)
-                result.target_weight = round(calc["target_value"] / total_value, 4) if total_value > 0 else 0.0
+                result.current_weight = round(portfolio_state["current_weight"], 4)
+                result.target_weight = (
+                    round(calc["target_value"] / portfolio_state["total_value"], 4)
+                    if portfolio_state["total_value"] > 0
+                    else 0.0
+                )
                 result.delta_amount = calc["delta_amount"]
                 result.action_reason = decision.reason
 
@@ -668,7 +679,11 @@ class StockAnalysisPipeline:
                     code=result.code,
                     name=result.name,
                     quantity=calc["target_quantity"],
-                    avg_cost=avg_cost if quantity > 0 else (calc["price"] if calc["target_quantity"] > 0 else 0.0),
+                    avg_cost=(
+                        portfolio_state["avg_cost"]
+                        if portfolio_state["quantity"] > 0
+                        else (calc["price"] if calc["target_quantity"] > 0 else 0.0)
+                    ),
                     current_price=calc["price"] or None,
                     weight=result.target_weight,
                     market_value=calc["target_value"],
@@ -683,13 +698,13 @@ class StockAnalysisPipeline:
                     market_regime=result.market_regime,
                     event_risk=result.event_risk,
                     data_quality_flag=result.data_quality_flag,
-                    current_weight=current_weight,
+                    current_weight=portfolio_state["current_weight"],
                     target_weight=result.target_weight,
                     delta_amount=calc["delta_amount"],
-                    current_quantity=quantity,
+                    current_quantity=portfolio_state["quantity"],
                     target_quantity=calc["target_quantity"],
                     current_price=calc["price"] or None,
-                    available_cash_before=cash,
+                    available_cash_before=portfolio_state["cash"],
                     available_cash_after=calc["cash_after"],
                     reason=decision.reason,
                 )
@@ -722,6 +737,7 @@ class StockAnalysisPipeline:
         cash: float,
         total_value: float,
         current_price: Optional[float],
+        current_value: Optional[float] = None,
     ) -> Optional[Dict[str, float | str]]:
         price = float(current_price) if current_price and current_price > 0 else 0.0
         if price <= 0 and existing and existing.current_price and existing.current_price > 0:
@@ -729,9 +745,7 @@ class StockAnalysisPipeline:
         if price <= 0:
             return None
 
-        current_value = float(existing.market_value or 0.0) if existing else 0.0
-        if quantity > 0:
-            current_value = quantity * price
+        current_value = float(current_value or 0.0)
         target_value = decision.target_weight * total_value
         target_quantity = round(target_value / price, 4)
         delta_amount = round(target_value - current_value, 2)
@@ -763,6 +777,60 @@ class StockAnalysisPipeline:
             "cash_after": cash_after,
             "action": action,
             "current_weight": current_weight,
+        }
+
+    @staticmethod
+    def _build_live_portfolio_state(
+        *,
+        code: str,
+        existing,
+        open_positions: List[Any],
+        latest_snapshot,
+        current_price: Optional[float],
+    ) -> Dict[str, float]:
+        cash = float(latest_snapshot.cash) if latest_snapshot else 10000.0
+        cash = max(cash, 0.0)
+        quantity = float(existing.quantity) if existing else 0.0
+        avg_cost = float(existing.avg_cost) if existing else 0.0
+        current_symbol_price = float(current_price) if current_price and current_price > 0 else 0.0
+        if current_symbol_price <= 0 and existing and existing.current_price and existing.current_price > 0:
+            current_symbol_price = float(existing.current_price)
+
+        current_position_value = quantity * current_symbol_price if quantity > 0 and current_symbol_price > 0 else 0.0
+
+        current_equity_value = 0.0
+        for position in open_positions or []:
+            position_quantity = float(position.quantity or 0.0)
+            if position_quantity <= 0:
+                continue
+            position_price = 0.0
+            if position.code == code and current_symbol_price > 0:
+                position_price = current_symbol_price
+            elif position.current_price and float(position.current_price) > 0:
+                position_price = float(position.current_price)
+            position_value = position_quantity * position_price if position_price > 0 else float(position.market_value or 0.0)
+            current_equity_value += max(position_value, 0.0)
+
+        snapshot_equity = float(latest_snapshot.equity_value) if latest_snapshot else 0.0
+        snapshot_total = float(latest_snapshot.total_value) if latest_snapshot else 0.0
+        if snapshot_equity > 0:
+            current_equity_value = max(current_equity_value, snapshot_equity)
+
+        current_total_value = cash + current_equity_value
+        if snapshot_total > 0:
+            current_total_value = max(current_total_value, snapshot_total)
+        if current_total_value <= 0:
+            current_total_value = max(cash, 10000.0)
+        current_weight = current_position_value / current_total_value if current_total_value > 0 else 0.0
+
+        return {
+            "cash": cash,
+            "quantity": quantity,
+            "avg_cost": avg_cost,
+            "current_position_value": round(current_position_value, 2),
+            "current_equity_value": round(current_equity_value, 2),
+            "total_value": round(current_total_value, 2),
+            "current_weight": round(current_weight, 6),
         }
     
     def _enhance_context(
