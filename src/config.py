@@ -172,6 +172,8 @@ class Config:
 
     # 是否保存分析上下文快照（用于历史回溯）
     save_context_snapshot: bool = True
+    # 分析流程默认只读：true 时仅计算仓位建议，不写入真实账户状态
+    analysis_read_only: bool = True
 
     # === 回测配置 ===
     backtest_enabled: bool = True
@@ -437,6 +439,7 @@ class Config:
             markdown_to_image_max_chars=int(os.getenv('MARKDOWN_TO_IMAGE_MAX_CHARS', '15000')),
             database_path=os.getenv('DATABASE_PATH', './data/stock_analysis.db'),
             save_context_snapshot=os.getenv('SAVE_CONTEXT_SNAPSHOT', 'true').lower() == 'true',
+            analysis_read_only=os.getenv('ANALYSIS_READ_ONLY', 'true').lower() == 'true',
             backtest_enabled=os.getenv('BACKTEST_ENABLED', 'true').lower() == 'true',
             backtest_eval_window_days=int(os.getenv('BACKTEST_EVAL_WINDOW_DAYS', '10')),
             backtest_min_age_days=int(os.getenv('BACKTEST_MIN_AGE_DAYS', '14')),
