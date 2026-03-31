@@ -506,6 +506,29 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("AI仓位解读（次要评论，非执行指令）", report)
         self.assertNotIn("| 🆕 **空仓者** | 建议买入1000股 |", report)
 
+    @patch("src.notification.get_db")
+    def test_per_stock_close_position_renders_zero_target_quantity_as_deterministic(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            position_action="CLOSE",
+            final_decision="SELL",
+            target_weight=0.0,
+            delta_amount=-3200.0,
+            dashboard={
+                "core_conclusion": {
+                    "one_sentence": "按纪律清仓",
+                    "position_advice": {"has_position": "建议全部卖出"},
+                }
+            },
+        )
+        setattr(result, "target_quantity", 0)
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        self.assertIn("CLOSE \\| 目标仓位 0.00% \\| 模拟Δ -3,200.00 \\| 目标数量 0.0000 股", report)
+        self.assertNotIn("目标数量 N/A（确定性引擎未提供）", report)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -782,8 +782,14 @@ class NotificationService:
     def _format_deterministic_sizing_text(self, result: AnalysisResult) -> str:
         """Format deterministic sizing guidance from the same target-allocation engine."""
         base = self._format_primary_action_text(result)
-        target_quantity = self._to_positive_float(getattr(result, 'target_quantity', None))
-        if target_quantity is None:
+        raw_target_quantity = getattr(result, 'target_quantity', None)
+        if raw_target_quantity is None:
+            return f"{base} | 目标数量 N/A（确定性引擎未提供）"
+        try:
+            target_quantity = float(raw_target_quantity)
+        except (TypeError, ValueError):
+            return f"{base} | 目标数量 N/A（确定性引擎未提供）"
+        if target_quantity < 0:
             return f"{base} | 目标数量 N/A（确定性引擎未提供）"
         return f"{base} | 目标数量 {target_quantity:,.4f} 股"
 
