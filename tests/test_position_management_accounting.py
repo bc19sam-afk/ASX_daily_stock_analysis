@@ -509,6 +509,40 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertAlmostEqual(state["total_value"], 110.0, places=2)
         self.assertAlmostEqual(state["current_weight"], 1.0 / 11.0, places=6)
 
+    def test_snapshot_equity_does_not_override_valid_live_equity(self):
+        latest_snapshot = SimpleNamespace(cash=100.0, equity_value=5000.0, total_value=5100.0)
+        existing = SimpleNamespace(quantity=1.0, avg_cost=100.0, current_price=200.0, market_value=200.0)
+        open_positions = [SimpleNamespace(code="LEQ", quantity=1.0, current_price=200.0, market_value=200.0)]
+
+        state = self.pipeline._build_live_portfolio_state(
+            code="LEQ",
+            existing=existing,
+            open_positions=open_positions,
+            latest_snapshot=latest_snapshot,
+            current_price=200.0,
+        )
+
+        self.assertAlmostEqual(state["current_equity_value"], 200.0, places=2)
+        self.assertAlmostEqual(state["total_value"], 300.0, places=2)
+        self.assertAlmostEqual(state["current_weight"], 2.0 / 3.0, places=6)
+
+    def test_snapshot_fallback_works_when_live_recompute_invalid(self):
+        latest_snapshot = SimpleNamespace(cash=0.0, equity_value=0.0, total_value=500.0)
+        existing = None
+        open_positions = [SimpleNamespace(code="INV", quantity=0.0, current_price=0.0, market_value=0.0)]
+
+        state = self.pipeline._build_live_portfolio_state(
+            code="INV",
+            existing=existing,
+            open_positions=open_positions,
+            latest_snapshot=latest_snapshot,
+            current_price=None,
+        )
+
+        self.assertAlmostEqual(state["current_equity_value"], 0.0, places=2)
+        self.assertAlmostEqual(state["total_value"], 500.0, places=2)
+        self.assertAlmostEqual(state["current_weight"], 0.0, places=6)
+
     def test_stale_snapshot_total_no_longer_suppresses_target_weight_and_delta_amount(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=100, equity_value=10000, total_value=10100)
         self.db.upsert_portfolio_position(
