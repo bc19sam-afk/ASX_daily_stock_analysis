@@ -103,7 +103,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("买入/加仓 · 评分 75 · 震荡上行", report)
+        self.assertIn("逢回调分批买入 \\| 保持纪律 关注成交量变化 · 评分 75 · 震荡上行", report)
         self.assertIn("ADD · 目标18.00% · 模拟Δ3,200.00", report)
 
         html = markdown_to_html_document(report)
@@ -125,7 +125,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         expected_action_line = (
             "• Stock：🟢 **贵州茅台(600519)** | "
             "Deterministic Action Today (Primary / Not Executed)：ADD · 目标18.00% · 模拟Δ3,200.00 | "
-            "AI Commentary (Secondary)：买入/加仓 · 评分 75 · 震荡上行"
+            "AI Commentary (Secondary)：区间交易 | 高抛低吸 · 评分 75 · 震荡上行"
         )
         expected_sim_line = (
             "• Stock：🟢 **贵州茅台(600519)** | "
@@ -198,8 +198,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 | Stock | Deterministic Action Today (Primary / Not Executed) | AI Commentary (Secondary) |
 |---|---|---|
-| 🟢 **贵州茅台(600519)** | ADD · 目标16.00% · 模拟Δ15,000.00 | 买入/加仓 · 评分 78 · 震荡上行 |
-| ⚪ **五粮液(000858)** | HOLD · 目标8.00% · 模拟Δ0.00 | 持有/观望 · 评分 52 · 区间震荡 |
+| 🟢 **贵州茅台(600519)** | ADD · 目标16.00% · 模拟Δ15,000.00 | 区间交易 · 评分 78 · 震荡上行 |
+| ⚪ **五粮液(000858)** | HOLD · 目标8.00% · 模拟Δ0.00 | 持有观察 · 评分 52 · 区间震荡 |
 
 ## C. Hypothetical Target Allocation (Simulated / Recommended)
 
@@ -243,8 +243,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 **B) 今日建议动作（未执行）**
 
-🟢 **贵州茅台(600519)**: ADD · 目标16.00% · 模拟Δ15,000.00 (AI次要参考: 买入/加仓 / 78)
-⚪ **五粮液(000858)**: HOLD · 目标8.00% · 模拟Δ0.00 (AI次要参考: 持有/观望 / 52)
+🟢 **贵州茅台(600519)**: ADD · 目标16.00% · 模拟Δ15,000.00 (AI次要参考: 区间交易 / 78)
+⚪ **五粮液(000858)**: HOLD · 目标8.00% · 模拟Δ0.00 (AI次要参考: 持有观察 / 52)
 
 **C) 目标仓位（模拟，不代表已成交）**
 🟢 贵州茅台(600519): 执行中 10.00% → 模拟目标 16.00% (Δ15,000.00)
@@ -286,8 +286,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 💬 以下内容以确定性动作模型为主（final_decision / position_action / target_weight / delta_amount），尚未执行，不代表真实账户已变化。
 
-• Stock：🟢 **贵州茅台(600519)** | Deterministic Action Today (Primary / Not Executed)：ADD · 目标16.00% · 模拟Δ15,000.00 | AI Commentary (Secondary)：买入/加仓 · 评分 78 · 震荡上行
-• Stock：⚪ **五粮液(000858)** | Deterministic Action Today (Primary / Not Executed)：HOLD · 目标8.00% · 模拟Δ0.00 | AI Commentary (Secondary)：持有/观望 · 评分 52 · 区间震荡
+• Stock：🟢 **贵州茅台(600519)** | Deterministic Action Today (Primary / Not Executed)：ADD · 目标16.00% · 模拟Δ15,000.00 | AI Commentary (Secondary)：区间交易 · 评分 78 · 震荡上行
+• Stock：⚪ **五粮液(000858)** | Deterministic Action Today (Primary / Not Executed)：HOLD · 目标8.00% · 模拟Δ0.00 | AI Commentary (Secondary)：持有观察 · 评分 52 · 区间震荡
 
 **C. Hypothetical Target Allocation (Simulated / Recommended)**
 
@@ -411,8 +411,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
         self.assertIn("AI Commentary (Secondary)", report)
-        self.assertIn("持有/观望 · 评分 75 · 震荡上行", report)
-        self.assertNotIn("⚠️(与确定性动作不一致，仅供参考)", report)
+        self.assertIn("必须立即卖出止损 · 评分 75 · 震荡上行", report)
+        self.assertIn("⚠️(与确定性动作不一致，仅供参考)", report)
 
     @patch("src.notification.get_db")
     def test_per_stock_heading_uses_deterministic_action_semantics(self, mock_get_db) -> None:
@@ -429,11 +429,11 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("### 📌 核心结论", report)
         self.assertIn("**⚪ 持有/观望**", report)
         self.assertIn("**🧭 确定性动作(主指令)**: HOLD | 目标仓位 18.00% | 模拟Δ 3,200.00", report)
-        self.assertIn("**💬 AI解读(次要参考)**: 持有/观望", report)
-        self.assertNotIn("⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。", report)
+        self.assertIn("**💬 AI解读(次要参考)**: 卖出", report)
+        self.assertIn("⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。", report)
 
     @patch("src.notification.get_db")
-    def test_canonical_advice_is_always_aligned_with_final_decision(self, mock_get_db) -> None:
+    def test_primary_action_stays_canonical_while_ai_commentary_remains_independent(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
         service = self._build_service()
         results = [
@@ -443,12 +443,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         ]
         report = service.generate_dashboard_report(results, report_date="2026-03-30")
 
-        self.assertIn("买入/加仓 · 评分 75 · 震荡上行", report)
-        self.assertIn("持有/观望 · 评分 75 · 震荡上行", report)
-        self.assertIn("减仓/卖出 · 评分 75 · 震荡上行", report)
-        self.assertNotIn("可轻仓跟踪", report)
-        self.assertNotIn("可买入", report)
-        self.assertNotIn("继续拿住", report)
+        self.assertIn("| 🟢 **贵州茅台(AAA)** | OPEN · 目标18.00% · 模拟Δ3,200.00 | 可轻仓跟踪 · 评分 75 · 震荡上行 |", report)
+        self.assertIn("| ⚪ **贵州茅台(BBB)** | HOLD · 目标18.00% · 模拟Δ3,200.00 | 可买入 · 评分 75 · 震荡上行 ⚠️(与确定性动作不一致，仅供参考) |", report)
+        self.assertIn("| 🔴 **贵州茅台(CCC)** | CLOSE · 目标18.00% · 模拟Δ3,200.00 | 继续拿住 · 评分 75 · 震荡上行 |", report)
 
     @patch("src.notification.get_db")
     def test_position_advice_fallback_escapes_pipe_for_markdown_table_and_feishu(self, mock_get_db) -> None:

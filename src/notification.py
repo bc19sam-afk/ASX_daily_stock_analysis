@@ -709,7 +709,7 @@ class NotificationService:
                 f"{action_model['position_action']} · 目标{action_model['target_weight']:.2%} · "
                 f"模拟Δ{action_model['delta_amount']:,.2f}"
             )
-            ai_view_text = f"{self._get_canonical_operation_advice(r)} · 评分 {r.sentiment_score} · {r.trend_prediction}"
+            ai_view_text = f"{self._get_normalized_ai_operation_advice(r)} · 评分 {r.sentiment_score} · {r.trend_prediction}"
             if action_model['ai_conflict']:
                 ai_view_text += " ⚠️(与确定性动作不一致，仅供参考)"
             ai_view_cell = self._to_markdown_table_cell(ai_view_text)
@@ -751,7 +751,7 @@ class NotificationService:
 
         target_weight = float(getattr(result, 'target_weight', 0.0) or 0.0)
         delta_amount = float(getattr(result, 'delta_amount', 0.0) or 0.0)
-        ai_decision = decision
+        ai_decision = self._infer_ai_commentary_decision(self._get_normalized_ai_operation_advice(result))
         ai_conflict = bool(ai_decision and ai_decision != decision)
         return {
             'decision': decision,
@@ -765,6 +765,14 @@ class NotificationService:
         """Return unified final advice wording aligned with deterministic decision."""
         decision = self._get_primary_action_model(result)['decision']
         return _decision_to_canonical_advice(decision)
+
+    def _get_normalized_ai_operation_advice(self, result: AnalysisResult) -> str:
+        """Return normalized AI narrative advice without overriding its original semantics."""
+        advice = str(getattr(result, 'operation_advice', '') or '').strip()
+        if not advice:
+            return self._get_canonical_operation_advice(result)
+        advice = advice.replace("\r\n", "\n").replace("\r", "\n")
+        return " ".join(part.strip() for part in advice.split("\n") if part.strip())
 
     def _build_simulated_target_allocation_table(self, results: List[AnalysisResult]) -> List[str]:
         """Build simulated target allocation table; clearly separated from executed state."""
@@ -1067,7 +1075,7 @@ class NotificationService:
                     "",
                     f"**🧭 确定性动作(主指令)**: {self._format_primary_action_text(result)}",
                     "",
-                    f"**💬 AI解读(次要参考)**: {self._get_canonical_operation_advice(result)}",
+                    f"**💬 AI解读(次要参考)**: {self._get_normalized_ai_operation_advice(result)}",
                     "",
                     f"> **一句话决策**: {one_sentence}",
                     "",
@@ -1306,7 +1314,7 @@ class NotificationService:
                     f"{signal_emoji} **{stock_name}({r.code})**: "
                     f"{action_model['position_action']} · 目标{action_model['target_weight']:.2%} · "
                     f"模拟Δ{action_model['delta_amount']:,.2f} "
-                    f"(AI次要参考: {self._get_canonical_operation_advice(r)} / {r.sentiment_score})"
+                    f"(AI次要参考: {self._get_normalized_ai_operation_advice(r)} / {r.sentiment_score})"
                 )
             lines.extend([
                 "",
@@ -1338,7 +1346,7 @@ class NotificationService:
                 lines.append("")
 
                 lines.append(f"📋 今日主动作(未执行): {self._format_primary_action_text(result)[:80]}")
-                lines.append(f"💬 AI次要解读: {self._get_canonical_operation_advice(result)}")
+                lines.append(f"💬 AI次要解读: {self._get_normalized_ai_operation_advice(result)[:60]}")
                 if action_model['ai_conflict']:
                     lines.append("⚠️ AI解读与主动作不一致，请以主动作为准")
                 lines.append("")
@@ -1608,7 +1616,7 @@ class NotificationService:
                 "### 💼 持仓建议",
                 "",
                 f"- 🧮 **确定性仓位指引(主指令)**: {self._format_deterministic_sizing_text(result)}",
-                f"- 💬 **AI空仓者评论(非执行)**: {pos_advice.get('no_position', self._get_canonical_operation_advice(result))}",
+                f"- 💬 **AI空仓者评论(非执行)**: {pos_advice.get('no_position', self._get_normalized_ai_operation_advice(result))}",
                 f"- 💬 **AI持仓者评论(非执行)**: {pos_advice.get('has_position', '继续持有')}",
                 "",
             ])
