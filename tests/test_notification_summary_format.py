@@ -7,7 +7,7 @@ from datetime import datetime as real_datetime
 
 from src.analyzer import AnalysisResult
 from src.formatters import format_feishu_markdown, markdown_to_html_document
-from src.notification import NotificationService
+from src.notification import NotificationService, NotificationBuilder
 
 
 class NotificationSummaryFormatTestCase(unittest.TestCase):
@@ -205,6 +205,16 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_daily_report([result], report_date="2026-03-30")
         self.assertIn("执行参考价格：使用 **实时价格（若可用）**。", report)
+
+    @patch("src.notification.datetime")
+    def test_build_stock_summary_marks_realtime_when_only_current_price_exists(self, mock_datetime) -> None:
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        result = self._build_result(
+            current_price=12.34,
+            market_snapshot={"date": "2026-03-29", "price": "N/A"},
+        )
+        summary = NotificationBuilder.build_stock_summary([result])
+        self.assertIn("执行参考价=实时价格（若可用）", summary)
 
     @patch("src.notification.datetime")
     @patch("src.notification.get_db")

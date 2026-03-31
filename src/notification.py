@@ -3843,15 +3843,27 @@ class NotificationBuilder:
         适用于快速通知
         """
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
-        has_realtime = any(
-            (getattr(r, "market_snapshot", {}) or {}).get("price") not in (None, "", "N/A", "-")
-            for r in results
+        snapshot_dates = sorted(
+            {
+                str((getattr(r, "market_snapshot", None) or {}).get("date")).strip()
+                for r in results
+                if str((getattr(r, "market_snapshot", None) or {}).get("date", "")).strip()
+                and str((getattr(r, "market_snapshot", None) or {}).get("date")).strip() != "未知"
+            }
         )
+        if len(snapshot_dates) == 1:
+            daily_anchor = f"{snapshot_dates[0]} 日线（收盘口径）"
+        elif len(snapshot_dates) > 1:
+            daily_anchor = f"混合日线日期（{', '.join(snapshot_dates)}）"
+        else:
+            daily_anchor = "最新可用日线（通常为昨日收盘）"
+
+        has_realtime = any(NotificationService._is_realtime_price_available(r) for r in results)
         execution_basis = "实时价格（若可用）" if has_realtime else "latest close（日线收盘价）"
         lines = [
             "📊 **今日自选股摘要**",
             "",
-            f"🕒 基准：技术面=最新可用日线（通常昨日收盘）；新闻截至 {now_str}；执行参考价={execution_basis}。",
+            f"🕒 基准：技术面={daily_anchor}；新闻截至 {now_str}；执行参考价={execution_basis}。",
             "",
         ]
         
