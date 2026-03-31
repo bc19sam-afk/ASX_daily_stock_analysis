@@ -98,6 +98,7 @@ jobs:
       - name: Init portfolio from form inputs
         run: |
           mkdir -p data
+          rm -f ./data/stock_analysis.db
           python -m scripts.manual_portfolio_workflows init-portfolio \
             --cash "${{ github.event.inputs.cash }}" \
             --code-1 "${{ github.event.inputs.code_1 }}" \
