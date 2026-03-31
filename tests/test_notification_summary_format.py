@@ -594,7 +594,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
         self.assertIn("目标数量 321.5000 股", report)
         self.assertIn("ADD \\| 目标仓位 20.00% \\| 模拟Δ 6,000.00 \\| 目标数量 321.5000 股", report)
-        self.assertIn("- 🆕 空仓者: 建议买入1000股", report)
+        self.assertIn("- 🆕 空仓者: AI仓位建议（非执行）", report)
+        self.assertIn("- 💼 持仓者: 再加仓500股", report)
         self.assertIn("AI仓位解读（次要评论，非执行指令）", report)
 
     @patch("src.notification.get_db")
@@ -615,6 +616,27 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("目标数量 N/A（确定性引擎未提供）", report)
         self.assertIn("AI仓位解读（次要评论，非执行指令）", report)
         self.assertNotIn("| 🆕 **空仓者** | 建议买入1000股 |", report)
+        self.assertIn("- 🆕 空仓者: AI仓位建议（非执行）", report)
+
+    def test_wechat_dashboard_redacts_ai_share_count_guidance(self) -> None:
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            dashboard={
+                "core_conclusion": {
+                    "position_advice": {
+                        "no_position": "buy 100 shares now",
+                        "has_position": "建议买入1000股",
+                    },
+                }
+            },
+        )
+
+        wechat = service.generate_wechat_dashboard([result])
+        self.assertIn("💬 AI空仓者评论(非执行): AI仓位建议（非执行）", wechat)
+        self.assertIn("💬 AI持仓者评论(非执行): AI仓位建议（非执行）", wechat)
+        self.assertNotIn("buy 100 shares now", wechat)
+        self.assertNotIn("建议买入1000股", wechat)
 
     @patch("src.notification.get_db")
     def test_per_stock_close_position_renders_zero_target_quantity_as_deterministic(self, mock_get_db) -> None:

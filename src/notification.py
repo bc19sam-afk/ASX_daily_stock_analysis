@@ -748,6 +748,22 @@ class NotificationService:
         text = text.replace("|", r"\|")
         return text.replace("\n", "<br>")
 
+    @staticmethod
+    def _sanitize_ai_share_count_commentary(text: Any) -> str:
+        """Remove executable-looking AI share-count instructions from display text."""
+        if text is None:
+            return ""
+        normalized = str(text).strip()
+        if not normalized:
+            return ""
+        patterns = (
+            r"(建议)?买入\s*\d+(?:\.\d+)?\s*股",
+            r"buy\s*\d+(?:\.\d+)?\s*shares?",
+        )
+        if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in patterns):
+            return "AI仓位建议（非执行）"
+        return normalized
+
     def _build_recommended_actions_table(self, results: List[AnalysisResult]) -> List[str]:
         """Build recommended actions table (analysis output; not yet executed)."""
         lines = [
@@ -1167,9 +1183,13 @@ class NotificationService:
                             "",
                         ])
                         if ai_no_position_text:
-                            report_lines.append(f"- 🆕 空仓者: {ai_no_position_text}")
+                            report_lines.append(
+                                f"- 🆕 空仓者: {self._sanitize_ai_share_count_commentary(ai_no_position_text)}"
+                            )
                         if ai_has_position_text:
-                            report_lines.append(f"- 💼 持仓者: {ai_has_position_text}")
+                            report_lines.append(
+                                f"- 💼 持仓者: {self._sanitize_ai_share_count_commentary(ai_has_position_text)}"
+                            )
                         report_lines.append("")
 
                 self._append_market_snapshot(report_lines, result)
@@ -1474,9 +1494,11 @@ class NotificationService:
                     no_pos = pos_advice.get('no_position', '')
                     has_pos = pos_advice.get('has_position', '')
                     if no_pos:
-                        lines.append(f"💬 AI空仓者评论(非执行): {no_pos[:44]}")
+                        ai_no_pos = self._sanitize_ai_share_count_commentary(no_pos)
+                        lines.append(f"💬 AI空仓者评论(非执行): {ai_no_pos[:44]}")
                     if has_pos:
-                        lines.append(f"💬 AI持仓者评论(非执行): {has_pos[:44]}")
+                        ai_has_pos = self._sanitize_ai_share_count_commentary(has_pos)
+                        lines.append(f"💬 AI持仓者评论(非执行): {ai_has_pos[:44]}")
                     lines.append("")
                 
                 # 检查清单简化版
