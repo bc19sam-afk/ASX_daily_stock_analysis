@@ -196,6 +196,8 @@ class AnalysisResult:
     # ========== 价格数据（分析时快照）==========
     current_price: Optional[float] = None  # 分析时的股价
     change_pct: Optional[float] = None     # 分析时的涨跌幅(%)
+    realtime_price: Optional[float] = None  # 真实实时价格（若不可用则为 None）
+    execution_price_source: str = "close_only"  # realtime | latest_close | close_only
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典以便最终推送"""

@@ -172,6 +172,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
                 "price": "10.30",
                 "source": "tencent",
             },
+            execution_price_source="realtime",
         )
 
         report = service.generate_daily_report([result], report_date="2026-03-30")
@@ -202,10 +203,25 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         service._report_summary_only = False
         result = self._build_result(
             current_price=12.34,
+            execution_price_source="realtime",
             market_snapshot={"date": "2026-03-29", "price": "N/A"},
         )
         report = service.generate_daily_report([result], report_date="2026-03-30")
         self.assertIn("执行参考价格：**1/1** 只使用实时价格（realtime price）；**0/1** 只使用 latest close（日线收盘口径）；**0/1** 只为 close-only basis。", report)
+
+    @patch("src.notification.datetime")
+    def test_data_baseline_uses_explicit_price_source_instead_of_inferring_realtime(self, mock_datetime) -> None:
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            current_price=12.34,
+            execution_price_source="latest_close",
+            market_snapshot={"date": "2026-03-29", "price": "N/A", "close": "12.34"},
+        )
+        report = service.generate_daily_report([result], report_date="2026-03-30")
+        self.assertIn("执行参考价格：**0/1** 只使用实时价格（realtime price）；**1/1** 只使用 latest close（日线收盘口径）；**0/1** 只为 close-only basis。", report)
+        self.assertIn("**价格基准**：latest close（日线收盘口径）", report)
 
     def test_single_stock_report_labels_sniper_points_as_ai_reference_only(self) -> None:
         service = self._build_service()
@@ -231,6 +247,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
         result = self._build_result(
             current_price=12.34,
+            execution_price_source="realtime",
             market_snapshot={"date": "2026-03-29", "price": "N/A"},
         )
         summary = NotificationBuilder.build_stock_summary([result])
