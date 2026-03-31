@@ -161,6 +161,27 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("执行中 12.00% → 模拟目标 18.00% (Δ3,200.00)", wechat)
 
     @patch("src.notification.datetime")
+    def test_daily_report_includes_data_time_baseline_and_mixed_source_disclosure(self, mock_datetime) -> None:
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            market_snapshot={
+                "date": "2026-03-29",
+                "close": "10.00",
+                "price": "10.30",
+                "source": "tencent",
+            },
+        )
+
+        report = service.generate_daily_report([result], report_date="2026-03-30")
+        self.assertIn("## 🕒 数据时间基准", report)
+        self.assertIn("技术面判断：基于 **2026-03-29 日线（收盘口径）**。", report)
+        self.assertIn("新闻更新：截至 **2026-03-30 09:30**。", report)
+        self.assertIn("执行参考价格：使用 **实时价格（若可用）**。", report)
+        self.assertIn("旧日线信号 + 新实时价格", report)
+
+    @patch("src.notification.datetime")
     @patch("src.notification.get_db")
     def test_dashboard_report_snapshot_regression(self, mock_get_db, mock_datetime) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {
@@ -180,6 +201,12 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         expected = """# 🎯 2026-03-30 决策仪表盘
 
 > 共分析 **2** 只股票 | 🟢买入:1 🟡观望:1 🔴卖出:0
+
+## 🕒 数据时间基准
+
+- 技术面判断：基于 **最新可用日线（通常为昨日收盘）**。
+- 新闻更新：截至 **2026-03-30 09:30**。
+- 执行参考价格：使用 **latest close（日线收盘价）**。
 
 ## A. Current Portfolio Overview (Executed / Real State)
 
@@ -236,6 +263,12 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 > 2只股票 | 🟢买入:1 🟡观望:1 🔴卖出:0
 
+**🕒 数据时间基准**
+
+- 技术面判断：基于 **最新可用日线（通常为昨日收盘）**。
+- 新闻更新：截至 **2026-03-30 09:30**。
+- 执行参考价格：使用 **latest close（日线收盘价）**。
+
 **A) 当前账户状态（已执行）**
 - 现金: 200,000.00
 - 持仓市值: 0.00
@@ -272,6 +305,12 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         expected = """**🎯 2026-03-30 决策仪表盘**
 
 💬 共分析 **2** 只股票 | 🟢买入:1 🟡观望:1 🔴卖出:0
+
+**🕒 数据时间基准**
+
+• 技术面判断：基于 **最新可用日线（通常为昨日收盘）**。
+• 新闻更新：截至 **2026-03-30 09:30**。
+• 执行参考价格：使用 **latest close（日线收盘价）**。
 
 **A. Current Portfolio Overview (Executed / Real State)**
 
