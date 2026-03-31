@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from argparse import Namespace
+from contextlib import contextmanager
 from unittest.mock import patch
 
 from src.storage import DatabaseManager
@@ -184,6 +185,75 @@ class ManualPortfolioWorkflowTestCase(unittest.TestCase):
         self.assertEqual(len(self.db.get_trade_journal(limit=10)), 0)
         snapshot = self.db.get_latest_account_snapshot()
         self.assertAlmostEqual(snapshot.cash, 1000.0, places=2)
+
+    def test_init_portfolio_uses_explicit_write_lock_and_begin_immediate(self):
+        call_order = []
+        real_lock = self.db.get_portfolio_write_lock()
+        real_begin = self.db.begin_portfolio_write_transaction
+
+        @contextmanager
+        def tracked_lock():
+            call_order.append("lock_acquire_enter")
+            with real_lock:
+                call_order.append("lock_acquired")
+                yield
+            call_order.append("lock_release_exit")
+
+        def tracked_begin(session):
+            call_order.append("begin_immediate")
+            return real_begin(session)
+
+        with patch.object(self.db, "get_portfolio_write_lock", side_effect=tracked_lock):
+            with patch.object(self.db, "begin_portfolio_write_transaction", side_effect=tracked_begin):
+                init_portfolio(
+                    self.db,
+                    cash=1000,
+                    holdings=[HoldingInput(code="AAA", quantity=10, avg_cost=10)],
+                )
+
+        self.assertIn("lock_acquired", call_order)
+        self.assertIn("begin_immediate", call_order)
+        self.assertLess(call_order.index("lock_acquired"), call_order.index("begin_immediate"))
+        self.assertLess(call_order.index("begin_immediate"), call_order.index("lock_release_exit"))
+
+    def test_record_trade_uses_explicit_write_lock_and_begin_immediate(self):
+        init_portfolio(self.db, cash=1000, holdings=[])
+        call_order = []
+        real_lock = self.db.get_portfolio_write_lock()
+        real_begin = self.db.begin_portfolio_write_transaction
+
+        @contextmanager
+        def tracked_lock():
+            call_order.append("lock_acquire_enter")
+            with real_lock:
+                call_order.append("lock_acquired")
+                yield
+            call_order.append("lock_release_exit")
+
+        def tracked_begin(session):
+            call_order.append("begin_immediate")
+            return real_begin(session)
+
+        with patch.object(self.db, "get_portfolio_write_lock", side_effect=tracked_lock):
+            with patch.object(self.db, "begin_portfolio_write_transaction", side_effect=tracked_begin):
+                record_trade(self.db, code="AAA", side="BUY", quantity=10, price=10, fee=0)
+
+        self.assertIn("lock_acquired", call_order)
+        self.assertIn("begin_immediate", call_order)
+        self.assertLess(call_order.index("lock_acquired"), call_order.index("begin_immediate"))
+        self.assertLess(call_order.index("begin_immediate"), call_order.index("lock_release_exit"))
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.cash, 900.0, places=2)
+        self.assertAlmostEqual(snapshot.equity_value, 100.0, places=2)
+        self.assertAlmostEqual(snapshot.total_value, 1000.0, places=2)
+        pos = self.db.get_portfolio_position("AAA")
+        self.assertIsNotNone(pos)
+        self.assertAlmostEqual(pos.quantity, 10.0, places=6)
+        self.assertAlmostEqual(pos.market_value, 100.0, places=2)
+        journal = self.db.get_trade_journal(limit=10)
+        self.assertEqual(len(journal), 1)
+        self.assertEqual(journal[0].code, "AAA")
 
 
 if __name__ == "__main__":

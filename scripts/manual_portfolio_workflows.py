@@ -206,32 +206,34 @@ def init_portfolio(db: DatabaseManager, *, cash: float, holdings: Iterable[Holdi
 
     total_value = round(cash + equity_value, 2)
 
-    with db.get_session() as session:
-        _ensure_not_initialized_in_session(session)
+    with db.get_portfolio_write_lock():
+        with db.get_session() as session:
+            db.begin_portfolio_write_transaction(session)
+            _ensure_not_initialized_in_session(session)
 
-        for row in holdings:
-            market_value = round(row.quantity * row.avg_cost, 2)
-            weight = round((market_value / total_value), 4) if total_value > 0 else 0.0
-            _upsert_position_in_session(
+            for row in holdings:
+                market_value = round(row.quantity * row.avg_cost, 2)
+                weight = round((market_value / total_value), 4) if total_value > 0 else 0.0
+                _upsert_position_in_session(
+                    session,
+                    code=row.code,
+                    name=row.code,
+                    quantity=row.quantity,
+                    avg_cost=row.avg_cost,
+                    current_price=row.avg_cost,
+                    weight=weight,
+                    market_value=market_value,
+                )
+
+            _upsert_snapshot_in_session(
                 session,
-                code=row.code,
-                name=row.code,
-                quantity=row.quantity,
-                avg_cost=row.avg_cost,
-                current_price=row.avg_cost,
-                weight=weight,
-                market_value=market_value,
+                snapshot_date=date.today(),
+                cash=cash,
+                equity_value=round(equity_value, 2),
+                total_value=total_value,
+                note="initialized_by_manual_workflow",
             )
-
-        _upsert_snapshot_in_session(
-            session,
-            snapshot_date=date.today(),
-            cash=cash,
-            equity_value=round(equity_value, 2),
-            total_value=total_value,
-            note="initialized_by_manual_workflow",
-        )
-        session.commit()
+            session.commit()
 
 
 def record_trade(
@@ -252,115 +254,117 @@ def record_trade(
     price = _positive_float(str(price), field_name="price")
     fee = _positive_float(str(fee), field_name="fee", allow_zero=True)
 
-    with db.get_session() as session:
-        _ensure_initialized_in_session(session)
+    with db.get_portfolio_write_lock():
+        with db.get_session() as session:
+            db.begin_portfolio_write_transaction(session)
+            _ensure_initialized_in_session(session)
 
-        latest = session.execute(
-            select(AccountSnapshot)
-            .order_by(AccountSnapshot.snapshot_date.desc(), AccountSnapshot.created_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        cash_before = float(latest.cash) if latest else 0.0
-        total_before = float(latest.total_value) if latest else 0.0
+            latest = session.execute(
+                select(AccountSnapshot)
+                .order_by(AccountSnapshot.snapshot_date.desc(), AccountSnapshot.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            cash_before = float(latest.cash) if latest else 0.0
+            total_before = float(latest.total_value) if latest else 0.0
 
-        existing = session.execute(
-            select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
-        ).scalar_one_or_none()
-        before_qty = float(existing.quantity) if existing else 0.0
-        before_avg = float(existing.avg_cost) if existing else 0.0
-        before_price = float(existing.current_price) if existing and existing.current_price else price
-        before_value = round(before_qty * before_price, 2)
+            existing = session.execute(
+                select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
+            ).scalar_one_or_none()
+            before_qty = float(existing.quantity) if existing else 0.0
+            before_avg = float(existing.avg_cost) if existing else 0.0
+            before_price = float(existing.current_price) if existing and existing.current_price else price
+            before_value = round(before_qty * before_price, 2)
 
-        gross_amount = round(quantity * price, 2)
+            gross_amount = round(quantity * price, 2)
 
-        if side == "BUY":
-            required_cash = round(gross_amount + fee, 2)
-            if required_cash > cash_before:
-                raise ValueError(
-                    "BUY rejected: insufficient cash. "
-                    f"Required {required_cash:.2f} (quantity × price + fee), "
-                    f"but available cash is {cash_before:.2f}. "
-                    "Please reduce quantity/price, or add cash first."
-                )
-            cash_change = round(-(gross_amount + fee), 2)
-            after_qty = round(before_qty + quantity, 6)
-            total_cost = (before_qty * before_avg) + gross_amount + fee
-            after_avg = round(total_cost / after_qty, 6) if after_qty > 0 else 0.0
-        else:
-            if quantity > before_qty:
-                raise ValueError(
-                    f"Cannot SELL {quantity} {code}; current holding is {round(before_qty, 6)}"
-                )
-            cash_change = round(gross_amount - fee, 2)
-            after_qty = round(before_qty - quantity, 6)
-            after_avg = 0.0 if after_qty <= 0 else before_avg
+            if side == "BUY":
+                required_cash = round(gross_amount + fee, 2)
+                if required_cash > cash_before:
+                    raise ValueError(
+                        "BUY rejected: insufficient cash. "
+                        f"Required {required_cash:.2f} (quantity × price + fee), "
+                        f"but available cash is {cash_before:.2f}. "
+                        "Please reduce quantity/price, or add cash first."
+                    )
+                cash_change = round(-(gross_amount + fee), 2)
+                after_qty = round(before_qty + quantity, 6)
+                total_cost = (before_qty * before_avg) + gross_amount + fee
+                after_avg = round(total_cost / after_qty, 6) if after_qty > 0 else 0.0
+            else:
+                if quantity > before_qty:
+                    raise ValueError(
+                        f"Cannot SELL {quantity} {code}; current holding is {round(before_qty, 6)}"
+                    )
+                cash_change = round(gross_amount - fee, 2)
+                after_qty = round(before_qty - quantity, 6)
+                after_avg = 0.0 if after_qty <= 0 else before_avg
 
-        cash_after = round(cash_before + cash_change, 2)
-        after_value = round(after_qty * price, 2)
+            cash_after = round(cash_before + cash_change, 2)
+            after_value = round(after_qty * price, 2)
 
-        open_positions = session.execute(
-            select(PortfolioPosition).where(PortfolioPosition.status == "OPEN")
-        ).scalars().all()
-        other_equity = round(
-            sum(float(p.market_value or 0.0) for p in open_positions if p.code != code),
-            2,
-        )
-        equity_after = round(other_equity + after_value, 2)
-        total_after = round(cash_after + equity_after, 2)
-
-        before_weight = round((before_value / total_before), 4) if total_before > 0 else 0.0
-        after_weight = round((after_value / total_after), 4) if total_after > 0 else 0.0
-
-        action = _position_action(before_qty, after_qty)
-        _upsert_position_in_session(
-            session,
-            code=code,
-            name=existing.name if existing and existing.name else code,
-            quantity=after_qty,
-            avg_cost=after_avg,
-            current_price=price,
-            weight=after_weight,
-            market_value=after_value,
-        )
-
-        session.add(
-            TradeJournal(
-                query_id="manual_trade_workflow",
-                code=code,
-                action_date=date.today(),
-                action=action,
-                final_decision=side,
-                market_regime="MANUAL",
-                event_risk="NA",
-                data_quality_flag="MANUAL",
-                current_weight=before_weight,
-                target_weight=after_weight,
-                delta_amount=round(after_value - before_value, 2),
-                current_quantity=before_qty,
-                target_quantity=after_qty,
-                current_price=price,
-                available_cash_before=cash_before,
-                available_cash_after=cash_after,
-                reason=f"manual_{side.lower()} fee={fee}",
-                created_at=datetime.now(),
+            open_positions = session.execute(
+                select(PortfolioPosition).where(PortfolioPosition.status == "OPEN")
+            ).scalars().all()
+            other_equity = round(
+                sum(float(p.market_value or 0.0) for p in open_positions if p.code != code),
+                2,
             )
-        )
+            equity_after = round(other_equity + after_value, 2)
+            total_after = round(cash_after + equity_after, 2)
 
-        _upsert_snapshot_in_session(
-            session,
-            snapshot_date=date.today(),
-            cash=cash_after,
-            equity_value=equity_after,
-            total_value=total_after,
-            note="updated_by_manual_trade_workflow",
-        )
+            before_weight = round((before_value / total_before), 4) if total_before > 0 else 0.0
+            after_weight = round((after_value / total_after), 4) if total_after > 0 else 0.0
 
-        integrity = db.check_portfolio_account_integrity(session=session, journal_code=code)
-        if not integrity["is_valid"]:
-            detail = "; ".join(integrity["errors"])
-            raise ValueError(f"Manual trade aborted by integrity check: {detail}")
+            action = _position_action(before_qty, after_qty)
+            _upsert_position_in_session(
+                session,
+                code=code,
+                name=existing.name if existing and existing.name else code,
+                quantity=after_qty,
+                avg_cost=after_avg,
+                current_price=price,
+                weight=after_weight,
+                market_value=after_value,
+            )
 
-        session.commit()
+            session.add(
+                TradeJournal(
+                    query_id="manual_trade_workflow",
+                    code=code,
+                    action_date=date.today(),
+                    action=action,
+                    final_decision=side,
+                    market_regime="MANUAL",
+                    event_risk="NA",
+                    data_quality_flag="MANUAL",
+                    current_weight=before_weight,
+                    target_weight=after_weight,
+                    delta_amount=round(after_value - before_value, 2),
+                    current_quantity=before_qty,
+                    target_quantity=after_qty,
+                    current_price=price,
+                    available_cash_before=cash_before,
+                    available_cash_after=cash_after,
+                    reason=f"manual_{side.lower()} fee={fee}",
+                    created_at=datetime.now(),
+                )
+            )
+
+            _upsert_snapshot_in_session(
+                session,
+                snapshot_date=date.today(),
+                cash=cash_after,
+                equity_value=equity_after,
+                total_value=total_after,
+                note="updated_by_manual_trade_workflow",
+            )
+
+            integrity = db.check_portfolio_account_integrity(session=session, journal_code=code)
+            if not integrity["is_valid"]:
+                detail = "; ".join(integrity["errors"])
+                raise ValueError(f"Manual trade aborted by integrity check: {detail}")
+
+            session.commit()
 
 
 def _build_parser() -> argparse.ArgumentParser:
