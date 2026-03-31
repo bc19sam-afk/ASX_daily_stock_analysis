@@ -13,6 +13,7 @@ from src.analyzer import AnalysisResult
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.position_manager import PositionManager
 from src.enums import ReportType
+from src.notification import NotificationService
 from src.storage import DatabaseManager
 
 
@@ -466,6 +467,64 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         latest_journal = self.db.get_trade_journal(code="AFB", limit=1)[0]
         self.assertAlmostEqual(latest_journal.target_quantity, 11.0, places=4)
         self.assertAlmostEqual(latest_journal.delta_amount, ro_result.delta_amount, places=2)
+
+    def test_computed_target_quantity_is_attached_to_result_in_read_only_and_persist_modes(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+
+        ro_result = self._result("TQRO", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=ro_result,
+            query_id="q_target_qty_ro",
+            current_price=100,
+            persist=False,
+        )
+
+        rw_result = self._result("TQRW", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=rw_result,
+            query_id="q_target_qty_rw",
+            current_price=100,
+            persist=True,
+        )
+
+        self.assertEqual(ro_result.target_quantity, 10.0)
+        self.assertEqual(rw_result.target_quantity, 10.0)
+
+    def test_close_target_quantity_zero_is_preserved_and_reported_deterministically(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=9000, equity_value=1000, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="CLS",
+            name="CLS",
+            quantity=10,
+            avg_cost=100,
+            current_price=100,
+            weight=0.1,
+            market_value=1000,
+        )
+
+        ro_result = self._result("CLS", final_decision="SELL")
+        self.pipeline._apply_position_management(
+            result=ro_result,
+            query_id="q_close_ro",
+            current_price=100,
+            persist=False,
+        )
+
+        rw_result = self._result("CLS", final_decision="SELL")
+        self.pipeline._apply_position_management(
+            result=rw_result,
+            query_id="q_close_rw",
+            current_price=100,
+            persist=True,
+        )
+
+        self.assertEqual(ro_result.target_quantity, 0.0)
+        self.assertEqual(rw_result.target_quantity, 0.0)
+
+        service = NotificationService.__new__(NotificationService)
+        formatted = service._format_deterministic_sizing_text(ro_result)
+        self.assertIn("CLOSE | 目标仓位 0.00% | 模拟Δ -1,000.00 | 目标数量 0.0000 股", formatted)
+        self.assertNotIn("目标数量 N/A（确定性引擎未提供）", formatted)
 
     def test_stale_stored_weight_does_not_drive_position_decision_math(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=9000, equity_value=1000, total_value=10000)

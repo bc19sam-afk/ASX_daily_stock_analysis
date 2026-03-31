@@ -641,6 +641,7 @@ class StockAnalysisPipeline:
                 logger.warning("[%s] 仓位管理跳过：缺少可执行价格，保持账户状态不变", result.code)
                 return
             result.position_action = calc["action"]
+            result.target_quantity = calc["target_quantity"]
             result.current_weight = round(portfolio_state["current_weight"], 4)
             result.target_weight = (
                 round(calc["target_value"] / portfolio_state["total_value"], 4)
@@ -697,6 +698,7 @@ class StockAnalysisPipeline:
                     logger.warning("[%s] 仓位管理跳过：缺少可执行价格，保持账户状态不变", result.code)
                     return
                 result.position_action = calc["action"]
+                result.target_quantity = calc["target_quantity"]
                 result.current_weight = round(portfolio_state["current_weight"], 4)
                 result.target_weight = (
                     round(calc["target_value"] / portfolio_state["total_value"], 4)
