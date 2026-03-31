@@ -64,6 +64,26 @@ def _get_effective_decision(result: Any) -> str:
     return 'HOLD'
 
 
+def _normalize_position_action(result: Any) -> str:
+    """Return normalized position action."""
+    action = str(getattr(result, 'position_action', '') or '').upper()
+    if action in ('OPEN', 'ADD', 'HOLD', 'REDUCE', 'CLOSE'):
+        return action
+    return ''
+
+
+def _decision_from_position_action(position_action: str) -> Optional[str]:
+    """Map position_action to BUY/HOLD/SELL decision bucket."""
+    mapping = {
+        'OPEN': 'BUY',
+        'ADD': 'BUY',
+        'HOLD': 'HOLD',
+        'REDUCE': 'SELL',
+        'CLOSE': 'SELL',
+    }
+    return mapping.get(position_action)
+
+
 class NotificationChannel(Enum):
     """通知渠道类型"""
     WECHAT = "wechat"      # 企业微信
@@ -450,9 +470,10 @@ class NotificationService:
         )
         
         # 统计信息 - 使用主决策（优先 final_decision）
-        buy_count = sum(1 for r in results if _get_effective_decision(r) == 'BUY')
-        sell_count = sum(1 for r in results if _get_effective_decision(r) == 'SELL')
-        hold_count = sum(1 for r in results if _get_effective_decision(r) == 'HOLD')
+        decision_counts = self._count_primary_decisions(results)
+        buy_count = decision_counts['BUY']
+        sell_count = decision_counts['SELL']
+        hold_count = decision_counts['HOLD']
         avg_score = sum(r.sentiment_score for r in results) / len(results) if results else 0
         
         report_lines.extend([
@@ -656,32 +677,71 @@ class NotificationService:
     def _build_recommended_actions_table(self, results: List[AnalysisResult]) -> List[str]:
         """Build recommended actions table (analysis output; not yet executed)."""
         lines = [
-            "| Stock | AI View | Recommended Action Today (Not Executed) |",
+            "| Stock | Deterministic Action Today (Primary / Not Executed) | AI Commentary (Secondary) |",
             "|---|---|---|",
         ]
 
         for r in results:
+            action_model = self._get_primary_action_model(r)
             _, signal_emoji, _ = self._get_signal_level(r)
             stock_cell = self._to_markdown_table_cell(
                 f"{signal_emoji} **{self._escape_md(r.name)}({r.code})**"
             )
-            ai_view_cell = self._to_markdown_table_cell(
-                f"{r.operation_advice} · 评分 {r.sentiment_score} · {r.trend_prediction}"
+            action_cell = self._to_markdown_table_cell(
+                f"{action_model['position_action']} · 目标{action_model['target_weight']:.2%} · "
+                f"模拟Δ{action_model['delta_amount']:,.2f}"
             )
-            action_reason = getattr(r, 'action_reason', '')
-            action_text = str(getattr(r, 'position_action', 'HOLD') or 'HOLD')
-            if action_reason:
-                action_text = f"{action_text} · {action_reason}"
-            action_cell = self._to_markdown_table_cell(action_text)
+            ai_view_text = f"{r.operation_advice} · 评分 {r.sentiment_score} · {r.trend_prediction}"
+            if action_model['ai_conflict']:
+                ai_view_text += " ⚠️(与确定性动作不一致，仅供参考)"
+            ai_view_cell = self._to_markdown_table_cell(ai_view_text)
 
             lines.append(
                 "| "
                 f"{stock_cell} | "
-                f"{ai_view_cell} | "
-                f"{action_cell} "
+                f"{action_cell} | "
+                f"{ai_view_cell} "
                 "|"
             )
         return lines
+
+    def _infer_ai_commentary_decision(self, operation_advice: str) -> Optional[str]:
+        """Infer BUY/HOLD/SELL bucket from AI narrative advice text."""
+        advice = str(operation_advice or '').strip().lower()
+        if not advice:
+            return None
+        if any(token in advice for token in ('卖', '减仓', '止损', 'sell', 'reduce', 'close')):
+            return 'SELL'
+        if any(token in advice for token in ('买', '加仓', 'buy', 'open', 'add')):
+            return 'BUY'
+        if any(token in advice for token in ('持有', '观望', 'hold', 'watch')):
+            return 'HOLD'
+        return None
+
+    def _get_primary_action_model(self, result: AnalysisResult) -> Dict[str, Any]:
+        """Deterministic action source-of-truth model.
+
+        Precedence rule:
+        1) position_action decides executable action bucket when valid.
+        2) missing/invalid position_action falls back to final_decision.
+        """
+        position_action = _normalize_position_action(result)
+        decision = _decision_from_position_action(position_action)
+        if not decision:
+            decision = _get_effective_decision(result)
+            position_action = {'BUY': 'OPEN', 'HOLD': 'HOLD', 'SELL': 'CLOSE'}.get(decision, 'HOLD')
+
+        target_weight = float(getattr(result, 'target_weight', 0.0) or 0.0)
+        delta_amount = float(getattr(result, 'delta_amount', 0.0) or 0.0)
+        ai_decision = self._infer_ai_commentary_decision(getattr(result, 'operation_advice', ''))
+        ai_conflict = bool(ai_decision and ai_decision != decision)
+        return {
+            'decision': decision,
+            'position_action': position_action,
+            'target_weight': target_weight,
+            'delta_amount': delta_amount,
+            'ai_conflict': ai_conflict,
+        }
 
     def _build_simulated_target_allocation_table(self, results: List[AnalysisResult]) -> List[str]:
         """Build simulated target allocation table; clearly separated from executed state."""
@@ -705,49 +765,34 @@ class NotificationService:
             )
         return lines
 
+    def _count_primary_decisions(self, results: List[AnalysisResult]) -> Dict[str, int]:
+        counts = {'BUY': 0, 'HOLD': 0, 'SELL': 0}
+        for result in results:
+            decision = self._get_primary_action_model(result)['decision']
+            counts[decision] = counts.get(decision, 0) + 1
+        return counts
+
+    def _format_primary_action_text(self, result: AnalysisResult) -> str:
+        model = self._get_primary_action_model(result)
+        return (
+            f"{model['position_action']} | 目标仓位 {model['target_weight']:.2%} | "
+            f"模拟Δ {model['delta_amount']:,.2f}"
+        )
+
     def _get_signal_level(self, result: AnalysisResult) -> tuple:
         """
-        Get signal level and color based on operation advice.
-
-        Priority: advice string takes precedence over score.
-        Score-based fallback is used only when advice doesn't match
-        any known value.
+        Get signal level and color based on deterministic primary action model.
 
         Returns:
             (signal_text, emoji, color_tag)
         """
-        advice = result.operation_advice
-        score = result.sentiment_score
-
-        # Advice-first lookup (exact match takes priority)
-        advice_map = {
-            '强烈买入': ('强烈买入', '💚', '强买'),
-            '买入': ('买入', '🟢', '买入'),
-            '加仓': ('买入', '🟢', '买入'),
-            '持有': ('持有', '🟡', '持有'),
-            '观望': ('观望', '⚪', '观望'),
-            '减仓': ('减仓', '🟠', '减仓'),
-            '卖出': ('卖出', '🔴', '卖出'),
-            '强烈卖出': ('卖出', '🔴', '卖出'),
-        }
-        if advice in advice_map:
-            return advice_map[advice]
-
-        # Score-based fallback when advice is unrecognized
-        if score >= 80:
-            return ('强烈买入', '💚', '强买')
-        elif score >= 65:
-            return ('买入', '🟢', '买入')
-        elif score >= 55:
-            return ('持有', '🟡', '持有')
-        elif score >= 45:
-            return ('观望', '⚪', '观望')
-        elif score >= 35:
-            return ('减仓', '🟠', '减仓')
-        elif score < 35:
-            return ('卖出', '🔴', '卖出')
-        else:
-            return ('观望', '⚪', '观望')
+        action_model = self._get_primary_action_model(result)
+        decision = action_model['decision']
+        if decision == 'BUY':
+            return ('买入/加仓', '🟢', '买入')
+        if decision == 'SELL':
+            return ('减仓/卖出', '🔴', '卖出')
+        return ('持有/观望', '⚪', '观望')
 
     @staticmethod
     def _to_positive_float(value: Any) -> Optional[float]:
@@ -858,9 +903,10 @@ class NotificationService:
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
 
         # 统计信息 - 使用主决策（优先 final_decision）
-        buy_count = sum(1 for r in results if _get_effective_decision(r) == 'BUY')
-        sell_count = sum(1 for r in results if _get_effective_decision(r) == 'SELL')
-        hold_count = sum(1 for r in results if _get_effective_decision(r) == 'HOLD')
+        decision_counts = self._count_primary_decisions(results)
+        buy_count = decision_counts['BUY']
+        sell_count = decision_counts['SELL']
+        hold_count = decision_counts['HOLD']
 
         report_lines = [
             f"# 🎯 {report_date} 决策仪表盘",
@@ -904,7 +950,7 @@ class NotificationService:
             report_lines.extend([
                 "## B. Recommended Actions Today",
                 "",
-                "> 以下内容为今日分析建议，尚未执行，不代表真实账户已变化。",
+                "> 以下内容以确定性动作模型为主（final_decision / position_action / target_weight / delta_amount），尚未执行，不代表真实账户已变化。",
                 "",
             ])
             report_lines.extend(self._build_recommended_actions_table(sorted_results))
@@ -926,6 +972,7 @@ class NotificationService:
         if not self._report_summary_only:
             for result in sorted_results:
                 signal_text, signal_emoji, signal_tag = self._get_signal_level(result)
+                action_model = self._get_primary_action_model(result)
                 dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
                 
                 # 股票名称（优先使用 dashboard 或 result 中的名称，转义 *ST 等特殊字符）
@@ -981,18 +1028,33 @@ class NotificationService:
                     "",
                     f"**{signal_emoji} {signal_text}** | {result.trend_prediction}",
                     "",
+                    f"**🧭 确定性动作(主指令)**: {self._format_primary_action_text(result)}",
+                    "",
+                    f"**💬 AI解读(次要参考)**: {result.operation_advice}",
+                    "",
                     f"> **一句话决策**: {one_sentence}",
                     "",
                     f"⏰ **时效性**: {time_sense}",
                     "",
                 ])
+                if action_model['ai_conflict']:
+                    report_lines.extend([
+                        "⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。",
+                        "",
+                    ])
                 # 持仓分类建议
                 if pos_advice:
+                    no_position_text = pos_advice.get('no_position')
+                    if not no_position_text:
+                        no_position_text = self._to_markdown_table_cell(self._format_primary_action_text(result))
+                    has_position_text = pos_advice.get('has_position')
+                    if not has_position_text:
+                        has_position_text = self._to_markdown_table_cell(self._format_primary_action_text(result))
                     report_lines.extend([
                         "| 持仓情况 | 操作建议 |",
                         "|---------|---------|",
-                        f"| 🆕 **空仓者** | {pos_advice.get('no_position', result.operation_advice)} |",
-                        f"| 💼 **持仓者** | {pos_advice.get('has_position', '继续持有')} |",
+                        f"| 🆕 **空仓者** | {no_position_text} |",
+                        f"| 💼 **持仓者** | {has_position_text} |",
                         "",
                     ])
 
@@ -1154,9 +1216,10 @@ class NotificationService:
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
         
         # 统计 - 使用主决策（优先 final_decision）
-        buy_count = sum(1 for r in results if _get_effective_decision(r) == 'BUY')
-        sell_count = sum(1 for r in results if _get_effective_decision(r) == 'SELL')
-        hold_count = sum(1 for r in results if _get_effective_decision(r) == 'HOLD')
+        decision_counts = self._count_primary_decisions(results)
+        buy_count = decision_counts['BUY']
+        sell_count = decision_counts['SELL']
+        hold_count = decision_counts['HOLD']
         
         lines = [
             f"## 🎯 {report_date} 决策仪表盘",
@@ -1190,13 +1253,12 @@ class NotificationService:
             for r in sorted_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
-                action_reason = getattr(r, 'action_reason', '')
-                action_text = str(getattr(r, 'position_action', 'HOLD') or 'HOLD')
-                if action_reason:
-                    action_text = f"{action_text} · {action_reason}"
+                action_model = self._get_primary_action_model(r)
                 lines.append(
-                    f"{signal_emoji} **{stock_name}({r.code})**: {action_text[:70]} "
-                    f"(AI: {r.operation_advice} / {r.sentiment_score})"
+                    f"{signal_emoji} **{stock_name}({r.code})**: "
+                    f"{action_model['position_action']} · 目标{action_model['target_weight']:.2%} · "
+                    f"模拟Δ{action_model['delta_amount']:,.2f} "
+                    f"(AI次要参考: {r.operation_advice} / {r.sentiment_score})"
                 )
             lines.extend([
                 "",
@@ -1213,6 +1275,7 @@ class NotificationService:
         else:
             for result in sorted_results:
                 signal_text, signal_emoji, _ = self._get_signal_level(result)
+                action_model = self._get_primary_action_model(result)
                 dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
                 core = dashboard.get('core_conclusion', {}) if dashboard else {}
                 battle = dashboard.get('battle_plan', {}) if dashboard else {}
@@ -1226,11 +1289,10 @@ class NotificationService:
                 lines.append(f"### {signal_emoji} **{signal_text}** | {stock_name}({result.code})")
                 lines.append("")
 
-                action_reason = getattr(result, 'action_reason', '')
-                action_text = str(getattr(result, 'position_action', 'HOLD') or 'HOLD')
-                if action_reason:
-                    action_text = f"{action_text} · {action_reason}"
-                lines.append(f"📋 今日建议(未执行): {action_text[:80]}")
+                lines.append(f"📋 今日主动作(未执行): {self._format_primary_action_text(result)[:80]}")
+                lines.append(f"💬 AI次要解读: {result.operation_advice[:60]}")
+                if action_model['ai_conflict']:
+                    lines.append("⚠️ AI解读与主动作不一致，请以主动作为准")
                 lines.append("")
                 
                 # 核心决策（一句话）
@@ -1343,9 +1405,10 @@ class NotificationService:
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
 
         # 统计 - 使用主决策（优先 final_decision）
-        buy_count = sum(1 for r in results if _get_effective_decision(r) == 'BUY')
-        sell_count = sum(1 for r in results if _get_effective_decision(r) == 'SELL')
-        hold_count = sum(1 for r in results if _get_effective_decision(r) == 'HOLD')
+        decision_counts = self._count_primary_decisions(results)
+        buy_count = decision_counts['BUY']
+        sell_count = decision_counts['SELL']
+        hold_count = decision_counts['HOLD']
         avg_score = sum(r.sentiment_score for r in results) / len(results) if results else 0
 
         lines = [
