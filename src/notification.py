@@ -451,6 +451,60 @@ class NotificationService:
             content: Markdown 格式内容
         """
         return self._send_via_source_context(content)
+
+    @staticmethod
+    def _is_realtime_price_available(result: AnalysisResult) -> bool:
+        def _has_price(value: Any) -> bool:
+            if value in (None, "", "N/A", "-"):
+                return False
+            try:
+                return float(value) > 0
+            except (TypeError, ValueError):
+                return True
+
+        snapshot = getattr(result, "market_snapshot", None) or {}
+        return _has_price(snapshot.get("price")) or _has_price(getattr(result, "current_price", None))
+
+    def _build_data_baseline_lines(
+        self,
+        results: List[AnalysisResult],
+        generated_at: datetime,
+        *,
+        title: str = "## 🕒 数据时间基准",
+    ) -> List[str]:
+        """构建用户可读的时间基准说明（仅展示口径，不改变数据流）。"""
+        daily_anchor = "最新可用日线（通常为昨日收盘）"
+        snapshot_dates = sorted(
+            {
+                str((getattr(r, "market_snapshot", None) or {}).get("date")).strip()
+                for r in results
+                if str((getattr(r, "market_snapshot", None) or {}).get("date", "")).strip()
+                and str((getattr(r, "market_snapshot", None) or {}).get("date")).strip() != "未知"
+            }
+        )
+        has_mixed_dates = len(snapshot_dates) > 1
+        if len(snapshot_dates) == 1:
+            daily_anchor = f"{snapshot_dates[0]} 日线（收盘口径）"
+        elif has_mixed_dates:
+            daily_anchor = "多只股票日线日期不一致（混合日期）"
+
+        news_cutoff = generated_at.strftime("%Y-%m-%d %H:%M")
+        has_realtime = any(self._is_realtime_price_available(r) for r in results)
+        execution_basis = "实时价格（若可用）" if has_realtime else "latest close（日线收盘价）"
+
+        lines = [
+            title,
+            "",
+            f"- 技术面判断：基于 **{daily_anchor}**。",
+            f"- 新闻更新：截至 **{news_cutoff}**。",
+            f"- 执行参考价格：使用 **{execution_basis}**。",
+        ]
+        if has_mixed_dates:
+            lines.append(f"- 日期说明：本次技术面涉及多个日线日期（{', '.join(snapshot_dates)}）。")
+        if has_realtime:
+            lines.append("- 说明：当前报告可能存在“旧日线信号 + 新实时价格”混用，已在此披露。")
+        lines.append("")
+        return lines
     
     def generate_daily_report(
         self,
@@ -469,16 +523,18 @@ class NotificationService:
         """
         if report_date is None:
             report_date = datetime.now().strftime('%Y-%m-%d')
+        generated_at = datetime.now()
 
         # 标题
         report_lines = [
             f"# 📅 {report_date} 股票智能分析报告",
             "",
-            f"> 共分析 **{len(results)}** 只股票 | 报告生成时间：{datetime.now().strftime('%H:%M:%S')}",
+            f"> 共分析 **{len(results)}** 只股票 | 报告生成时间：{generated_at.strftime('%H:%M:%S')}",
             "",
             "---",
             "",
         ]
+        report_lines.extend(self._build_data_baseline_lines(results, generated_at))
         
         # 按评分排序（高分在前）
         sorted_results = sorted(
@@ -652,7 +708,7 @@ class NotificationService:
         # 底部信息（去除免责声明）
         report_lines.extend([
             "",
-            f"*报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+            f"*报告生成时间：{generated_at.strftime('%Y-%m-%d %H:%M:%S')}*",
         ])
         
         return "\n".join(report_lines)
@@ -943,6 +999,7 @@ class NotificationService:
         """
         if report_date is None:
             report_date = datetime.now().strftime('%Y-%m-%d')
+        generated_at = datetime.now()
 
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -959,6 +1016,7 @@ class NotificationService:
             f"> 共分析 **{len(results)}** 只股票 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
             "",
         ]
+        report_lines.extend(self._build_data_baseline_lines(results, generated_at))
 
         try:
             overview = get_db().get_portfolio_overview()
@@ -1249,7 +1307,7 @@ class NotificationService:
         # 底部（去除免责声明）
         report_lines.extend([
             "",
-            f"*报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+            f"*报告生成时间：{generated_at.strftime('%Y-%m-%d %H:%M:%S')}*",
         ])
         
         return "\n".join(report_lines)
@@ -1266,7 +1324,8 @@ class NotificationService:
         Returns:
             精简版决策仪表盘
         """
-        report_date = datetime.now().strftime('%Y-%m-%d')
+        generated_at = datetime.now()
+        report_date = generated_at.strftime('%Y-%m-%d')
         
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -1283,6 +1342,7 @@ class NotificationService:
             f"> {len(results)}只股票 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
             "",
         ]
+        lines.extend(self._build_data_baseline_lines(results, generated_at, title="**🕒 数据时间基准**"))
 
         try:
             overview = get_db().get_portfolio_overview()
@@ -1441,7 +1501,7 @@ class NotificationService:
                 lines.append("")
         
         # 底部
-        lines.append(f"*生成时间: {datetime.now().strftime('%H:%M')}*")
+        lines.append(f"*生成时间: {generated_at.strftime('%H:%M')}*")
         
         content = "\n".join(lines)
         
@@ -1457,7 +1517,8 @@ class NotificationService:
         Returns:
             精简版 Markdown 内容
         """
-        report_date = datetime.now().strftime('%Y-%m-%d')
+        generated_at = datetime.now()
+        report_date = generated_at.strftime('%Y-%m-%d')
 
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -1475,6 +1536,7 @@ class NotificationService:
             f"> 共 **{len(results)}** 只 | 🟢买入:{buy_count} 🟡持有:{hold_count} 🔴卖出:{sell_count} | 均分:{avg_score:.0f}",
             "",
         ]
+        lines.extend(self._build_data_baseline_lines(results, generated_at, title="**🕒 数据时间基准**"))
         
         # 每只股票精简信息（控制长度）
         for result in sorted_results:
@@ -1524,7 +1586,8 @@ class NotificationService:
         Returns:
             Markdown 格式的单股报告
         """
-        report_date = datetime.now().strftime('%Y-%m-%d %H:%M')
+        generated_at = datetime.now()
+        report_date = generated_at.strftime('%Y-%m-%d %H:%M')
         signal_text, signal_emoji, _ = self._get_signal_level(result)
         dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
         core = dashboard.get('core_conclusion', {}) if dashboard else {}
@@ -1541,6 +1604,7 @@ class NotificationService:
             f"> {report_date} | 评分: **{result.sentiment_score}** | {result.trend_prediction}",
             "",
         ]
+        lines.extend(self._build_data_baseline_lines([result], generated_at, title="### 🕒 数据时间基准"))
 
         self._append_market_snapshot(lines, result)
         
@@ -3778,7 +3842,30 @@ class NotificationBuilder:
         
         适用于快速通知
         """
-        lines = ["📊 **今日自选股摘要**", ""]
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        snapshot_dates = sorted(
+            {
+                str((getattr(r, "market_snapshot", None) or {}).get("date")).strip()
+                for r in results
+                if str((getattr(r, "market_snapshot", None) or {}).get("date", "")).strip()
+                and str((getattr(r, "market_snapshot", None) or {}).get("date")).strip() != "未知"
+            }
+        )
+        if len(snapshot_dates) == 1:
+            daily_anchor = f"{snapshot_dates[0]} 日线（收盘口径）"
+        elif len(snapshot_dates) > 1:
+            daily_anchor = f"混合日线日期（{', '.join(snapshot_dates)}）"
+        else:
+            daily_anchor = "最新可用日线（通常为昨日收盘）"
+
+        has_realtime = any(NotificationService._is_realtime_price_available(r) for r in results)
+        execution_basis = "实时价格（若可用）" if has_realtime else "latest close（日线收盘价）"
+        lines = [
+            "📊 **今日自选股摘要**",
+            "",
+            f"🕒 基准：技术面={daily_anchor}；新闻截至 {now_str}；执行参考价={execution_basis}。",
+            "",
+        ]
         
         for r in sorted(results, key=lambda x: x.sentiment_score, reverse=True):
             decision = _get_effective_decision(r)
