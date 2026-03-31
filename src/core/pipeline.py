@@ -849,12 +849,12 @@ class StockAnalysisPipeline:
 
         snapshot_equity = float(latest_snapshot.equity_value) if latest_snapshot else 0.0
         snapshot_total = float(latest_snapshot.total_value) if latest_snapshot else 0.0
-        if snapshot_equity > 0:
-            current_equity_value = max(current_equity_value, snapshot_equity)
+        if current_equity_value <= 0 and snapshot_equity > 0:
+            current_equity_value = snapshot_equity
 
         current_total_value = cash + current_equity_value
-        if snapshot_total > 0:
-            current_total_value = max(current_total_value, snapshot_total)
+        if current_total_value <= 0 and snapshot_total > 0:
+            current_total_value = snapshot_total
         if current_total_value <= 0:
             current_total_value = max(cash, 10000.0)
         current_weight = current_position_value / current_total_value if current_total_value > 0 else 0.0

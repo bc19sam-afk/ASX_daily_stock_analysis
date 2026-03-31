@@ -493,6 +493,48 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertAlmostEqual(result.target_weight, 0.1, places=4)
         self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
 
+    def test_live_portfolio_state_prefers_live_denominator_over_larger_snapshot_total(self):
+        latest_snapshot = SimpleNamespace(cash=100.0, equity_value=10000.0, total_value=10100.0)
+        existing = SimpleNamespace(quantity=1.0, avg_cost=10.0, current_price=10.0, market_value=10.0)
+        open_positions = [SimpleNamespace(code="LIV", quantity=1.0, current_price=10.0, market_value=10.0)]
+
+        state = self.pipeline._build_live_portfolio_state(
+            code="LIV",
+            existing=existing,
+            open_positions=open_positions,
+            latest_snapshot=latest_snapshot,
+            current_price=10.0,
+        )
+
+        self.assertAlmostEqual(state["total_value"], 110.0, places=2)
+        self.assertAlmostEqual(state["current_weight"], 1.0 / 11.0, places=6)
+
+    def test_stale_snapshot_total_no_longer_suppresses_target_weight_and_delta_amount(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=100, equity_value=10000, total_value=10100)
+        self.db.upsert_portfolio_position(
+            code="SUP",
+            name="SUP",
+            quantity=1,
+            avg_cost=10,
+            current_price=10,
+            weight=0.1,
+            market_value=10,
+        )
+
+        result = self._result("SUP", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=result,
+            query_id="q_stale_snapshot_total",
+            current_price=10,
+            persist=False,
+        )
+
+        self.assertEqual(result.position_action, "ADD")
+        self.assertAlmostEqual(result.current_weight, 0.0909, places=4)
+        self.assertAlmostEqual(result.target_weight, 0.1409, places=4)
+        self.assertAlmostEqual(result.delta_amount, 5.5, places=2)
+
+
     def test_analyze_stock_defaults_to_read_only_position_management(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.db = self.db
