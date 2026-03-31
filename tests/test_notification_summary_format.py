@@ -103,7 +103,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("逢回调分批买入 \\| 保持纪律<br>关注成交量变化", report)
+        self.assertIn("逢回调分批买入 \\| 保持纪律 关注成交量变化 · 评分 75 · 震荡上行", report)
         self.assertIn("ADD · 目标18.00% · 模拟Δ3,200.00", report)
 
         html = markdown_to_html_document(report)
@@ -411,6 +411,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
         self.assertIn("AI Commentary (Secondary)", report)
+        self.assertIn("必须立即卖出止损 · 评分 75 · 震荡上行", report)
         self.assertIn("⚠️(与确定性动作不一致，仅供参考)", report)
 
     @patch("src.notification.get_db")
@@ -428,7 +429,23 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("### 📌 核心结论", report)
         self.assertIn("**⚪ 持有/观望**", report)
         self.assertIn("**🧭 确定性动作(主指令)**: HOLD | 目标仓位 18.00% | 模拟Δ 3,200.00", report)
+        self.assertIn("**💬 AI解读(次要参考)**: 卖出", report)
         self.assertIn("⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。", report)
+
+    @patch("src.notification.get_db")
+    def test_primary_action_stays_canonical_while_ai_commentary_remains_independent(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        results = [
+            self._build_result(code="AAA", final_decision="BUY", position_action="", operation_advice="可轻仓跟踪"),
+            self._build_result(code="BBB", final_decision="HOLD", position_action="", operation_advice="可买入"),
+            self._build_result(code="CCC", final_decision="SELL", position_action="", operation_advice="继续拿住"),
+        ]
+        report = service.generate_dashboard_report(results, report_date="2026-03-30")
+
+        self.assertIn("| 🟢 **贵州茅台(AAA)** | OPEN · 目标18.00% · 模拟Δ3,200.00 | 可轻仓跟踪 · 评分 75 · 震荡上行 |", report)
+        self.assertIn("| ⚪ **贵州茅台(BBB)** | HOLD · 目标18.00% · 模拟Δ3,200.00 | 可买入 · 评分 75 · 震荡上行 ⚠️(与确定性动作不一致，仅供参考) |", report)
+        self.assertIn("| 🔴 **贵州茅台(CCC)** | CLOSE · 目标18.00% · 模拟Δ3,200.00 | 继续拿住 · 评分 75 · 震荡上行 |", report)
 
     @patch("src.notification.get_db")
     def test_position_advice_fallback_escapes_pipe_for_markdown_table_and_feishu(self, mock_get_db) -> None:
