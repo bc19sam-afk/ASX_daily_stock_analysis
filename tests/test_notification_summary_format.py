@@ -178,8 +178,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("## 🕒 数据时间基准", report)
         self.assertIn("技术面判断：基于 **2026-03-29 日线（收盘口径）**。", report)
         self.assertIn("新闻更新：截至 **2026-03-30 09:30**。", report)
-        self.assertIn("执行参考价格：**1/1** 只使用实时价格（realtime price）；**0/1** 只使用 latest close（日线收盘口径）。", report)
-        self.assertIn("旧日线信号 + 新实时价格”混用（实时 1 只，收盘 0 只）", report)
+        self.assertIn("执行参考价格：**1/1** 只使用实时价格（realtime price）；**0/1** 只使用 latest close（日线收盘口径）；**0/1** 只为 close-only basis。", report)
+        self.assertIn("旧日线信号 + 新实时价格”混用（实时 1 只，非实时 0 只）", report)
         self.assertIn("**价格基准**：realtime price（实时价格）", report)
 
     @patch("src.notification.datetime")
@@ -205,7 +205,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             market_snapshot={"date": "2026-03-29", "price": "N/A"},
         )
         report = service.generate_daily_report([result], report_date="2026-03-30")
-        self.assertIn("执行参考价格：**1/1** 只使用实时价格（realtime price）；**0/1** 只使用 latest close（日线收盘口径）。", report)
+        self.assertIn("执行参考价格：**1/1** 只使用实时价格（realtime price）；**0/1** 只使用 latest close（日线收盘口径）；**0/1** 只为 close-only basis。", report)
 
     def test_single_stock_report_labels_sniper_points_as_ai_reference_only(self) -> None:
         service = self._build_service()
@@ -234,7 +234,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             market_snapshot={"date": "2026-03-29", "price": "N/A"},
         )
         summary = NotificationBuilder.build_stock_summary([result])
-        self.assertIn("执行参考价=实时 1/1，latest close 0/1", summary)
+        self.assertIn("执行参考价=实时 1/1，latest close 0/1，close-only 0/1", summary)
         self.assertIn("价格基准：realtime price（实时价格）", summary)
 
     @patch("src.notification.datetime")
@@ -262,7 +262,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 - 技术面判断：基于 **最新可用日线（通常为昨日收盘）**。
 - 新闻更新：截至 **2026-03-30 09:30**。
-- 执行参考价格：**0/2** 只使用实时价格（realtime price）；**2/2** 只使用 latest close（日线收盘口径）。
+- 执行参考价格：**0/2** 只使用实时价格（realtime price）；**0/2** 只使用 latest close（日线收盘口径）；**2/2** 只为 close-only basis。
 
 ## A. Current Portfolio Overview (Executed / Real State)
 
@@ -323,7 +323,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 - 技术面判断：基于 **最新可用日线（通常为昨日收盘）**。
 - 新闻更新：截至 **2026-03-30 09:30**。
-- 执行参考价格：**0/2** 只使用实时价格（realtime price）；**2/2** 只使用 latest close（日线收盘口径）。
+- 执行参考价格：**0/2** 只使用实时价格（realtime price）；**0/2** 只使用 latest close（日线收盘口径）；**2/2** 只为 close-only basis。
 
 **A) 当前账户状态（已执行）**
 - 现金: 200,000.00
@@ -366,7 +366,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 • 技术面判断：基于 **最新可用日线（通常为昨日收盘）**。
 • 新闻更新：截至 **2026-03-30 09:30**。
-• 执行参考价格：**0/2** 只使用实时价格（realtime price）；**2/2** 只使用 latest close（日线收盘口径）。
+• 执行参考价格：**0/2** 只使用实时价格（realtime price）；**0/2** 只使用 latest close（日线收盘口径）；**2/2** 只为 close-only basis。
 
 **A. Current Portfolio Overview (Executed / Real State)**
 

@@ -453,17 +453,38 @@ class NotificationService:
         return self._send_via_source_context(content)
 
     @staticmethod
-    def _is_realtime_price_available(result: AnalysisResult) -> bool:
-        def _has_price(value: Any) -> bool:
-            if value in (None, "", "N/A", "-"):
-                return False
-            try:
-                return float(value) > 0
-            except (TypeError, ValueError):
-                return True
+    def _has_valid_price(value: Any) -> bool:
+        if value in (None, "", "N/A", "-"):
+            return False
+        try:
+            return float(value) > 0
+        except (TypeError, ValueError):
+            return True
 
+    @staticmethod
+    def _is_realtime_price_available(result: AnalysisResult) -> bool:
         snapshot = getattr(result, "market_snapshot", None) or {}
-        return _has_price(snapshot.get("price")) or _has_price(getattr(result, "current_price", None))
+        return NotificationService._has_valid_price(snapshot.get("price")) or NotificationService._has_valid_price(
+            getattr(result, "current_price", None)
+        )
+
+    @staticmethod
+    def _classify_price_basis(result: AnalysisResult) -> str:
+        """Classify price basis into: realtime / latest_close / close_only."""
+        if NotificationService._is_realtime_price_available(result):
+            return "realtime"
+        close_value = (getattr(result, "market_snapshot", None) or {}).get("close")
+        if NotificationService._has_valid_price(close_value):
+            return "latest_close"
+        return "close_only"
+
+    @staticmethod
+    def _format_price_basis_label(basis: str) -> str:
+        return {
+            "realtime": "realtime price（实时价格）",
+            "latest_close": "latest close（日线收盘口径）",
+            "close_only": "无实时价格可用；仅按收盘口径（close-only basis）",
+        }.get(basis, "无实时价格可用；仅按收盘口径（close-only basis）")
 
     def _build_data_baseline_lines(
         self,
@@ -490,8 +511,12 @@ class NotificationService:
 
         news_cutoff = generated_at.strftime("%Y-%m-%d %H:%M")
         total_count = len(results)
-        realtime_count = sum(1 for r in results if self._is_realtime_price_available(r))
-        close_count = max(total_count - realtime_count, 0)
+        basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
+        for result in results:
+            basis_counts[self._classify_price_basis(result)] += 1
+        realtime_count = basis_counts["realtime"]
+        latest_close_count = basis_counts["latest_close"]
+        close_only_count = basis_counts["close_only"]
         has_realtime = realtime_count > 0
 
         lines = [
@@ -501,27 +526,22 @@ class NotificationService:
             f"- 新闻更新：截至 **{news_cutoff}**。",
             (
                 f"- 执行参考价格：**{realtime_count}/{total_count}** 只使用实时价格（realtime price）；"
-                f"**{close_count}/{total_count}** 只使用 latest close（日线收盘口径）。"
+                f"**{latest_close_count}/{total_count}** 只使用 latest close（日线收盘口径）；"
+                f"**{close_only_count}/{total_count}** 只为 close-only basis。"
             ),
         ]
         if has_mixed_dates:
             lines.append(f"- 日期说明：本次技术面涉及多个日线日期（{', '.join(snapshot_dates)}）。")
         if has_realtime:
             lines.append(
-                f"- 说明：当前报告存在“旧日线信号 + 新实时价格”混用（实时 {realtime_count} 只，收盘 {close_count} 只），已在此披露。"
+                f"- 说明：当前报告存在“旧日线信号 + 新实时价格”混用（实时 {realtime_count} 只，非实时 {latest_close_count + close_only_count} 只），已在此披露。"
             )
         lines.append("")
         return lines
 
     def _get_price_basis_label(self, result: AnalysisResult) -> str:
         """返回单只股票的价格口径标签（仅用于展示层披露）。"""
-        if self._is_realtime_price_available(result):
-            return "realtime price（实时价格）"
-
-        close_value = (getattr(result, "market_snapshot", None) or {}).get("close")
-        if close_value not in (None, "", "N/A", "-"):
-            return "latest close（日线收盘口径）"
-        return "无实时价格可用；仅按收盘口径（close-only basis）"
+        return self._format_price_basis_label(self._classify_price_basis(result))
     
     def generate_daily_report(
         self,
@@ -3906,14 +3926,17 @@ class NotificationBuilder:
             daily_anchor = "最新可用日线（通常为昨日收盘）"
 
         total_count = len(results)
-        realtime_count = sum(1 for r in results if NotificationService._is_realtime_price_available(r))
-        close_count = max(total_count - realtime_count, 0)
+        basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
+        for result in results:
+            basis_counts[NotificationService._classify_price_basis(result)] += 1
         lines = [
             "📊 **今日自选股摘要**",
             "",
             (
                 f"🕒 基准：技术面={daily_anchor}；新闻截至 {now_str}；"
-                f"执行参考价=实时 {realtime_count}/{total_count}，latest close {close_count}/{total_count}。"
+                f"执行参考价=实时 {basis_counts['realtime']}/{total_count}，"
+                f"latest close {basis_counts['latest_close']}/{total_count}，"
+                f"close-only {basis_counts['close_only']}/{total_count}。"
             ),
             "",
         ]
@@ -3921,11 +3944,7 @@ class NotificationBuilder:
         for r in sorted(results, key=lambda x: x.sentiment_score, reverse=True):
             decision = _get_effective_decision(r)
             emoji = _decision_to_signal_emoji(decision)
-            basis = (
-                "realtime price（实时价格）"
-                if NotificationService._is_realtime_price_available(r)
-                else "无实时价格可用；仅按收盘口径（close-only basis）"
-            )
+            basis = NotificationService._format_price_basis_label(NotificationService._classify_price_basis(r))
             lines.append(
                 f"{emoji} {r.name}({r.code}): {_decision_to_canonical_advice(decision)} | "
                 f"评分 {r.sentiment_score} | 价格基准：{basis}"
