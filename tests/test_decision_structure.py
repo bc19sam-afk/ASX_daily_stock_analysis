@@ -102,6 +102,20 @@ class DecisionStructureTestCase(unittest.TestCase):
             )
         )
 
+    def test_resolve_execution_price_source_marks_latest_close_when_realtime_missing(self):
+        self.assertEqual(
+            StockAnalysisPipeline._resolve_execution_price_source(
+                enhanced_context={"realtime": {"price": None}, "today": {"close": 51.8}},
+            ),
+            "latest_close",
+        )
+        self.assertEqual(
+            StockAnalysisPipeline._resolve_execution_price_source(
+                enhanced_context={"realtime": {"price": 52.31}, "today": {"close": 51.8}},
+            ),
+            "realtime",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

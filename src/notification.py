@@ -471,6 +471,10 @@ class NotificationService:
     @staticmethod
     def _classify_price_basis(result: AnalysisResult) -> str:
         """Classify price basis into: realtime / latest_close / close_only."""
+        explicit_source = str(getattr(result, "execution_price_source", "") or "").strip().lower()
+        if explicit_source in {"realtime", "latest_close", "close_only"}:
+            return explicit_source
+
         if NotificationService._is_realtime_price_available(result):
             return "realtime"
         close_value = (getattr(result, "market_snapshot", None) or {}).get("close")

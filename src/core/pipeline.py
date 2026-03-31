@@ -388,7 +388,7 @@ class StockAnalysisPipeline:
             # Step 7.5: 填充分析时的价格信息到 result
             if result:
                 realtime_data = enhanced_context.get('realtime', {})
-                result.current_price = realtime_data.get('price')
+                result.realtime_price = realtime_data.get('price')
                 result.change_pct = realtime_data.get('change_pct')
                 self._apply_decision_structure(
                     result=result,
@@ -396,6 +396,9 @@ class StockAnalysisPipeline:
                     trend_result=trend_result,
                 )
                 execution_price = self._resolve_execution_price(
+                    enhanced_context=enhanced_context,
+                )
+                result.execution_price_source = self._resolve_execution_price_source(
                     enhanced_context=enhanced_context,
                 )
                 result.current_price = execution_price
@@ -567,6 +570,30 @@ class StockAnalysisPipeline:
             if price > 0:
                 return price
         return None
+
+    @staticmethod
+    def _resolve_execution_price_source(
+        *,
+        enhanced_context: Dict[str, Any],
+    ) -> str:
+        """Resolve execution price basis: realtime / latest_close / close_only."""
+        realtime = enhanced_context.get("realtime") if isinstance(enhanced_context, dict) else None
+        if isinstance(realtime, dict):
+            try:
+                if float(realtime.get("price")) > 0:
+                    return "realtime"
+            except (TypeError, ValueError):
+                pass
+
+        today = enhanced_context.get("today") if isinstance(enhanced_context, dict) else None
+        if isinstance(today, dict):
+            try:
+                if float(today.get("close")) > 0:
+                    return "latest_close"
+            except (TypeError, ValueError):
+                pass
+
+        return "close_only"
 
     def _apply_position_management(
         self,
