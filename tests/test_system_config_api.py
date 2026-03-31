@@ -84,6 +84,19 @@ class SystemConfigApiTestCase(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["error"], "config_version_conflict")
 
+    def test_put_config_returns_409_for_stale_version_even_with_invalid_payload(self) -> None:
+        response = self.client.put(
+            "/api/v1/system/config",
+            json={
+                "config_version": "stale-version",
+                "reload_now": False,
+                "items": [{"key": "SCHEDULE_TIME", "value": "25:70"}],
+            },
+        )
+        self.assertEqual(response.status_code, 409)
+        payload = response.json()
+        self.assertEqual(payload["error"], "config_version_conflict")
+
     def test_second_write_with_original_version_returns_409_after_first_success(self) -> None:
         current = self.client.get("/api/v1/system/config").json()
 

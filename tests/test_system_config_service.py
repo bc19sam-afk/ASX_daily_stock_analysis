@@ -6,6 +6,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from src.config import Config
 from src.core.config_manager import ConfigManager
@@ -82,6 +83,14 @@ class SystemConfigServiceTestCase(unittest.TestCase):
                 reload_now=False,
             )
 
+    def test_stale_version_returns_conflict_before_validation(self) -> None:
+        with self.assertRaises(ConfigConflictError):
+            self.service.update(
+                config_version="stale-version",
+                items=[{"key": "SCHEDULE_TIME", "value": "invalid-time"}],
+                reload_now=False,
+            )
+
     def test_apply_updates_if_version_fails_when_version_changed_before_write(self) -> None:
         initial_version = self.manager.get_config_version()
         self.manager.apply_updates(
@@ -130,6 +139,25 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         conflict_count = sum(1 for status, _ in outcomes if status == "conflict")
         self.assertEqual(success_count, 1)
         self.assertEqual(conflict_count, 1)
+
+    def test_version_change_during_validation_window_returns_conflict_via_cas(self) -> None:
+        original_collect_issues = self.service._collect_issues
+
+        def mutate_config_during_validation(*args, **kwargs):
+            self.manager.apply_updates(
+                updates=[("LOG_LEVEL", "DEBUG")],
+                sensitive_keys=set(),
+                mask_token="******",
+            )
+            return original_collect_issues(*args, **kwargs)
+
+        with mock.patch.object(self.service, "_collect_issues", side_effect=mutate_config_during_validation):
+            with self.assertRaises(ConfigConflictError):
+                self.service.update(
+                    config_version=self.manager.get_config_version(),
+                    items=[{"key": "STOCK_LIST", "value": "600519,300750"}],
+                    reload_now=False,
+                )
 
 
 if __name__ == "__main__":
