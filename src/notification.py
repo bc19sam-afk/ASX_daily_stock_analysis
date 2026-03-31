@@ -1236,14 +1236,14 @@ class NotificationService:
                     sniper = battle.get('sniper_points', {})
                     if sniper:
                         report_lines.extend([
-                            "**📍 狙击点位**",
+                            "**📍 AI参考点位（非系统执行指令）**",
                             "",
                             "| 点位类型 | 价格 |",
                             "|---------|------|",
-                            f"| 🎯 理想买入点 | {self._clean_sniper_value(sniper.get('ideal_buy', 'N/A'))} |",
-                            f"| 🔵 次优买入点 | {self._clean_sniper_value(sniper.get('secondary_buy', 'N/A'))} |",
-                            f"| 🛑 止损位 | {self._clean_sniper_value(sniper.get('stop_loss', 'N/A'))} |",
-                            f"| 🎊 目标位 | {self._clean_sniper_value(sniper.get('take_profit', 'N/A'))} |",
+                            f"| 🎯 参考买入位（AI估计） | {self._clean_sniper_value(sniper.get('ideal_buy', 'N/A'))} |",
+                            f"| 🔵 观察买入位（AI估计） | {self._clean_sniper_value(sniper.get('secondary_buy', 'N/A'))} |",
+                            f"| 🛑 风险提示位（AI估计） | {self._clean_sniper_value(sniper.get('stop_loss', 'N/A'))} |",
+                            f"| 🎊 参考目标位（AI估计） | {self._clean_sniper_value(sniper.get('take_profit', 'N/A'))} |",
                             "",
                         ])
                     # 仓位策略
@@ -1457,11 +1457,11 @@ class NotificationService:
                     take_profit = sniper.get('take_profit', '')
                     points = []
                     if ideal_buy:
-                        points.append(f"🎯买点:{ideal_buy[:15]}")
+                        points.append(f"🎯参考位(AI):{ideal_buy[:12]}")
                     if stop_loss:
-                        points.append(f"🛑止损:{stop_loss[:15]}")
+                        points.append(f"🛑风险位(AI):{stop_loss[:12]}")
                     if take_profit:
-                        points.append(f"🎊目标:{take_profit[:15]}")
+                        points.append(f"🎊目标参考(AI):{take_profit[:12]}")
                     if points:
                         lines.append(" | ".join(points))
                         lines.append("")
@@ -1664,7 +1664,7 @@ class NotificationService:
             lines.extend([
                 "### 🎯 操作点位",
                 "",
-                "| 买点 | 止损 | 目标 |",
+                "| AI参考买入位 | AI风险提示位 | AI参考目标位 |",
                 "|------|------|------|",
             ])
             ideal_buy = sniper.get('ideal_buy', '-')

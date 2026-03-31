@@ -45,22 +45,22 @@ export const ReportStrategy: React.FC<ReportStrategyProps> = ({ strategy }) => {
 
   const strategyItems = [
     {
-      label: '理想买入',
+      label: '参考买入位（AI）',
       value: strategy.idealBuy,
       color: '#00ff88', // success
     },
     {
-      label: '二次买入',
+      label: '观察买入位（AI）',
       value: strategy.secondaryBuy,
       color: '#00d4ff', // cyan
     },
     {
-      label: '止损价位',
+      label: '风险提示位（AI）',
       value: strategy.stopLoss,
       color: '#ff4466', // danger
     },
     {
-      label: '止盈目标',
+      label: '参考目标位（AI）',
       value: strategy.takeProfit,
       color: '#ffaa00', // warning
     },
@@ -69,8 +69,8 @@ export const ReportStrategy: React.FC<ReportStrategyProps> = ({ strategy }) => {
   return (
     <Card variant="bordered" padding="md">
       <div className="mb-3 flex items-baseline gap-2">
-        <span className="label-uppercase">STRATEGY POINTS</span>
-        <h3 className="text-base font-semibold text-white">狙击点位</h3>
+        <span className="label-uppercase">AI REFERENCE LEVELS</span>
+        <h3 className="text-base font-semibold text-white">AI参考点位（非系统指令）</h3>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {strategyItems.map((item) => (

@@ -206,6 +206,25 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_daily_report([result], report_date="2026-03-30")
         self.assertIn("执行参考价格：使用 **实时价格（若可用）**。", report)
 
+    def test_single_stock_report_labels_sniper_points_as_ai_reference_only(self) -> None:
+        service = self._build_service()
+        result = self._build_result(
+            dashboard={
+                "battle_plan": {
+                    "sniper_points": {
+                        "ideal_buy": "10.50",
+                        "secondary_buy": "10.20",
+                        "stop_loss": "9.80",
+                        "take_profit": "11.60",
+                    }
+                }
+            },
+        )
+
+        report = service.generate_single_stock_report(result)
+        self.assertIn("| AI参考买入位 | AI风险提示位 | AI参考目标位 |", report)
+        self.assertIn("| 10.50 | 9.80 | 11.60 |", report)
+
     @patch("src.notification.datetime")
     def test_build_stock_summary_marks_realtime_when_only_current_price_exists(self, mock_datetime) -> None:
         mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
