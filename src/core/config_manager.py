@@ -94,6 +94,42 @@ class ConfigManager:
 
             return list(mutable_updates.keys()), skipped_masked, self.get_config_version()
 
+    def apply_updates_if_version(
+        self,
+        expected_version: str,
+        updates: Iterable[Tuple[str, str]],
+        sensitive_keys: Set[str],
+        mask_token: str,
+    ) -> Optional[Tuple[List[str], List[str], str]]:
+        """Atomically compare config version and apply updates under one lock."""
+        with self._lock:
+            current_version = self.get_config_version()
+            if current_version != expected_version:
+                return None
+
+            current_values = self.read_config_map()
+            mutable_updates: Dict[str, str] = {}
+            skipped_masked: List[str] = []
+
+            for key, value in updates:
+                key_upper = key.upper()
+                current_value = current_values.get(key_upper)
+
+                if key_upper in sensitive_keys and value == mask_token:
+                    if current_value not in (None, ""):
+                        skipped_masked.append(key_upper)
+                    continue
+
+                if current_value == value:
+                    continue
+
+                mutable_updates[key_upper] = value
+
+            if mutable_updates:
+                self._atomic_upsert(mutable_updates)
+
+            return list(mutable_updates.keys()), skipped_masked, self.get_config_version()
+
     def _atomic_upsert(self, updates: Dict[str, str]) -> None:
         """Write updates with atomic rename and in-place fallback for mounted files."""
         lines = self._read_lines()
