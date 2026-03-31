@@ -459,13 +459,14 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertAlmostEqual(ro_result.current_weight, rw_result.current_weight, places=4)
         self.assertAlmostEqual(ro_result.target_weight, rw_result.target_weight, places=4)
         self.assertAlmostEqual(ro_result.delta_amount, rw_result.delta_amount, places=2)
-        self.assertEqual(ro_result.position_action, "ADD")
-        self.assertAlmostEqual(ro_result.current_weight, 0.1, places=4)
-        self.assertAlmostEqual(ro_result.target_weight, 0.11, places=4)
-        self.assertAlmostEqual(ro_result.delta_amount, 100.0, places=2)
+        self.assertEqual(ro_result.position_action, "REDUCE")
+        self.assertAlmostEqual(ro_result.current_weight, 0.9091, places=4)
+        self.assertAlmostEqual(ro_result.target_weight, 0.35, places=4)
+        self.assertAlmostEqual(ro_result.delta_amount, -615.0, places=2)
+        self.assertAlmostEqual(ro_result.target_quantity, 3.85, places=4)
 
         latest_journal = self.db.get_trade_journal(code="AFB", limit=1)[0]
-        self.assertAlmostEqual(latest_journal.target_quantity, 11.0, places=4)
+        self.assertAlmostEqual(latest_journal.target_quantity, 3.85, places=4)
         self.assertAlmostEqual(latest_journal.delta_amount, ro_result.delta_amount, places=2)
 
     def test_computed_target_quantity_is_attached_to_result_in_read_only_and_persist_modes(self):
