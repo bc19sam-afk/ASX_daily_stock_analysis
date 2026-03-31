@@ -452,12 +452,82 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("| 🆕 **空仓者** | ADD \\| 目标仓位 18.00% \\| 模拟Δ 3,200.00 |", report)
-        self.assertIn("| 💼 **持仓者** | 继续持有等待确认 |", report)
+        self.assertIn("| 🆕 **空仓者** | ADD \\| 目标仓位 18.00% \\| 模拟Δ 3,200.00 \\| 目标数量 N/A（确定性引擎未提供） |", report)
+        self.assertIn("| 💼 **持仓者** | ADD \\| 目标仓位 18.00% \\| 模拟Δ 3,200.00 \\| 目标数量 N/A（确定性引擎未提供） |", report)
+        self.assertIn("**💬 AI仓位解读（次要评论，非执行指令）**", report)
+        self.assertIn("- 💼 持仓者: 继续持有等待确认", report)
 
         feishu = format_feishu_markdown(report)
         self.assertIn("空仓者", feishu)
-        self.assertIn("ADD | 目标仓位 18.00% | 模拟Δ 3,200.00", feishu)
+        self.assertIn("ADD | 目标仓位 18.00% | 模拟Δ 3,200.00 | 目标数量 N/A（确定性引擎未提供）", feishu)
+
+    @patch("src.notification.get_db")
+    def test_per_stock_deterministic_target_quantity_is_the_only_sizing_instruction(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            target_weight=0.2,
+            delta_amount=6000.0,
+            dashboard={
+                "core_conclusion": {
+                    "one_sentence": "按计划执行",
+                    "position_advice": {
+                        "no_position": "建议买入1000股",
+                        "has_position": "再加仓500股",
+                    },
+                }
+            },
+        )
+        setattr(result, "target_quantity", 321.5)
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        self.assertIn("目标数量 321.5000 股", report)
+        self.assertIn("ADD \\| 目标仓位 20.00% \\| 模拟Δ 6,000.00 \\| 目标数量 321.5000 股", report)
+        self.assertIn("- 🆕 空仓者: 建议买入1000股", report)
+        self.assertIn("AI仓位解读（次要评论，非执行指令）", report)
+
+    @patch("src.notification.get_db")
+    def test_per_stock_ai_sizing_commentary_is_labeled_non_binding_when_target_quantity_missing(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            dashboard={
+                "core_conclusion": {
+                    "one_sentence": "等待确认",
+                    "position_advice": {"no_position": "建议买入1000股"},
+                }
+            },
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        self.assertIn("目标数量 N/A（确定性引擎未提供）", report)
+        self.assertIn("AI仓位解读（次要评论，非执行指令）", report)
+        self.assertNotIn("| 🆕 **空仓者** | 建议买入1000股 |", report)
+
+    @patch("src.notification.get_db")
+    def test_per_stock_close_position_renders_zero_target_quantity_as_deterministic(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            position_action="CLOSE",
+            final_decision="SELL",
+            target_weight=0.0,
+            delta_amount=-3200.0,
+            dashboard={
+                "core_conclusion": {
+                    "one_sentence": "按纪律清仓",
+                    "position_advice": {"has_position": "建议全部卖出"},
+                }
+            },
+        )
+        setattr(result, "target_quantity", 0)
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        self.assertIn("CLOSE \\| 目标仓位 0.00% \\| 模拟Δ -3,200.00 \\| 目标数量 0.0000 股", report)
+        self.assertNotIn("目标数量 N/A（确定性引擎未提供）", report)
 
 
 if __name__ == "__main__":

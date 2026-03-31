@@ -779,6 +779,20 @@ class NotificationService:
             f"模拟Δ {model['delta_amount']:,.2f}"
         )
 
+    def _format_deterministic_sizing_text(self, result: AnalysisResult) -> str:
+        """Format deterministic sizing guidance from the same target-allocation engine."""
+        base = self._format_primary_action_text(result)
+        raw_target_quantity = getattr(result, 'target_quantity', None)
+        if raw_target_quantity is None:
+            return f"{base} | 目标数量 N/A（确定性引擎未提供）"
+        try:
+            target_quantity = float(raw_target_quantity)
+        except (TypeError, ValueError):
+            return f"{base} | 目标数量 N/A（确定性引擎未提供）"
+        if target_quantity < 0:
+            return f"{base} | 目标数量 N/A（确定性引擎未提供）"
+        return f"{base} | 目标数量 {target_quantity:,.4f} 股"
+
     def _get_signal_level(self, result: AnalysisResult) -> tuple:
         """
         Get signal level and color based on deterministic primary action model.
@@ -1044,12 +1058,11 @@ class NotificationService:
                     ])
                 # 持仓分类建议
                 if pos_advice:
-                    no_position_text = pos_advice.get('no_position')
-                    if not no_position_text:
-                        no_position_text = self._to_markdown_table_cell(self._format_primary_action_text(result))
-                    has_position_text = pos_advice.get('has_position')
-                    if not has_position_text:
-                        has_position_text = self._to_markdown_table_cell(self._format_primary_action_text(result))
+                    deterministic_sizing_text = self._to_markdown_table_cell(
+                        self._format_deterministic_sizing_text(result)
+                    )
+                    no_position_text = deterministic_sizing_text
+                    has_position_text = deterministic_sizing_text
                     report_lines.extend([
                         "| 持仓情况 | 操作建议 |",
                         "|---------|---------|",
@@ -1057,6 +1070,18 @@ class NotificationService:
                         f"| 💼 **持仓者** | {has_position_text} |",
                         "",
                     ])
+                    ai_no_position_text = pos_advice.get('no_position')
+                    ai_has_position_text = pos_advice.get('has_position')
+                    if ai_no_position_text or ai_has_position_text:
+                        report_lines.extend([
+                            "**💬 AI仓位解读（次要评论，非执行指令）**",
+                            "",
+                        ])
+                        if ai_no_position_text:
+                            report_lines.append(f"- 🆕 空仓者: {ai_no_position_text}")
+                        if ai_has_position_text:
+                            report_lines.append(f"- 💼 持仓者: {ai_has_position_text}")
+                        report_lines.append("")
 
                 self._append_market_snapshot(report_lines, result)
                 
@@ -1136,7 +1161,7 @@ class NotificationService:
                     position = battle.get('position_strategy', {})
                     if position:
                         report_lines.extend([
-                            f"**💰 仓位建议**: {position.get('suggested_position', 'N/A')}",
+                            f"**💰 AI仓位评论（次要评论，非执行指令）**: {position.get('suggested_position', 'N/A')}",
                             f"- 建仓策略: {position.get('entry_plan', 'N/A')}",
                             f"- 风控策略: {position.get('risk_control', 'N/A')}",
                             "",
@@ -1353,12 +1378,14 @@ class NotificationService:
                 # 持仓建议
                 pos_advice = core.get('position_advice', {}) if core else {}
                 if pos_advice:
+                    deterministic_sizing = self._format_deterministic_sizing_text(result)
+                    lines.append(f"🧮 确定性仓位指引: {deterministic_sizing[:80]}")
                     no_pos = pos_advice.get('no_position', '')
                     has_pos = pos_advice.get('has_position', '')
                     if no_pos:
-                        lines.append(f"🆕 空仓者: {no_pos[:50]}")
+                        lines.append(f"💬 AI空仓者评论(非执行): {no_pos[:44]}")
                     if has_pos:
-                        lines.append(f"💼 持仓者: {has_pos[:50]}")
+                        lines.append(f"💬 AI持仓者评论(非执行): {has_pos[:44]}")
                     lines.append("")
                 
                 # 检查清单简化版
@@ -1557,8 +1584,9 @@ class NotificationService:
             lines.extend([
                 "### 💼 持仓建议",
                 "",
-                f"- 🆕 **空仓者**: {pos_advice.get('no_position', result.operation_advice)}",
-                f"- 💼 **持仓者**: {pos_advice.get('has_position', '继续持有')}",
+                f"- 🧮 **确定性仓位指引(主指令)**: {self._format_deterministic_sizing_text(result)}",
+                f"- 💬 **AI空仓者评论(非执行)**: {pos_advice.get('no_position', result.operation_advice)}",
+                f"- 💬 **AI持仓者评论(非执行)**: {pos_advice.get('has_position', '继续持有')}",
                 "",
             ])
         
