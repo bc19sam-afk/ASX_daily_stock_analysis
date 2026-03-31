@@ -454,9 +454,16 @@ class NotificationService:
 
     @staticmethod
     def _is_realtime_price_available(result: AnalysisResult) -> bool:
+        def _has_price(value: Any) -> bool:
+            if value in (None, "", "N/A", "-"):
+                return False
+            try:
+                return float(value) > 0
+            except (TypeError, ValueError):
+                return True
+
         snapshot = getattr(result, "market_snapshot", None) or {}
-        price = snapshot.get("price")
-        return price not in (None, "", "N/A", "-")
+        return _has_price(snapshot.get("price")) or _has_price(getattr(result, "current_price", None))
 
     def _build_data_baseline_lines(
         self,
@@ -466,13 +473,20 @@ class NotificationService:
         title: str = "## 🕒 数据时间基准",
     ) -> List[str]:
         """构建用户可读的时间基准说明（仅展示口径，不改变数据流）。"""
-        sample = results[0] if results else None
-        sample_snapshot = getattr(sample, "market_snapshot", None) if sample else None
         daily_anchor = "最新可用日线（通常为昨日收盘）"
-        if isinstance(sample_snapshot, dict):
-            snapshot_date = sample_snapshot.get("date")
-            if snapshot_date and snapshot_date != "未知":
-                daily_anchor = f"{snapshot_date} 日线（收盘口径）"
+        snapshot_dates = sorted(
+            {
+                str((getattr(r, "market_snapshot", None) or {}).get("date")).strip()
+                for r in results
+                if str((getattr(r, "market_snapshot", None) or {}).get("date", "")).strip()
+                and str((getattr(r, "market_snapshot", None) or {}).get("date")).strip() != "未知"
+            }
+        )
+        has_mixed_dates = len(snapshot_dates) > 1
+        if len(snapshot_dates) == 1:
+            daily_anchor = f"{snapshot_dates[0]} 日线（收盘口径）"
+        elif has_mixed_dates:
+            daily_anchor = "多只股票日线日期不一致（混合日期）"
 
         news_cutoff = generated_at.strftime("%Y-%m-%d %H:%M")
         has_realtime = any(self._is_realtime_price_available(r) for r in results)
@@ -485,6 +499,8 @@ class NotificationService:
             f"- 新闻更新：截至 **{news_cutoff}**。",
             f"- 执行参考价格：使用 **{execution_basis}**。",
         ]
+        if has_mixed_dates:
+            lines.append(f"- 日期说明：本次技术面涉及多个日线日期（{', '.join(snapshot_dates)}）。")
         if has_realtime:
             lines.append("- 说明：当前报告可能存在“旧日线信号 + 新实时价格”混用，已在此披露。")
         lines.append("")

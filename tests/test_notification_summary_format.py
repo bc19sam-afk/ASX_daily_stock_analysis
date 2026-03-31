@@ -182,6 +182,31 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("旧日线信号 + 新实时价格", report)
 
     @patch("src.notification.datetime")
+    def test_data_baseline_discloses_mixed_daily_dates_instead_of_first_result_only(self, mock_datetime) -> None:
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        service = self._build_service()
+        service._report_summary_only = False
+        results = [
+            self._build_result(code="AAA", market_snapshot={"date": "2026-03-29"}),
+            self._build_result(code="BBB", market_snapshot={"date": "2026-03-28"}),
+        ]
+        report = service.generate_daily_report(results, report_date="2026-03-30")
+        self.assertIn("技术面判断：基于 **多只股票日线日期不一致（混合日期）**。", report)
+        self.assertIn("日期说明：本次技术面涉及多个日线日期（2026-03-28, 2026-03-29）。", report)
+
+    @patch("src.notification.datetime")
+    def test_data_baseline_marks_realtime_when_only_current_price_exists(self, mock_datetime) -> None:
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            current_price=12.34,
+            market_snapshot={"date": "2026-03-29", "price": "N/A"},
+        )
+        report = service.generate_daily_report([result], report_date="2026-03-30")
+        self.assertIn("执行参考价格：使用 **实时价格（若可用）**。", report)
+
+    @patch("src.notification.datetime")
     @patch("src.notification.get_db")
     def test_dashboard_report_snapshot_regression(self, mock_get_db, mock_datetime) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {
