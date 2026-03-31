@@ -489,22 +489,39 @@ class NotificationService:
             daily_anchor = "多只股票日线日期不一致（混合日期）"
 
         news_cutoff = generated_at.strftime("%Y-%m-%d %H:%M")
-        has_realtime = any(self._is_realtime_price_available(r) for r in results)
-        execution_basis = "实时价格（若可用）" if has_realtime else "latest close（日线收盘价）"
+        total_count = len(results)
+        realtime_count = sum(1 for r in results if self._is_realtime_price_available(r))
+        close_count = max(total_count - realtime_count, 0)
+        has_realtime = realtime_count > 0
 
         lines = [
             title,
             "",
             f"- 技术面判断：基于 **{daily_anchor}**。",
             f"- 新闻更新：截至 **{news_cutoff}**。",
-            f"- 执行参考价格：使用 **{execution_basis}**。",
+            (
+                f"- 执行参考价格：**{realtime_count}/{total_count}** 只使用实时价格（realtime price）；"
+                f"**{close_count}/{total_count}** 只使用 latest close（日线收盘口径）。"
+            ),
         ]
         if has_mixed_dates:
             lines.append(f"- 日期说明：本次技术面涉及多个日线日期（{', '.join(snapshot_dates)}）。")
         if has_realtime:
-            lines.append("- 说明：当前报告可能存在“旧日线信号 + 新实时价格”混用，已在此披露。")
+            lines.append(
+                f"- 说明：当前报告存在“旧日线信号 + 新实时价格”混用（实时 {realtime_count} 只，收盘 {close_count} 只），已在此披露。"
+            )
         lines.append("")
         return lines
+
+    def _get_price_basis_label(self, result: AnalysisResult) -> str:
+        """返回单只股票的价格口径标签（仅用于展示层披露）。"""
+        if self._is_realtime_price_available(result):
+            return "realtime price（实时价格）"
+
+        close_value = (getattr(result, "market_snapshot", None) or {}).get("close")
+        if close_value not in (None, "", "N/A", "-"):
+            return "latest close（日线收盘口径）"
+        return "无实时价格可用；仅按收盘口径（close-only basis）"
     
     def generate_daily_report(
         self,
@@ -571,7 +588,7 @@ class NotificationService:
                 _, emoji, _ = self._get_signal_level(r)
                 report_lines.append(
                     f"{emoji} **{r.name}({r.code})**: {self._get_canonical_operation_advice(r)} | "
-                    f"评分 {r.sentiment_score} | {r.trend_prediction}"
+                    f"评分 {r.sentiment_score} | {r.trend_prediction} | 价格基准：{self._get_price_basis_label(r)}"
                 )
         else:
             report_lines.extend(["## 📈 个股详细分析", ""])
@@ -582,6 +599,8 @@ class NotificationService:
                 
                 report_lines.extend([
                     f"### {emoji} {result.name} ({result.code})",
+                    "",
+                    f"**价格基准**：{self._get_price_basis_label(result)}",
                     "",
                     f"**操作建议：{self._get_canonical_operation_advice(result)}** | **综合评分：{result.sentiment_score}分** | **趋势预测：{result.trend_prediction}** | **置信度：{confidence_stars}**",
                     "",
@@ -1101,6 +1120,8 @@ class NotificationService:
                 report_lines.extend([
                     f"## {signal_emoji} {stock_name} ({result.code})",
                     "",
+                    f"**价格基准**：{self._get_price_basis_label(result)}",
+                    "",
                 ])
                 
                 # ========== 舆情与基本面概览（放在最前面）==========
@@ -1566,7 +1587,10 @@ class NotificationService:
             
             # 核心信息行
             lines.append(f"### {emoji} {result.name}({result.code})")
-            lines.append(f"**{self._get_canonical_operation_advice(result)}** | 评分:{result.sentiment_score} | {result.trend_prediction}")
+            lines.append(
+                f"**{self._get_canonical_operation_advice(result)}** | 评分:{result.sentiment_score} | "
+                f"{result.trend_prediction} | 价格基准：{self._get_price_basis_label(result)}"
+            )
             
             # 操作理由（截断）
             if hasattr(result, 'buy_reason') and result.buy_reason:
@@ -1624,6 +1648,7 @@ class NotificationService:
             f"## {signal_emoji} {stock_name} ({result.code})",
             "",
             f"> {report_date} | 评分: **{result.sentiment_score}** | {result.trend_prediction}",
+            f"> 价格基准：{self._get_price_basis_label(result)}",
             "",
         ]
         lines.extend(self._build_data_baseline_lines([result], generated_at, title="### 🕒 数据时间基准"))
@@ -3880,19 +3905,31 @@ class NotificationBuilder:
         else:
             daily_anchor = "最新可用日线（通常为昨日收盘）"
 
-        has_realtime = any(NotificationService._is_realtime_price_available(r) for r in results)
-        execution_basis = "实时价格（若可用）" if has_realtime else "latest close（日线收盘价）"
+        total_count = len(results)
+        realtime_count = sum(1 for r in results if NotificationService._is_realtime_price_available(r))
+        close_count = max(total_count - realtime_count, 0)
         lines = [
             "📊 **今日自选股摘要**",
             "",
-            f"🕒 基准：技术面={daily_anchor}；新闻截至 {now_str}；执行参考价={execution_basis}。",
+            (
+                f"🕒 基准：技术面={daily_anchor}；新闻截至 {now_str}；"
+                f"执行参考价=实时 {realtime_count}/{total_count}，latest close {close_count}/{total_count}。"
+            ),
             "",
         ]
         
         for r in sorted(results, key=lambda x: x.sentiment_score, reverse=True):
             decision = _get_effective_decision(r)
             emoji = _decision_to_signal_emoji(decision)
-            lines.append(f"{emoji} {r.name}({r.code}): {_decision_to_canonical_advice(decision)} | 评分 {r.sentiment_score}")
+            basis = (
+                "realtime price（实时价格）"
+                if NotificationService._is_realtime_price_available(r)
+                else "无实时价格可用；仅按收盘口径（close-only basis）"
+            )
+            lines.append(
+                f"{emoji} {r.name}({r.code}): {_decision_to_canonical_advice(decision)} | "
+                f"评分 {r.sentiment_score} | 价格基准：{basis}"
+            )
         
         return "\n".join(lines)
 
