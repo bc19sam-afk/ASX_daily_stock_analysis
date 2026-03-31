@@ -1747,71 +1747,55 @@ class GeminiAnalyzer:
 
     def generate_portfolio_summary(self, results: list) -> str:
         """
-        对所有个股分析结果做一次组合层面的 AI 汇总。
+        基于确定性动作字段生成组合层面的摘要。
         输入：AnalysisResult 列表
         输出：纯文本的组合决策摘要（Markdown格式）
         """
-        if not results or not self.is_available():
+        if not results:
             return ""
 
-        config = get_config()
+        ordered_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
+        final_counts = {"BUY": 0, "HOLD": 0, "SELL": 0}
+        action_counts = {"OPEN": 0, "ADD": 0, "HOLD": 0, "REDUCE": 0, "CLOSE": 0}
+        total_delta = 0.0
+        total_turnover = 0.0
+        target_weight_sum = 0.0
 
-        # 构建股票摘要表格
-        lines = []
-        for r in sorted(results, key=lambda x: x.sentiment_score, reverse=True):
-            bt = ""
-            if r.dashboard:
-                # 尝试从dashboard里取止损止盈
-                sl = r.dashboard.get("position_strategy", {}).get("stop_loss", "")
-                tp = r.dashboard.get("position_strategy", {}).get("take_profit", "")
-                bt = f"止损:{sl} 目标:{tp}" if sl or tp else ""
-            lines.append(
-                f"| {r.name}({r.code}) | {r.sentiment_score} | {r.trend_prediction} "
-                f"| {r.operation_advice} | {r.confidence_level} | {bt} |"
-            )
+        for r in ordered_results:
+            final_decision = str(getattr(r, "final_decision", "") or "").upper()
+            if final_decision not in final_counts:
+                final_decision = "HOLD"
+            final_counts[final_decision] += 1
 
-        table = "\n".join(lines)
+            position_action = str(getattr(r, "position_action", "") or "").upper()
+            if position_action not in action_counts:
+                position_action = "HOLD"
+            action_counts[position_action] += 1
 
-        prompt = f"""你是一位澳股投资组合经理，请对以下 {len(results)} 只股票的今日分析结果做组合层面的综合决策。
+            target_weight = float(getattr(r, "target_weight", 0.0) or 0.0)
+            delta_amount = float(getattr(r, "delta_amount", 0.0) or 0.0)
+            target_weight_sum += target_weight
+            total_delta += delta_amount
+            total_turnover += abs(delta_amount)
 
-## 今日个股评分汇总
-| 股票 | 评分 | 趋势 | 操作建议 | 置信度 | 止损/目标 |
-|------|------|------|---------|--------|-----------|
-{table}
+        avg_target_weight = target_weight_sum / len(ordered_results) if ordered_results else 0.0
+        net_delta_label = "净加仓" if total_delta > 0 else "净减仓" if total_delta < 0 else "净零变动"
 
-## 投资组合参数
-- 总本金：{config.total_assets} AUD
-- 单笔最大风险：总本金的 1%（{config.total_assets * 0.01:.0f} AUD）
-
-## 你的任务
-请输出以下内容（直接用Markdown，不要JSON）：
-
-### 1. 今日操作优先级
-列出今日**必须执行**的操作（买入/卖出），按优先级排序，每条一行，格式：
-`🟢 买入 XXX.AX — 原因一句话`
-`🔴 减仓/卖出 XXX.AX — 原因一句话`
-
-### 2. 整体仓位建议
-基于今日看多/看空比例，给出整体仓位建议（如：当前环境建议总仓位控制在X成）。
-
-### 3. 板块集中度警告
-如果同一板块有多只股票同向信号（同时看多或看空），请点名提示，防止过度集中。
-
-### 4. 今日一句话总结
-用一句话概括今日澳股组合的整体态势和核心操作逻辑。
-
-要求：简洁、具体、可执行。不要重复个股报告里已有的详细分析。"""
-
-        try:
-            generation_config = {
-                "temperature": 0.4,
-                "max_output_tokens": 2000,
-            }
-            response = self._call_api_with_retry(prompt, generation_config)
-            return response.strip()
-        except Exception as e:
-            logger.warning(f"[组合总结] AI 调用失败: {e}")
-            return ""
+        return "\n".join([
+            "> 仅基于确定性动作模型汇总（final_decision / position_action / target_weight / delta_amount）。",
+            "",
+            "### 1) 组合动作统计（确定性）",
+            f"- final_decision：BUY {final_counts['BUY']} / HOLD {final_counts['HOLD']} / SELL {final_counts['SELL']}",
+            f"- position_action：OPEN {action_counts['OPEN']} / ADD {action_counts['ADD']} / HOLD {action_counts['HOLD']} / REDUCE {action_counts['REDUCE']} / CLOSE {action_counts['CLOSE']}",
+            "",
+            "### 2) 组合仓位与调仓强度（模拟）",
+            f"- 平均目标仓位（逐标的平均）：{avg_target_weight:.2%}",
+            f"- 调仓净额：{total_delta:,.2f}（{net_delta_label}）",
+            f"- 调仓总额（绝对值）：{total_turnover:,.2f}",
+            "",
+            "### 3) 执行口径说明",
+            "- 本段不输出个股买卖命名，个股动作请以下方确定性动作表为准。",
+        ])
 
 # 便捷函数
 def get_analyzer() -> GeminiAnalyzer:
