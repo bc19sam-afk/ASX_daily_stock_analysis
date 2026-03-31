@@ -1,5 +1,7 @@
 # Daily Stock Analysis
 
+[中文](README.zh-CN.md) | English
+
 Daily Stock Analysis is a Python-based stock analysis and reporting system that combines multi-source market data, LLM-generated analysis, rule-based position management, optional market review, notification delivery, and a FastAPI + React web console, with both local execution and GitHub Actions workflows supported.
 
 ## Current architecture
@@ -110,3 +112,12 @@ Current outputs on `main`:
 - Default analysis mode is read-only for account state (`ANALYSIS_READ_ONLY=true`), so normal analysis computes recommendations without writing real account changes unless explicitly disabled.
 - Image extraction endpoint accepts only one uploaded file (`file`) with MIME type restrictions and a 5MB size limit.
 - Some runtime comments/docs in source files still contain legacy naming (A股/ASX wording mixed), so naming in code/comments is not fully normalized.
+
+## License
+See [LICENSE](LICENSE).
+
+## Contributing
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Disclaimer
+This project is for research, educational, and engineering validation purposes only. It does not constitute investment advice, trading advice, or any guarantee of future results. Any investment or trading decisions made using this project are solely the responsibility of the user.
