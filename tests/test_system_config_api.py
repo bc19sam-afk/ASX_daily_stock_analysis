@@ -84,6 +84,33 @@ class SystemConfigApiTestCase(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["error"], "config_version_conflict")
 
+    def test_second_write_with_original_version_returns_409_after_first_success(self) -> None:
+        current = self.client.get("/api/v1/system/config").json()
+
+        first_response = self.client.put(
+            "/api/v1/system/config",
+            json={
+                "config_version": current["config_version"],
+                "reload_now": False,
+                "items": [{"key": "LOG_LEVEL", "value": "DEBUG"}],
+            },
+        )
+        self.assertEqual(first_response.status_code, 200)
+        first_payload = first_response.json()
+        self.assertNotEqual(first_payload["config_version"], current["config_version"])
+
+        second_response = self.client.put(
+            "/api/v1/system/config",
+            json={
+                "config_version": current["config_version"],
+                "reload_now": False,
+                "items": [{"key": "LOG_LEVEL", "value": "WARNING"}],
+            },
+        )
+        self.assertEqual(second_response.status_code, 409)
+        second_payload = second_response.json()
+        self.assertEqual(second_payload["error"], "config_version_conflict")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -107,10 +107,6 @@ class SystemConfigService:
         reload_now: bool = True,
     ) -> Dict[str, Any]:
         """Validate and persist updates into `.env`, then reload runtime config."""
-        current_version = self._manager.get_config_version()
-        if current_version != config_version:
-            raise ConfigConflictError(current_version=current_version)
-
         issues = self._collect_issues(items=items, mask_token=mask_token)
         errors = [issue for issue in issues if issue["severity"] == "error"]
         if errors:
@@ -126,11 +122,15 @@ class SystemConfigService:
             if bool(field_schema.get("is_sensitive", False)):
                 sensitive_keys.add(key)
 
-        updated_keys, skipped_masked_keys, new_version = self._manager.apply_updates(
+        update_result = self._manager.apply_updates_if_version(
+            expected_version=config_version,
             updates=updates,
             sensitive_keys=sensitive_keys,
             mask_token=mask_token,
         )
+        if update_result is None:
+            raise ConfigConflictError(current_version=self._manager.get_config_version())
+        updated_keys, skipped_masked_keys, new_version = update_result
 
         warnings: List[str] = []
         reload_triggered = False

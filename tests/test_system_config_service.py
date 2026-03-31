@@ -3,6 +3,7 @@
 
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -80,6 +81,55 @@ class SystemConfigServiceTestCase(unittest.TestCase):
                 items=[{"key": "STOCK_LIST", "value": "600519"}],
                 reload_now=False,
             )
+
+    def test_apply_updates_if_version_fails_when_version_changed_before_write(self) -> None:
+        initial_version = self.manager.get_config_version()
+        self.manager.apply_updates(
+            updates=[("LOG_LEVEL", "DEBUG")],
+            sensitive_keys=set(),
+            mask_token="******",
+        )
+
+        update_result = self.manager.apply_updates_if_version(
+            expected_version=initial_version,
+            updates=[("STOCK_LIST", "600519,300750")],
+            sensitive_keys=set(),
+            mask_token="******",
+        )
+
+        self.assertIsNone(update_result)
+
+    def test_two_racing_updates_with_same_version_do_not_both_succeed(self) -> None:
+        shared_version = self.manager.get_config_version()
+        barrier = threading.Barrier(2)
+        outcomes = []
+        lock = threading.Lock()
+
+        def worker(value: str) -> None:
+            barrier.wait()
+            try:
+                response = self.service.update(
+                    config_version=shared_version,
+                    items=[{"key": "STOCK_LIST", "value": value}],
+                    reload_now=False,
+                )
+                result = ("success", response["config_version"])
+            except ConfigConflictError as exc:
+                result = ("conflict", exc.current_version)
+            with lock:
+                outcomes.append(result)
+
+        first = threading.Thread(target=worker, args=("600519,300750",))
+        second = threading.Thread(target=worker, args=("600519,000858",))
+        first.start()
+        second.start()
+        first.join()
+        second.join()
+
+        success_count = sum(1 for status, _ in outcomes if status == "success")
+        conflict_count = sum(1 for status, _ in outcomes if status == "conflict")
+        self.assertEqual(success_count, 1)
+        self.assertEqual(conflict_count, 1)
 
 
 if __name__ == "__main__":
