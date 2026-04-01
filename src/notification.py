@@ -889,8 +889,13 @@ class NotificationService:
         advice = advice.replace("\r\n", "\n").replace("\r", "\n")
         return " ".join(part.strip() for part in advice.split("\n") if part.strip())
 
-    def _build_simulated_target_allocation_table(self, results: List[AnalysisResult]) -> List[str]:
+    def _build_simulated_target_allocation_table(
+        self,
+        results: List[AnalysisResult],
+        executed_weight_by_code: Optional[Dict[str, float]] = None,
+    ) -> List[str]:
         """Build simulated target allocation table; clearly separated from executed state."""
+        executed_weight_by_code = executed_weight_by_code or {}
         lines = [
             "| Stock | Current Executed Weight | Simulated Target Weight | Simulated Delta Amount |",
             "|---|---:|---:|---:|",
@@ -904,7 +909,7 @@ class NotificationService:
             lines.append(
                 "| "
                 f"{stock_cell} | "
-                f"{getattr(r, 'current_weight', 0.0):.2%} | "
+                f"{executed_weight_by_code.get(r.code, 0.0):.2%} | "
                 f"{getattr(r, 'target_weight', 0.0):.2%} | "
                 f"{getattr(r, 'delta_amount', 0.0):,.2f} "
                 "|"
@@ -1096,6 +1101,11 @@ class NotificationService:
             "",
         ])
         holdings = overview.get("holdings") or []
+        executed_weight_by_code = {
+            str(item.get("code", "")).strip(): float(item.get("weight") or 0.0)
+            for item in holdings
+            if str(item.get("code", "")).strip()
+        }
         if holdings:
             report_lines.extend([
                 "| 当前持仓 | 数量 | 权重 |",
@@ -1123,7 +1133,12 @@ class NotificationService:
                 "> 以下目标仓位为模拟结果，仅用于计划参考。Portfolio Overview 始终展示已执行的真实状态。",
                 "",
             ])
-            report_lines.extend(self._build_simulated_target_allocation_table(sorted_results))
+            report_lines.extend(
+                self._build_simulated_target_allocation_table(
+                    sorted_results,
+                    executed_weight_by_code=executed_weight_by_code,
+                )
+            )
             report_lines.extend([
                 "",
                 "---",
