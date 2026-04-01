@@ -1091,16 +1091,6 @@ class NotificationService:
             overview=overview,
             results=results,
         )
-        executed_weight_by_code = {
-            str(item.get("code", "")).strip(): float(item.get("weight") or 0.0)
-            for item in (overview.get("holdings") or [])
-            if str(item.get("code", "")).strip()
-        }
-        executed_weight_by_code = {
-            str(item.get("code", "")).strip(): float(item.get("weight") or 0.0)
-            for item in (overview.get("holdings") or [])
-            if str(item.get("code", "")).strip()
-        }
 
         report_lines.extend([
             "## A. Current Portfolio Overview (Executed / Real State)",
