@@ -394,6 +394,15 @@ class DataFetcherManager:
             return code not in {'HK', 'SH', 'SZ', 'SS'}
 
         return False
+
+    @staticmethod
+    def _should_use_yfinance_realtime(stock_code: str) -> bool:
+        """判断实时行情是否应优先尝试 Yfinance（含 .AX 与 BRK.B 这类美股点号代码）。"""
+        code = stock_code.strip().upper()
+        if DataFetcherManager._is_au_us_symbol(code):
+            return True
+        # 支持 BRK.B / BF.B 等带点号的美股代码（1~5 位字母 + "." + 1 位字母）
+        return re.fullmatch(r"[A-Z]{1,5}\.[A-Z]", code) is not None
     
     def get_daily_data(
         self, 
@@ -563,7 +572,6 @@ class DataFetcherManager:
         stock_code = normalize_stock_code(stock_code)
 
         from .realtime_types import get_realtime_circuit_breaker
-        from .akshare_fetcher import _is_us_code
         from src.config import get_config
         
         config = get_config()
@@ -573,21 +581,20 @@ class DataFetcherManager:
             logger.debug(f"[实时行情] 功能已禁用，跳过 {stock_code}")
             return None
         
-        # 美股单独处理，使用 YfinanceFetcher
-        if _is_us_code(stock_code):
+        # AU/US 代码优先尝试 Yfinance（含 .AX）
+        if self._should_use_yfinance_realtime(stock_code):
             for fetcher in self._fetchers:
                 if fetcher.name == "YfinanceFetcher":
                     if hasattr(fetcher, 'get_realtime_quote'):
                         try:
                             quote = fetcher.get_realtime_quote(stock_code)
                             if quote is not None:
-                                logger.info(f"[实时行情] 美股 {stock_code} 成功获取 (来源: yfinance)")
+                                logger.info(f"[实时行情] {stock_code} 成功获取 (来源: yfinance)")
                                 return quote
                         except Exception as e:
-                            logger.warning(f"[实时行情] 美股 {stock_code} 获取失败: {e}")
+                            logger.warning(f"[实时行情] {stock_code} 获取失败: {e}")
                     break
-            logger.warning(f"[实时行情] 美股 {stock_code} 无可用数据源")
-            return None
+            logger.warning(f"[实时行情] {stock_code} yfinance 无可用数据，尝试后备数据源")
         
         # 获取配置的数据源优先级
         source_priority = config.realtime_source_priority.split(',')

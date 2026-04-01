@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+### 修复
+- 🐛 **实时行情路由回归修复（AU/US）**
+  - 恢复 `BRK.B` 等带点号的美股代码走 Yfinance 实时行情快速路径
+  - 保持 `.AX`（澳股）实时行情优先走 Yfinance
+  - 当 Yfinance 无可用实时报价时，按 `realtime_source_priority` 继续尝试后备数据源
+
 ### 优化
 - 🔒 **CI 门禁统一（P0）**
   - 新增 `scripts/ci_gate.sh` 作为后端门禁单一入口
