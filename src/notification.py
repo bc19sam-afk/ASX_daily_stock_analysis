@@ -1091,6 +1091,16 @@ class NotificationService:
             overview=overview,
             results=results,
         )
+        executed_weight_by_code = {
+            str(item.get("code", "")).strip(): float(item.get("weight") or 0.0)
+            for item in (overview.get("holdings") or [])
+            if str(item.get("code", "")).strip()
+        }
+        executed_weight_by_code = {
+            str(item.get("code", "")).strip(): float(item.get("weight") or 0.0)
+            for item in (overview.get("holdings") or [])
+            if str(item.get("code", "")).strip()
+        }
 
         report_lines.extend([
             "## A. Current Portfolio Overview (Executed / Real State)",
@@ -1433,6 +1443,11 @@ class NotificationService:
             overview=overview,
             results=results,
         )
+        executed_weight_by_code = {
+            str(item.get("code", "")).strip(): float(item.get("weight") or 0.0)
+            for item in (overview.get("holdings") or [])
+            if str(item.get("code", "")).strip()
+        }
 
         lines.extend([
             "**A) 当前账户状态（已执行）**",
@@ -1464,7 +1479,7 @@ class NotificationService:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 lines.append(
-                    f"{signal_emoji} {stock_name}({r.code}): 执行中 {getattr(r, 'current_weight', 0.0):.2%} "
+                    f"{signal_emoji} {stock_name}({r.code}): 执行中 {executed_weight_by_code.get(r.code, 0.0):.2%} "
                     f"→ 模拟目标 {getattr(r, 'target_weight', 0.0):.2%} "
                     f"(Δ{getattr(r, 'delta_amount', 0.0):,.2f})"
                 )
@@ -1573,7 +1588,7 @@ class NotificationService:
                         lines.append("")
 
                 lines.append(
-                    f"🧮 模拟仓位: 已执行 {getattr(result, 'current_weight', 0.0):.2%} "
+                    f"🧮 模拟仓位: 已执行 {executed_weight_by_code.get(result.code, 0.0):.2%} "
                     f"→ 目标 {getattr(result, 'target_weight', 0.0):.2%} "
                     f"(模拟Δ{getattr(result, 'delta_amount', 0.0):,.2f})"
                 )

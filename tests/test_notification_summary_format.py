@@ -158,7 +158,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("**B) 今日建议动作（未执行）**", wechat)
         self.assertIn("ADD · 目标18.00% · 模拟Δ3,200.00", wechat)
         self.assertIn("**C) 目标仓位（模拟，不代表已成交）**", wechat)
-        self.assertIn("执行中 12.00% → 模拟目标 18.00% (Δ3,200.00)", wechat)
+        self.assertIn("执行中 0.00% → 模拟目标 18.00% (Δ3,200.00)", wechat)
 
     @patch("src.notification.datetime")
     def test_daily_report_includes_data_time_baseline_and_mixed_source_disclosure(self, mock_datetime) -> None:
@@ -343,6 +343,34 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("| 🟢 **贵州茅台(600519)** | 27.27% | 30.00% | 8,000.00 |", report)
         self.assertNotIn("| 🟢 **贵州茅台(600519)** | 5.00% | 30.00% | 8,000.00 |", report)
 
+    @patch("src.notification.get_db")
+    def test_section_c_current_weight_source_is_consistent_across_dashboard_feishu_wechat(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 100000.0,
+            "equity_value": 50000.0,
+            "total_value": 150000.0,
+            "holdings": [
+                {"code": "600519", "name": "贵州茅台", "quantity": 10, "weight": 0.25, "market_value": 37500.0},
+            ],
+        }
+        service = self._build_service()
+        result = self._build_result(
+            code="600519",
+            current_weight=0.05,  # intentionally inconsistent with overview-based rendering
+            target_weight=0.3,
+            delta_amount=8000.0,
+        )
+
+        dashboard = service.generate_dashboard_report([result], report_date="2026-03-30")
+        feishu = format_feishu_markdown(dashboard)
+        wechat = service.generate_wechat_dashboard([result])
+
+        self.assertIn("| 🟢 **贵州茅台(600519)** | 27.27% | 30.00% | 8,000.00 |", dashboard)
+        self.assertIn("Current Executed Weight：27.27% | Simulated Target Weight：30.00% | Simulated Delta Amount：8,000.00", feishu)
+        self.assertIn("执行中 27.27% → 模拟目标 30.00% (Δ8,000.00)", wechat)
+        self.assertNotIn("Current Executed Weight：5.00%", feishu)
+        self.assertNotIn("执行中 5.00% → 模拟目标 30.00% (Δ8,000.00)", wechat)
+
     @patch("src.notification.datetime")
     @patch("src.notification.get_db")
     def test_wechat_report_snapshot_regression(self, mock_get_db, mock_datetime) -> None:
@@ -377,8 +405,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 ⚪ **五粮液(000858)**: HOLD · 目标8.00% · 模拟Δ0.00 (AI次要参考: 持有观察 / 52)
 
 **C) 目标仓位（模拟，不代表已成交）**
-🟢 贵州茅台(600519): 执行中 10.00% → 模拟目标 16.00% (Δ15,000.00)
-⚪ 五粮液(000858): 执行中 8.00% → 模拟目标 8.00% (Δ0.00)
+🟢 贵州茅台(600519): 执行中 0.00% → 模拟目标 16.00% (Δ15,000.00)
+⚪ 五粮液(000858): 执行中 0.00% → 模拟目标 8.00% (Δ0.00)
 *生成时间: 09:30*"""
         self.assertEqual(expected, report)
 
