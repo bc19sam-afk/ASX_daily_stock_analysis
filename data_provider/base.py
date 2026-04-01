@@ -397,8 +397,12 @@ class DataFetcherManager:
 
     @staticmethod
     def _should_use_yfinance_realtime(stock_code: str) -> bool:
-        """判断实时行情是否应优先尝试 Yfinance。"""
-        return DataFetcherManager._is_au_us_symbol(stock_code)
+        """判断实时行情是否应优先尝试 Yfinance（含 .AX 与 BRK.B 这类美股点号代码）。"""
+        code = stock_code.strip().upper()
+        if DataFetcherManager._is_au_us_symbol(code):
+            return True
+        # 支持 BRK.B / BF.B 等带点号的美股代码（1~5 位字母 + "." + 1 位字母）
+        return re.fullmatch(r"[A-Z]{1,5}\.[A-Z]", code) is not None
     
     def get_daily_data(
         self, 

@@ -116,3 +116,31 @@ def test_realtime_us_routing_behavior_preserved():
     assert quote is yf_quote
     assert yf_fetcher.realtime_calls == 1
     assert cn_fetcher.realtime_calls == 0
+
+
+def test_realtime_dotted_us_symbol_routes_to_yfinance():
+    yf_quote = UnifiedRealtimeQuote(code="BRK.B", name="Berkshire Hathaway", price=500.0)
+    yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=yf_quote)
+    cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=None)
+    manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
+
+    with patch("src.config.get_config", return_value=SimpleNamespace(enable_realtime_quote=True, realtime_source_priority="efinance")):
+        quote = manager.get_realtime_quote("BRK.B")
+
+    assert quote is yf_quote
+    assert yf_fetcher.realtime_calls == 1
+    assert cn_fetcher.realtime_calls == 0
+
+
+def test_realtime_yfinance_none_then_fallback_source():
+    yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=None)
+    fallback_quote = UnifiedRealtimeQuote(code="BRK.B", name="FallbackQuote", price=498.0)
+    cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=fallback_quote)
+    manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
+
+    with patch("src.config.get_config", return_value=SimpleNamespace(enable_realtime_quote=True, realtime_source_priority="efinance")):
+        quote = manager.get_realtime_quote("BRK.B")
+
+    assert quote is fallback_quote
+    assert yf_fetcher.realtime_calls == 1
+    assert cn_fetcher.realtime_calls == 1
