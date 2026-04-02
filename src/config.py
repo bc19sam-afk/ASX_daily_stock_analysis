@@ -12,12 +12,15 @@ A股自选股智能分析系统 - 配置管理模块
 
 import os
 import re
+import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 from dotenv import load_dotenv, dotenv_values
 from dataclasses import dataclass, field
 
 from src.enums import ReportType
+
+logger = logging.getLogger(__name__)
 
 
 def setup_env(override: bool = False):
@@ -206,6 +209,10 @@ class Config:
     # === 实时行情增强数据配置 ===
     # 实时行情开关（关闭后使用历史收盘价进行分析）
     enable_realtime_quote: bool = True
+    # 执行参考价口径策略：
+    # - realtime_if_available: 优先实时价，缺失时回退到 latest close
+    # - close_only: 仅使用 latest close，忽略实时价
+    execution_price_policy: str = "realtime_if_available"
     # 筹码分布开关（该接口不稳定，云端部署建议关闭）
     enable_chip_distribution: bool = True
     # 实时行情数据源优先级（逗号分隔）
@@ -488,6 +495,7 @@ class Config:
             discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'A股智能分析 | /help'),
             # 实时行情增强数据配置
             enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'true').lower() == 'true',
+            execution_price_policy=cls._resolve_execution_price_policy(),
             enable_chip_distribution=os.getenv('ENABLE_CHIP_DISTRIBUTION', 'true').lower() == 'true',
             # 实时行情数据源优先级：
             # - tencent: 腾讯财经，有量比/换手率/PE/PB等，单股查询稳定（推荐）
@@ -540,6 +548,39 @@ class Config:
             return explicit
 
         return 'yfinance'
+
+    @classmethod
+    def _resolve_execution_price_policy(cls) -> str:
+        """
+        Resolve execution/reference price basis policy.
+
+        Canonical values:
+        - realtime_if_available
+        - close_only
+
+        Backward compatibility:
+        - If EXECUTION_PRICE_POLICY is unset, fallback to ENABLE_REALTIME_QUOTE
+          (true -> realtime_if_available, false -> close_only).
+        """
+        explicit = str(os.getenv("EXECUTION_PRICE_POLICY", "")).strip().lower()
+        aliases = {
+            "realtime": "realtime_if_available",
+            "prefer_realtime": "realtime_if_available",
+            "realtime_if_available": "realtime_if_available",
+            "close_only": "close_only",
+            "latest_close_only": "close_only",
+        }
+        if explicit:
+            normalized = aliases.get(explicit)
+            if normalized:
+                return normalized
+            logger.warning(
+                "Invalid EXECUTION_PRICE_POLICY=%s; fallback to ENABLE_REALTIME_QUOTE compatibility",
+                explicit,
+            )
+
+        enable_realtime = os.getenv("ENABLE_REALTIME_QUOTE", "true").lower() == "true"
+        return "realtime_if_available" if enable_realtime else "close_only"
 
     @classmethod
     def reset_instance(cls) -> None:

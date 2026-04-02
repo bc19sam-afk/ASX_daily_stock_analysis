@@ -91,6 +91,19 @@ docker compose -f docker/docker-compose.yml up -d
 
 `--webui` and `--webui-only` are still accepted but mapped internally to `--serve` and `--serve-only`.
 
+## Execution price basis policy
+
+Execution/reference price basis is now explicitly configurable via `EXECUTION_PRICE_POLICY`:
+
+- `realtime_if_available` (default): prefer realtime price, fallback to latest close.
+- `close_only`: ignore realtime price and use latest close only.
+
+Legacy compatibility:
+
+- If `EXECUTION_PRICE_POLICY` is not set, behavior falls back to `ENABLE_REALTIME_QUOTE`:
+  - `ENABLE_REALTIME_QUOTE=true` → `realtime_if_available`
+  - `ENABLE_REALTIME_QUOTE=false` → `close_only`
+
 ## Report outputs and persisted artifacts
 
 Current outputs on `main`:
