@@ -7,6 +7,7 @@ This changelog summarizes behavior that is visible on current `main`, with empha
 ### Fixed
 - **System config update race condition (PR #31):** `.env` optimistic-lock updates now perform compare-and-apply under the same lock path, reducing TOCTOU conflicts during concurrent writes.
 - **Portfolio denominator fallback correctness (PR #28):** position-sizing calculations now avoid stale denominator contamination in pipeline fallback paths.
+- **Snapshot/AI volume consistency guard NaN handling (PR #51):** notification-layer missing-metric detection now treats `NaN` forms (e.g., numeric `nan`, `\"nan\"`, `\"nan%\"`) as unavailable, ensuring volume commentary is downgraded when key snapshot fields are effectively missing.
 
 ### Changed
 - **Deterministic quantity propagation (PR #30):** pipeline now propagates deterministic `target_quantity` into position-management results and downstream report/journal fields more consistently.
