@@ -228,6 +228,35 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         self.assertIn("区间交易，耐心等待", report)
 
+    @patch("src.notification.get_db")
+    def test_section_c_reconciliation_explains_cash_unmanaged_and_residual(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 20000.0,
+            "equity_value": 40000.0,
+            "total_value": 60000.0,
+            "holdings": [
+                {"code": "600519", "name": "贵州茅台", "quantity": 100.0, "market_value": 30000.0},
+                {"code": "601318", "name": "中国平安", "quantity": 100.0, "market_value": 10000.0},
+            ],
+        }
+        service = self._build_service()
+        analyzed_result = self._build_result(
+            code="600519",
+            name="贵州茅台",
+            target_weight=0.40,
+            delta_amount=5000.0,
+        )
+
+        report = service.generate_dashboard_report([analyzed_result], report_date="2026-03-30")
+
+        self.assertIn("### Reconciliation Summary (Section C)", report)
+        self.assertIn("analyzed_target_weight_sum: **40.00%**", report)
+        self.assertIn("unmanaged_holdings_weight: **16.67%**", report)
+        self.assertIn("target_cash_weight: **43.33%**", report)
+        self.assertIn("residual: **0.0000%**", report)
+        self.assertIn("analyzed_target_weight_sum + unmanaged_holdings_weight + target_cash_weight + residual = 100%", report)
+        self.assertIn("rounding/tolerance", report)
+
     @patch("src.notification.datetime")
     def test_daily_report_includes_data_time_baseline_and_mixed_source_disclosure(self, mock_datetime) -> None:
         mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
@@ -381,6 +410,15 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 | 🟢 **贵州茅台(600519)** | 36.00% | 16.00% | 15,000.00 |
 | ⚪ **五粮液(000858)** | 24.00% | 8.00% | 0.00 |
 
+### Reconciliation Summary (Section C)
+
+- analyzed_target_weight_sum: **24.00%**
+- unmanaged_holdings_weight: **0.00%** (held in account but not in today's analyzed universe)
+- target_cash_weight: **76.00%** (implied cash after analyzed + unmanaged buckets)
+- residual: **0.0000%**
+- closure: **analyzed_target_weight_sum + unmanaged_holdings_weight + target_cash_weight + residual = 100%**
+- note: residual is within rounding/tolerance and can be treated as a numerical rounding remainder.
+
 ---
 
 
@@ -533,6 +571,15 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
 • Stock：🟢 **贵州茅台(600519)** | Current Executed Weight：36.00% | Simulated Target Weight：16.00% | Simulated Delta Amount：15,000.00
 • Stock：⚪ **五粮液(000858)** | Current Executed Weight：24.00% | Simulated Target Weight：8.00% | Simulated Delta Amount：0.00
+
+**Reconciliation Summary (Section C)**
+
+• analyzed_target_weight_sum: **24.00%**
+• unmanaged_holdings_weight: **0.00%** (held in account but not in today's analyzed universe)
+• target_cash_weight: **76.00%** (implied cash after analyzed + unmanaged buckets)
+• residual: **0.0000%**
+• closure: **analyzed_target_weight_sum + unmanaged_holdings_weight + target_cash_weight + residual = 100%**
+• note: residual is within rounding/tolerance and can be treated as a numerical rounding remainder.
 
 ────────
 

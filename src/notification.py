@@ -933,6 +933,43 @@ class NotificationService:
             )
         return lines
 
+    def _build_section_c_reconciliation_lines(
+        self,
+        *,
+        results: List[AnalysisResult],
+        overview_holdings: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[str]:
+        """Build reconciliation summary so Section C closes to 100% explicitly."""
+        holdings = overview_holdings or []
+        analyzed_target_weight_sum = sum(float(getattr(r, "target_weight", 0.0) or 0.0) for r in results)
+        unmanaged_holdings_weight = sum(
+            float(item.get("weight") or 0.0) for item in holdings if not item.get("analyzed_today")
+        )
+        raw_target_cash_weight = 1.0 - analyzed_target_weight_sum - unmanaged_holdings_weight
+        target_cash_weight = max(raw_target_cash_weight, 0.0)
+        residual = 1.0 - analyzed_target_weight_sum - unmanaged_holdings_weight - target_cash_weight
+        tolerance = 1e-6
+
+        lines = [
+            "",
+            "### Reconciliation Summary (Section C)",
+            "",
+            f"- analyzed_target_weight_sum: **{analyzed_target_weight_sum:.2%}**",
+            f"- unmanaged_holdings_weight: **{unmanaged_holdings_weight:.2%}** (held in account but not in today's analyzed universe)",
+            f"- target_cash_weight: **{target_cash_weight:.2%}** (implied cash after analyzed + unmanaged buckets)",
+            f"- residual: **{residual:.4%}**",
+            "- closure: **analyzed_target_weight_sum + unmanaged_holdings_weight + target_cash_weight + residual = 100%**",
+        ]
+        if abs(residual) <= tolerance:
+            lines.append(
+                "- note: residual is within rounding/tolerance and can be treated as a numerical rounding remainder."
+            )
+        else:
+            lines.append(
+                "- note: non-zero residual indicates the simulated analyzed targets and unmanaged holdings do not fully reconcile by rounding alone."
+            )
+        return lines
+
     def _count_primary_decisions(self, results: List[AnalysisResult]) -> Dict[str, int]:
         counts = {'BUY': 0, 'HOLD': 0, 'SELL': 0}
         for result in results:
@@ -1173,6 +1210,12 @@ class NotificationService:
                 self._build_simulated_target_allocation_table(
                     sorted_results,
                     executed_weight_by_code=executed_weight_by_code,
+                )
+            )
+            report_lines.extend(
+                self._build_section_c_reconciliation_lines(
+                    results=sorted_results,
+                    overview_holdings=holdings,
                 )
             )
             report_lines.extend([
