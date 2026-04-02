@@ -39,7 +39,7 @@ def test_config_report_type_parses_legacy_alias_to_full():
             os.environ.pop("ENV_FILE", None)
 
 
-def test_config_report_type_invalid_falls_back_to_simple():
+def test_config_report_type_invalid_falls_back_to_full():
     with tempfile.TemporaryDirectory() as tmp:
         env_path = Path(tmp) / ".env"
         env_path.write_text("REPORT_TYPE=invalid_type\n", encoding="utf-8")
@@ -49,7 +49,7 @@ def test_config_report_type_invalid_falls_back_to_simple():
         Config.reset_instance()
         try:
             config = Config.get_instance()
-            assert config.report_type == "simple"
+            assert config.report_type == "full"
         finally:
             Config.reset_instance()
             os.environ.pop("ENV_FILE", None)
@@ -63,3 +63,19 @@ def test_api_request_normalizes_detailed_to_full():
 def test_api_request_rejects_invalid_report_type():
     with pytest.raises(ValidationError):
         AnalyzeRequest(stock_code="BHP.AX", report_type="invalid_type")
+
+
+def test_config_report_type_missing_uses_full_default():
+    with tempfile.TemporaryDirectory() as tmp:
+        env_path = Path(tmp) / ".env"
+        env_path.write_text("STOCK_LIST=BHP.AX\n", encoding="utf-8")
+
+        os.environ["ENV_FILE"] = str(env_path)
+        os.environ.pop("REPORT_TYPE", None)
+        Config.reset_instance()
+        try:
+            config = Config.get_instance()
+            assert config.report_type == "full"
+        finally:
+            Config.reset_instance()
+            os.environ.pop("ENV_FILE", None)
