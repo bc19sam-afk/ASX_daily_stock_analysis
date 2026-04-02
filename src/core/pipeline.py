@@ -96,7 +96,6 @@ class StockAnalysisPipeline:
             logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})")
         else:
             logger.info("实时行情已禁用，将使用历史收盘价")
-        logger.info(f"执行参考价策略: {getattr(self.config, 'execution_price_policy', 'realtime_if_available')}")
         if self.config.enable_chip_distribution:
             logger.info("筹码分布分析已启用")
         else:
@@ -398,11 +397,9 @@ class StockAnalysisPipeline:
                 )
                 execution_price = self._resolve_execution_price(
                     enhanced_context=enhanced_context,
-                    policy=getattr(self.config, "execution_price_policy", "realtime_if_available"),
                 )
                 result.execution_price_source = self._resolve_execution_price_source(
                     enhanced_context=enhanced_context,
-                    policy=getattr(self.config, "execution_price_policy", "realtime_if_available"),
                 )
                 result.current_price = execution_price
                 self._apply_position_management(
@@ -550,20 +547,16 @@ class StockAnalysisPipeline:
     def _resolve_execution_price(
         *,
         enhanced_context: Dict[str, Any],
-        policy: str = "realtime_if_available",
     ) -> Optional[float]:
         """Resolve executable price for position sizing.
 
-        Policy:
-        - realtime_if_available: realtime quote -> today's close
-        - close_only: today's close only (ignore realtime quote)
+        Priority:
+        1) realtime quote price
+        2) today's close from context
         """
-        normalized_policy = str(policy or "realtime_if_available").strip().lower()
-        if normalized_policy not in {"realtime_if_available", "close_only"}:
-            normalized_policy = "realtime_if_available"
         candidates: List[Any] = []
         realtime = enhanced_context.get("realtime") if isinstance(enhanced_context, dict) else None
-        if normalized_policy == "realtime_if_available" and isinstance(realtime, dict):
+        if isinstance(realtime, dict):
             candidates.append(realtime.get("price"))
         today = enhanced_context.get("today") if isinstance(enhanced_context, dict) else None
         if isinstance(today, dict):
@@ -582,14 +575,10 @@ class StockAnalysisPipeline:
     def _resolve_execution_price_source(
         *,
         enhanced_context: Dict[str, Any],
-        policy: str = "realtime_if_available",
     ) -> str:
         """Resolve execution price basis: realtime / latest_close / close_only."""
-        normalized_policy = str(policy or "realtime_if_available").strip().lower()
-        if normalized_policy not in {"realtime_if_available", "close_only"}:
-            normalized_policy = "realtime_if_available"
         realtime = enhanced_context.get("realtime") if isinstance(enhanced_context, dict) else None
-        if normalized_policy == "realtime_if_available" and isinstance(realtime, dict):
+        if isinstance(realtime, dict):
             try:
                 if float(realtime.get("price")) > 0:
                     return "realtime"
