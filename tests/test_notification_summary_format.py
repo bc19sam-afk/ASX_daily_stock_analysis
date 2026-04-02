@@ -934,6 +934,42 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("量能数据不足（量比/换手率缺失），不做量能结论", wechat)
         self.assertNotIn("量比2.5，短期放量突破", wechat)
 
+    @patch("src.notification.get_db")
+    def test_dashboard_report_downgrades_volume_commentary_when_volume_ratio_is_numeric_nan(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+        result = self._build_result(
+            operation_advice="量比2.1，放量突破可跟随",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": float("nan"),
+                "turnover_rate": "2.6%",
+            },
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        self.assertIn("量能数据不足（量比/换手率缺失），不做量能结论", report)
+        self.assertNotIn("量比2.1，放量突破可跟随", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_report_downgrades_volume_commentary_when_turnover_rate_is_nan_percent(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+        result = self._build_result(
+            operation_advice="换手率抬升，量能改善",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": 1.4,
+                "turnover_rate": " nan% ",
+            },
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        self.assertIn("量能数据不足（量比/换手率缺失），不做量能结论", report)
+        self.assertNotIn("换手率抬升，量能改善", report)
+
 
 if __name__ == "__main__":
     unittest.main()

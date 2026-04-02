@@ -19,6 +19,7 @@ import hashlib
 import hmac
 import logging
 import json
+import math
 import smtplib
 import re
 import time
@@ -835,8 +836,24 @@ class NotificationService:
         """Return True when snapshot metric should be treated as unavailable."""
         if value is None:
             return True
-        normalized = str(value).strip().upper()
-        return normalized in {"", "N/A", "-", "NONE", "NULL", "未知"}
+        if isinstance(value, (int, float)):
+            try:
+                if math.isnan(float(value)):
+                    return True
+            except (TypeError, ValueError):
+                pass
+
+        normalized = str(value).strip().lower()
+        if normalized in {"", "n/a", "-", "none", "null", "未知"}:
+            return True
+
+        numeric_candidate = normalized.rstrip("%").strip()
+        if not numeric_candidate:
+            return True
+        try:
+            return math.isnan(float(numeric_candidate))
+        except (TypeError, ValueError):
+            return numeric_candidate == "nan"
 
     def _has_missing_volume_snapshot_metrics(self, result: AnalysisResult) -> bool:
         """Detect missing key volume metrics in market snapshot."""
