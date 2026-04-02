@@ -12,6 +12,7 @@ A股自选股智能分析系统 - 核心分析流水线
 """
 
 import logging
+import math
 import time
 import uuid
 from collections import defaultdict
@@ -814,6 +815,13 @@ class StockAnalysisPipeline:
         min_delta_amount: float = 0.0,
         min_order_notional: float = 0.0,
     ) -> Optional[Dict[str, float | str]]:
+        # Deterministic precedence order for executable sizing:
+        # 1) normalize executable sizing to whole shares
+        # 2) compute delta/notional from normalized values
+        # 3) apply affordability safeguard (floor, never round-up)
+        # 4) apply MIN_POSITION_DELTA_AMOUNT
+        # 5) apply MIN_ORDER_NOTIONAL
+        # 6) if blocked, suppress to HOLD/no-action with consistent accounting fields
         price = float(current_price) if current_price and current_price > 0 else 0.0
         if price <= 0 and existing and existing.current_price and existing.current_price > 0:
             price = float(existing.current_price)
@@ -827,10 +835,20 @@ class StockAnalysisPipeline:
         cash_after = round(cash - delta_amount, 2)
         if cash_after < 0:
             affordable_target_value = current_value + cash
-            target_quantity = int(round(max(affordable_target_value, 0.0) / price, 0))
+            target_quantity = int(math.floor(max(affordable_target_value, 0.0) / price))
             target_value = round(target_quantity * price, 2)
             delta_amount = round(target_value - current_value, 2)
             cash_after = round(cash - delta_amount, 2)
+            if cash_after < 0:
+                max_affordable_delta_shares = int(math.floor(max(cash, 0.0) / price))
+                current_quantity = float(quantity or 0.0)
+                affordable_quantity = min(target_quantity, int(math.floor(current_quantity + max_affordable_delta_shares)))
+                target_quantity = max(affordable_quantity, 0)
+                target_value = round(target_quantity * price, 2)
+                delta_amount = round(target_value - current_value, 2)
+                cash_after = round(cash - delta_amount, 2)
+                if cash_after < 0:
+                    cash_after = 0.0
         else:
             target_value = round(target_quantity * price, 2)
 
@@ -869,8 +887,8 @@ class StockAnalysisPipeline:
                 abs(delta_amount),
                 order_notional,
             )
-            target_quantity = int(round(quantity, 0))
-            target_value = round(target_quantity * price, 2)
+            target_quantity = float(quantity or 0.0)
+            target_value = round(current_value, 2)
             delta_amount = 0.0
             cash_after = round(cash, 2)
             action = "HOLD"

@@ -681,6 +681,39 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
         self.assertIn("execution_blocked=min_order_notional", result.action_reason)
 
+    def test_suppressed_hold_preserves_exact_fractional_legacy_quantity(self):
+        calc = StockAnalysisPipeline._calculate_position_transition(
+            existing=None,
+            quantity=12.75,
+            current_weight=0.1275,
+            decision=SimpleNamespace(target_weight=0.13),
+            cash=9000.0,
+            total_value=10000.0,
+            current_price=100.0,
+            current_value=1275.0,
+            min_order_notional=500.0,
+        )
+        self.assertIsNotNone(calc)
+        self.assertEqual(calc["action"], "HOLD")
+        self.assertEqual(calc["target_quantity"], 12.75)
+
+    def test_suppressed_hold_keeps_accounting_fields_unchanged(self):
+        calc = StockAnalysisPipeline._calculate_position_transition(
+            existing=None,
+            quantity=12.75,
+            current_weight=0.1275,
+            decision=SimpleNamespace(target_weight=0.13),
+            cash=9000.0,
+            total_value=10000.0,
+            current_price=100.0,
+            current_value=1275.0,
+            min_order_notional=500.0,
+        )
+        self.assertIsNotNone(calc)
+        self.assertEqual(calc["target_value"], 1275.0)
+        self.assertEqual(calc["delta_amount"], 0.0)
+        self.assertEqual(calc["cash_after"], 9000.0)
+
 
     def test_analyze_stock_defaults_to_read_only_position_management(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)

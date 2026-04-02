@@ -104,6 +104,22 @@ Legacy compatibility:
   - `ENABLE_REALTIME_QUOTE=true` → `realtime_if_available`
   - `ENABLE_REALTIME_QUOTE=false` → `close_only`
 
+## ASX executable sizing constraints (PR3: executable sizing realism)
+
+To make sizing output executable for manual ASX trading support, deterministic constraints are applied in position transition math:
+
+- **Whole-share normalization is always active** (user-visible behavior change):
+  - executable target quantity is normalized to integer shares
+  - deterministic report sizing text shows integer shares only (no fractional-looking share output)
+- **`MIN_POSITION_DELTA_AMOUNT`** (default `0`):
+  - minimum absolute position-change amount threshold
+  - if `abs(delta_amount)` is below this threshold, actionable BUY/SELL intent is suppressed to HOLD/no-action
+- **`MIN_ORDER_NOTIONAL`** (default `0`):
+  - minimum executable order notional threshold
+  - if implied order notional is below this threshold, actionable BUY/SELL intent is suppressed to HOLD/no-action
+
+Suppression defaults are opt-in (`0` means disabled), while whole-share normalization remains always on.
+
 ## Report outputs and persisted artifacts
 
 Current outputs on `main`:

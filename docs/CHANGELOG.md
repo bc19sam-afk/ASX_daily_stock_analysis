@@ -35,6 +35,11 @@
   - 新增 `AI_REVIEW_STRICT` 开关，可选将 AI 审查失败升级为阻断
 
 ### 新增
+- 🇦🇺 **PR3：ASX 可执行仓位约束**
+  - 可执行目标数量统一为整股（whole-share）口径，去除可执行路径中的小数股表现
+  - 新增 `MIN_POSITION_DELTA_AMOUNT`（默认 `0`）：绝对调仓金额低于阈值时抑制为 HOLD / no-action
+  - 新增 `MIN_ORDER_NOTIONAL`（默认 `0`）：订单名义金额低于阈值时抑制为 HOLD / no-action
+  - 约束触发时执行统一回退：动作改为 HOLD，数量/Δ金额/现金字段保持一致
 - 🧭 **执行参考价口径策略（PR2 / PR45 follow-up）**
   - 新增 `EXECUTION_PRICE_POLICY`：支持 `realtime_if_available` 与 `close_only`
   - 默认 `realtime_if_available`
