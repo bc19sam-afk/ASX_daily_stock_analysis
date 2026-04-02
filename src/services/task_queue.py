@@ -23,6 +23,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, Dict, Set, List, Callable, Any, TYPE_CHECKING
 
+from src.enums import ReportType
+
 if TYPE_CHECKING:
     from asyncio import Queue as AsyncQueue
 
@@ -52,7 +54,7 @@ class TaskInfo:
     message: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
-    report_type: str = "detailed"
+    report_type: str = "full"
     created_at: datetime = field(default_factory=datetime.now)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -197,7 +199,7 @@ class AnalysisTaskQueue:
         self,
         stock_code: str,
         stock_name: Optional[str] = None,
-        report_type: str = "detailed",
+        report_type: str = "full",
         force_refresh: bool = False,
     ) -> TaskInfo:
         """
@@ -221,6 +223,8 @@ class AnalysisTaskQueue:
                 existing_task_id = self._analyzing_stocks[stock_code]
                 raise DuplicateTaskError(stock_code, existing_task_id)
             
+            normalized_report_type = ReportType.normalize(report_type).value
+
             # 创建任务
             task_id = uuid.uuid4().hex
             task_info = TaskInfo(
@@ -229,7 +233,7 @@ class AnalysisTaskQueue:
                 stock_name=stock_name,
                 status=TaskStatus.PENDING,
                 message="任务已加入队列",
-                report_type=report_type,
+                report_type=normalized_report_type,
             )
             
             # 注册任务
@@ -241,7 +245,7 @@ class AnalysisTaskQueue:
                 self._execute_task,
                 task_id,
                 stock_code,
-                report_type,
+                normalized_report_type,
                 force_refresh,
             )
             self._futures[task_id] = future

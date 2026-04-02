@@ -17,6 +17,8 @@ from typing import List, Optional, Tuple
 from dotenv import load_dotenv, dotenv_values
 from dataclasses import dataclass, field
 
+from src.enums import ReportType
+
 
 def setup_env(override: bool = False):
     """
@@ -424,7 +426,7 @@ class Config:
             astrbot_url=os.getenv('ASTRBOT_URL'),
             astrbot_token=os.getenv('ASTRBOT_TOKEN'),
             single_stock_notify=os.getenv('SINGLE_STOCK_NOTIFY', 'false').lower() == 'true',
-            report_type=os.getenv('REPORT_TYPE', 'simple').lower(),
+            report_type=cls._parse_report_type(os.getenv('REPORT_TYPE', 'simple')),
             report_summary_only=os.getenv('REPORT_SUMMARY_ONLY', 'false').lower() == 'true',
             analysis_delay=float(os.getenv('ANALYSIS_DELAY', '0')),
             merge_email_notification=os.getenv('MERGE_EMAIL_NOTIFICATION', 'false').lower() == 'true',
@@ -576,6 +578,14 @@ class Config:
             stock_list = ['000001']
 
         self.stock_list = stock_list
+
+    @staticmethod
+    def _parse_report_type(value: str) -> str:
+        """解析并归一化 REPORT_TYPE，非法值显式回退到 simple。"""
+        try:
+            return ReportType.normalize(value).value
+        except ValueError:
+            return ReportType.SIMPLE.value
     
     def validate(self) -> List[str]:
         """

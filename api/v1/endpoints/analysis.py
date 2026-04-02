@@ -530,7 +530,7 @@ def _build_analysis_report(
         query_id=meta_data.get("query_id", query_id),
         stock_code=meta_data.get("stock_code", stock_code),
         stock_name=meta_data.get("stock_name", stock_name),
-        report_type=meta_data.get("report_type", "detailed"),
+        report_type=meta_data.get("report_type", "full"),
         created_at=meta_data.get("created_at", datetime.now().isoformat()),
         current_price=meta_data.get("current_price"),
         change_pct=meta_data.get("change_pct"),

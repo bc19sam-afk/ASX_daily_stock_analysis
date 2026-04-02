@@ -13,7 +13,9 @@
 from typing import Optional, List, Any
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from src.enums import ReportType
 
 
 class TaskStatusEnum(str, Enum):
@@ -38,10 +40,15 @@ class AnalyzeRequest(BaseModel):
         example=["600519", "000858"]
     )
     report_type: str = Field(
-        "detailed", 
-        description="报告类型",
-        pattern="^(simple|detailed)$"
+        "full",
+        description="报告类型（simple/full，兼容 detailed）",
+        pattern="^(simple|full|detailed)$"
     )
+
+    @field_validator("report_type")
+    @classmethod
+    def normalize_report_type(cls, v: str) -> str:
+        return ReportType.normalize(v).value
     force_refresh: bool = Field(
         True,
         description="是否强制刷新（忽略缓存）"
@@ -55,7 +62,7 @@ class AnalyzeRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "stock_code": "600519",
-                "report_type": "detailed",
+                "report_type": "full",
                 "force_refresh": False,
                 "async_mode": False
             }
@@ -158,7 +165,7 @@ class TaskInfo(BaseModel):
     status: TaskStatusEnum = Field(..., description="任务状态")
     progress: int = Field(0, description="进度百分比 (0-100)", ge=0, le=100)
     message: Optional[str] = Field(None, description="状态消息")
-    report_type: str = Field("detailed", description="报告类型")
+    report_type: str = Field("full", description="报告类型")
     created_at: str = Field(..., description="创建时间")
     started_at: Optional[str] = Field(None, description="开始执行时间")
     completed_at: Optional[str] = Field(None, description="完成时间")
@@ -173,7 +180,7 @@ class TaskInfo(BaseModel):
                 "status": "processing",
                 "progress": 50,
                 "message": "正在分析中...",
-                "report_type": "detailed",
+                "report_type": "full",
                 "created_at": "2026-02-05T10:30:00",
                 "started_at": "2026-02-05T10:30:01",
                 "completed_at": None,

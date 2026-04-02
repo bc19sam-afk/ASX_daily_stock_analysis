@@ -88,7 +88,7 @@ class TaskService:
         """
         # 确保 report_type 是枚举类型
         if isinstance(report_type, str):
-            report_type = ReportType.from_str(report_type)
+            report_type = ReportType.normalize(report_type)
 
         task_id = f"{code}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
 

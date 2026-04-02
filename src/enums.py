@@ -19,6 +19,32 @@ class ReportType(str, Enum):
     """
     SIMPLE = "simple"  # 精简报告：使用 generate_single_stock_report
     FULL = "full"      # 完整报告：使用 generate_dashboard_report
+
+    @classmethod
+    def normalize(cls, value: str) -> "ReportType":
+        """
+        归一化报告类型字符串。
+
+        兼容 legacy 命名 detailed，并统一到 full/simple 语义。
+
+        Args:
+            value: 输入字符串
+
+        Returns:
+            归一化后的 ReportType
+
+        Raises:
+            ValueError: 当输入不在支持范围内
+        """
+        if value is None:
+            raise ValueError("report_type is required")
+
+        legacy_aliases = {
+            "detailed": "full",
+        }
+        normalized = str(value).lower().strip()
+        normalized = legacy_aliases.get(normalized, normalized)
+        return cls(normalized)
     
     @classmethod
     def from_str(cls, value: str) -> "ReportType":
@@ -32,7 +58,7 @@ class ReportType(str, Enum):
             对应的枚举值，无效输入返回默认值 SIMPLE
         """
         try:
-            return cls(value.lower().strip())
+            return cls.normalize(value)
         except (ValueError, AttributeError):
             return cls.SIMPLE
     

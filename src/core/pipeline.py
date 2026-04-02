@@ -1243,8 +1243,8 @@ class StockAnalysisPipeline:
         # 单股推送模式（#55）：从配置读取
         single_stock_notify = getattr(self.config, 'single_stock_notify', False)
         # Issue #119: 从配置读取报告类型
-        report_type_str = getattr(self.config, 'report_type', 'simple').lower()
-        report_type = ReportType.FULL if report_type_str == 'full' else ReportType.SIMPLE
+        report_type_str = getattr(self.config, 'report_type', ReportType.SIMPLE.value)
+        report_type = ReportType.normalize(report_type_str)
         # Issue #128: 从配置读取分析间隔
         analysis_delay = getattr(self.config, 'analysis_delay', 0)
 

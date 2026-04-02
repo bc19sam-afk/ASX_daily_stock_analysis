@@ -33,7 +33,7 @@ class AnalysisService:
     def analyze_stock(
         self,
         stock_code: str,
-        report_type: str = "detailed",
+        report_type: str = "full",
         force_refresh: bool = False,
         query_id: Optional[str] = None,
         send_notification: bool = True
@@ -43,7 +43,7 @@ class AnalysisService:
         
         Args:
             stock_code: 股票代码
-            report_type: 报告类型 (simple/detailed)
+            report_type: 报告类型 (simple/full，兼容 detailed)
             force_refresh: 是否强制刷新
             query_id: 查询 ID（可选）
             send_notification: 是否发送通知（API 触发默认发送）
@@ -75,7 +75,7 @@ class AnalysisService:
             )
             
             # 确定报告类型
-            rt = ReportType.FULL if report_type == "detailed" else ReportType.SIMPLE
+            rt = ReportType.normalize(report_type)
             
             # 执行分析
             result = pipeline.process_single_stock(
@@ -90,7 +90,7 @@ class AnalysisService:
                 return None
             
             # 构建响应
-            return self._build_analysis_response(result, query_id)
+            return self._build_analysis_response(result, query_id, rt)
             
         except Exception as e:
             logger.error(f"分析股票 {stock_code} 失败: {e}", exc_info=True)
@@ -99,7 +99,8 @@ class AnalysisService:
     def _build_analysis_response(
         self, 
         result: Any, 
-        query_id: str
+        query_id: str,
+        report_type: "ReportType",
     ) -> Dict[str, Any]:
         """
         构建分析响应
@@ -125,7 +126,7 @@ class AnalysisService:
                 "query_id": query_id,
                 "stock_code": result.code,
                 "stock_name": result.name,
-                "report_type": "detailed",
+                "report_type": report_type.value,
                 "current_price": result.current_price,
                 "change_pct": result.change_pct,
             },
