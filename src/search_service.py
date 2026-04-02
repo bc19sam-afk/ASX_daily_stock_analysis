@@ -643,11 +643,9 @@ class SearchService:
         for dim in dims:
             # 始终优先使用 Tavily (如果配置了且排在第一位)
             selected_resp: Optional[SearchResponse] = None
-            last_resp: Optional[SearchResponse] = None
             for provider in self._providers:
                 if not provider.is_available: continue
                 resp = provider.search(dim['query'], max_results=3)
-                last_resp = resp
                 if resp.success and resp.results:
                     filtered_resp = self._filter_entity_consistent_results(
                         resp,
@@ -667,15 +665,13 @@ class SearchService:
                 time.sleep(0.5)
             if selected_resp:
                 results[dim['name']] = selected_resp
-            elif last_resp:
-                results[dim['name']] = last_resp
             else:
                 results[dim['name']] = SearchResponse(
                     query=dim['query'],
                     results=[],
                     provider="None",
                     success=False,
-                    error_message="No provider available"
+                    error_message="No entity-consistent results"
                 )
 
         return results

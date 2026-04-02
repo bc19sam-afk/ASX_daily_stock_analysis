@@ -242,6 +242,47 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.assertTrue(second.results)
         self.assertEqual(p1.call_count, 1)
 
+    def test_search_comprehensive_intel_all_filtered_empty_returns_empty_dimension(self) -> None:
+        """所有 provider 都 filtered-empty 时，维度必须保持空结果。"""
+        wrong_market_1 = SearchResponse(
+            query="wrong1",
+            results=[
+                SearchResult(
+                    title="CBA surges on NYSE",
+                    snippet="US listing CBA up",
+                    url="https://example.com/wrong1",
+                    source="example.com",
+                )
+            ],
+            provider="p1",
+            success=True,
+        )
+        wrong_market_2 = SearchResponse(
+            query="wrong2",
+            results=[
+                SearchResult(
+                    title="CBA jumps on NASDAQ",
+                    snippet="US CBA stock gains",
+                    url="https://example.com/wrong2",
+                    source="example.com",
+                )
+            ],
+            provider="p2",
+            success=True,
+        )
+        p1 = FakeSearchProvider("p1", [wrong_market_1] * 5)
+        p2 = FakeSearchProvider("p2", [wrong_market_2] * 5)
+        self.service._providers = [p1, p2]
+
+        intel = self.service.search_comprehensive_intel(self.code, self.name, max_searches=5)
+        self.assertIn("latest_news", intel)
+        self.assertFalse(intel["latest_news"].results)
+
+        report = self.service.format_intel_report({"latest_news": intel["latest_news"]}, stock_name=self.name)
+        self.assertIn("未找到相关信息", report)
+        self.assertNotIn("NYSE", report)
+        self.assertNotIn("NASDAQ", report)
+
 
 if __name__ == "__main__":
     unittest.main()
