@@ -14,6 +14,7 @@ import logging
 import uuid
 from typing import Optional, Dict, Any
 
+from src.enums import ReportType
 from src.repositories.analysis_repo import AnalysisRepository
 
 logger = logging.getLogger(__name__)
@@ -58,8 +59,6 @@ class AnalysisService:
             # 导入分析相关模块
             from src.config import get_config
             from src.core.pipeline import StockAnalysisPipeline
-            from src.enums import ReportType
-            
             # 生成 query_id
             if query_id is None:
                 query_id = uuid.uuid4().hex
