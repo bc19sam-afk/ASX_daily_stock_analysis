@@ -926,7 +926,7 @@ class NotificationService:
             lines.append(
                 "| "
                 f"{stock_cell} | "
-                f"{executed_weight_by_code.get(r.code, 0.0):.2%} | "
+                f"{executed_weight_by_code.get(self._normalize_stock_code(r.code), 0.0):.2%} | "
                 f"{getattr(r, 'target_weight', 0.0):.2%} | "
                 f"{getattr(r, 'delta_amount', 0.0):,.2f} "
                 "|"
@@ -942,8 +942,15 @@ class NotificationService:
         """Build reconciliation summary so Section C closes to 100% explicitly."""
         holdings = overview_holdings or []
         analyzed_target_weight_sum = sum(float(getattr(r, "target_weight", 0.0) or 0.0) for r in results)
+        analyzed_codes = {
+            self._normalize_stock_code(getattr(r, "code", ""))
+            for r in results
+            if self._normalize_stock_code(getattr(r, "code", ""))
+        }
         unmanaged_holdings_weight = sum(
-            float(item.get("weight") or 0.0) for item in holdings if not item.get("analyzed_today")
+            float(item.get("weight") or 0.0)
+            for item in holdings
+            if self._normalize_stock_code(item.get("code", "")) not in analyzed_codes
         )
         raw_target_cash_weight = 1.0 - analyzed_target_weight_sum - unmanaged_holdings_weight
         target_cash_weight = max(raw_target_cash_weight, 0.0)
@@ -952,21 +959,21 @@ class NotificationService:
 
         lines = [
             "",
-            "### Reconciliation Summary (Section C)",
+            "### C 段闭环说明（为什么目标仓位不一定等于 100%）",
             "",
-            f"- analyzed_target_weight_sum: **{analyzed_target_weight_sum:.2%}**",
-            f"- unmanaged_holdings_weight: **{unmanaged_holdings_weight:.2%}** (held in account but not in today's analyzed universe)",
-            f"- target_cash_weight: **{target_cash_weight:.2%}** (implied cash after analyzed + unmanaged buckets)",
-            f"- residual: **{residual:.4%}**",
-            "- closure: **analyzed_target_weight_sum + unmanaged_holdings_weight + target_cash_weight + residual = 100%**",
+            f"- 已分析标的目标仓位合计：**{analyzed_target_weight_sum:.2%}**",
+            f"- 未纳入今日分析的持仓权重：**{unmanaged_holdings_weight:.2%}**",
+            f"- 目标现金权重：**{target_cash_weight:.2%}**",
+            f"- 闭环残差：**{residual:.4%}**",
+            "- 闭环关系：**已分析标的目标仓位合计 + 未纳入今日分析的持仓权重 + 目标现金权重 + 闭环残差 = 100%**",
         ]
         if abs(residual) <= tolerance:
             lines.append(
-                "- note: residual is within rounding/tolerance and can be treated as a numerical rounding remainder."
+                "- 说明：残差在四舍五入/容差范围内，可视为数值舍入带来的极小差异。"
             )
         else:
             lines.append(
-                "- note: non-zero residual indicates the simulated analyzed targets and unmanaged holdings do not fully reconcile by rounding alone."
+                "- 说明：残差超出容差范围，表示仅靠舍入无法完全解释差异，请结合账户与分析覆盖范围进一步核对。"
             )
         return lines
 
@@ -1033,6 +1040,11 @@ class NotificationService:
             return parsed
         return None
 
+    @staticmethod
+    def _normalize_stock_code(code: Any) -> str:
+        """Normalize stock code for cross-source matching (e.g. bhp.ax vs BHP.AX)."""
+        return str(code or "").strip().upper()
+
     def _build_report_time_portfolio_overview(
         self,
         *,
@@ -1051,7 +1063,7 @@ class NotificationService:
         report_time_prices: Dict[str, float] = {}
         analyzed_codes: Set[str] = set()
         for result in results or []:
-            code = str(getattr(result, "code", "") or "").strip()
+            code = self._normalize_stock_code(getattr(result, "code", ""))
             if not code:
                 continue
             analyzed_codes.add(code)
@@ -1064,7 +1076,7 @@ class NotificationService:
         fallback_codes: List[str] = []
 
         for holding in original_holdings:
-            code = str(holding.get("code", "") or "").strip()
+            code = self._normalize_stock_code(holding.get("code", ""))
             quantity = float(holding.get("quantity") or 0.0)
             report_time_price = report_time_prices.get(code)
 
@@ -1168,9 +1180,9 @@ class NotificationService:
         ])
         holdings = overview.get("holdings") or []
         executed_weight_by_code = {
-            str(item.get("code", "")).strip(): float(item.get("weight") or 0.0)
+            self._normalize_stock_code(item.get("code", "")): float(item.get("weight") or 0.0)
             for item in holdings
-            if str(item.get("code", "")).strip()
+            if self._normalize_stock_code(item.get("code", ""))
         }
         if holdings:
             report_lines.extend([

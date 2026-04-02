@@ -249,13 +249,38 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([analyzed_result], report_date="2026-03-30")
 
-        self.assertIn("### Reconciliation Summary (Section C)", report)
-        self.assertIn("analyzed_target_weight_sum: **40.00%**", report)
-        self.assertIn("unmanaged_holdings_weight: **16.67%**", report)
-        self.assertIn("target_cash_weight: **43.33%**", report)
-        self.assertIn("residual: **0.0000%**", report)
-        self.assertIn("analyzed_target_weight_sum + unmanaged_holdings_weight + target_cash_weight + residual = 100%", report)
-        self.assertIn("rounding/tolerance", report)
+        self.assertIn("### C 段闭环说明（为什么目标仓位不一定等于 100%）", report)
+        self.assertIn("已分析标的目标仓位合计：**40.00%**", report)
+        self.assertIn("未纳入今日分析的持仓权重：**16.67%**", report)
+        self.assertIn("目标现金权重：**43.33%**", report)
+        self.assertIn("闭环残差：**0.0000%**", report)
+        self.assertIn("已分析标的目标仓位合计 + 未纳入今日分析的持仓权重 + 目标现金权重 + 闭环残差 = 100%", report)
+        self.assertIn("四舍五入/容差", report)
+
+    @patch("src.notification.get_db")
+    def test_section_c_reconciliation_normalizes_code_case_for_unmanaged_weight(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 20000.0,
+            "equity_value": 40000.0,
+            "total_value": 60000.0,
+            "holdings": [
+                {"code": "bhp.ax", "name": "BHP", "quantity": 100.0, "market_value": 30000.0},
+                {"code": "TLS.AX", "name": "TLS", "quantity": 100.0, "market_value": 10000.0},
+            ],
+        }
+        service = self._build_service()
+        analyzed_result = self._build_result(
+            code="BHP.AX",
+            name="BHP",
+            target_weight=0.40,
+            delta_amount=5000.0,
+        )
+
+        report = service.generate_dashboard_report([analyzed_result], report_date="2026-03-30")
+
+        self.assertIn("| BHP(BHP.AX) | 100.00 | 50.00% |", report)
+        self.assertIn("| 🟢 **BHP(BHP.AX)** | 50.00% | 40.00% | 5,000.00 |", report)
+        self.assertIn("未纳入今日分析的持仓权重：**16.67%**", report)
 
     @patch("src.notification.datetime")
     def test_daily_report_includes_data_time_baseline_and_mixed_source_disclosure(self, mock_datetime) -> None:
@@ -410,14 +435,14 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 | 🟢 **贵州茅台(600519)** | 36.00% | 16.00% | 15,000.00 |
 | ⚪ **五粮液(000858)** | 24.00% | 8.00% | 0.00 |
 
-### Reconciliation Summary (Section C)
+### C 段闭环说明（为什么目标仓位不一定等于 100%）
 
-- analyzed_target_weight_sum: **24.00%**
-- unmanaged_holdings_weight: **0.00%** (held in account but not in today's analyzed universe)
-- target_cash_weight: **76.00%** (implied cash after analyzed + unmanaged buckets)
-- residual: **0.0000%**
-- closure: **analyzed_target_weight_sum + unmanaged_holdings_weight + target_cash_weight + residual = 100%**
-- note: residual is within rounding/tolerance and can be treated as a numerical rounding remainder.
+- 已分析标的目标仓位合计：**24.00%**
+- 未纳入今日分析的持仓权重：**0.00%**
+- 目标现金权重：**76.00%**
+- 闭环残差：**0.0000%**
+- 闭环关系：**已分析标的目标仓位合计 + 未纳入今日分析的持仓权重 + 目标现金权重 + 闭环残差 = 100%**
+- 说明：残差在四舍五入/容差范围内，可视为数值舍入带来的极小差异。
 
 ---
 
@@ -572,14 +597,14 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 • Stock：🟢 **贵州茅台(600519)** | Current Executed Weight：36.00% | Simulated Target Weight：16.00% | Simulated Delta Amount：15,000.00
 • Stock：⚪ **五粮液(000858)** | Current Executed Weight：24.00% | Simulated Target Weight：8.00% | Simulated Delta Amount：0.00
 
-**Reconciliation Summary (Section C)**
+**C 段闭环说明（为什么目标仓位不一定等于 100%）**
 
-• analyzed_target_weight_sum: **24.00%**
-• unmanaged_holdings_weight: **0.00%** (held in account but not in today's analyzed universe)
-• target_cash_weight: **76.00%** (implied cash after analyzed + unmanaged buckets)
-• residual: **0.0000%**
-• closure: **analyzed_target_weight_sum + unmanaged_holdings_weight + target_cash_weight + residual = 100%**
-• note: residual is within rounding/tolerance and can be treated as a numerical rounding remainder.
+• 已分析标的目标仓位合计：**24.00%**
+• 未纳入今日分析的持仓权重：**0.00%**
+• 目标现金权重：**76.00%**
+• 闭环残差：**0.0000%**
+• 闭环关系：**已分析标的目标仓位合计 + 未纳入今日分析的持仓权重 + 目标现金权重 + 闭环残差 = 100%**
+• 说明：残差在四舍五入/容差范围内，可视为数值舍入带来的极小差异。
 
 ────────
 
