@@ -694,7 +694,9 @@ class NotificationService:
                 # 技术面分析
                 tech_lines = []
                 if result.technical_analysis:
-                    tech_lines.append(f"**综合**：{result.technical_analysis}")
+                    tech_lines.append(
+                        f"**综合**：{self._guard_volume_commentary(result, result.technical_analysis)}"
+                    )
                 if hasattr(result, 'ma_analysis') and result.ma_analysis:
                     tech_lines.append(f"**均线**：{result.ma_analysis}")
                 if hasattr(result, 'volume_analysis') and result.volume_analysis:
