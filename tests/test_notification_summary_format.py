@@ -837,6 +837,21 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("CLOSE \\| 目标仓位 0.00% \\| 模拟Δ -3,200.00 \\| 目标数量 0 股", report)
         self.assertNotIn("目标数量 N/A（确定性引擎未提供）", report)
 
+    def test_suppressed_hold_with_legacy_fractional_target_quantity_shows_no_execution_text(self) -> None:
+        service = self._build_service()
+        result = self._build_result(
+            position_action="HOLD",
+            final_decision="HOLD",
+            target_weight=0.13,
+            delta_amount=0.0,
+        )
+        setattr(result, "target_quantity", 12.75)
+        setattr(result, "action_reason", "final_decision=BUY, execution_blocked=min_order_notional")
+
+        text = service._format_deterministic_sizing_text(result)
+        self.assertIn("HOLD | 目标仓位 13.00% | 模拟Δ 0.00 | 目标数量 保持当前持仓（不执行）", text)
+        self.assertNotIn("目标数量 13 股", text)
+
 
 if __name__ == "__main__":
     unittest.main()
