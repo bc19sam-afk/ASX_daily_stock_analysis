@@ -102,6 +102,22 @@ class DecisionStructureTestCase(unittest.TestCase):
             )
         )
 
+    def test_resolve_execution_price_close_only_uses_latest_close_even_when_realtime_exists(self):
+        self.assertEqual(
+            StockAnalysisPipeline._resolve_execution_price(
+                enhanced_context={"realtime": {"price": 52.31}, "today": {"close": 51.8}},
+                policy="close_only",
+            ),
+            51.8,
+        )
+        self.assertEqual(
+            StockAnalysisPipeline._resolve_execution_price_source(
+                enhanced_context={"realtime": {"price": 52.31}, "today": {"close": 51.8}},
+                policy="close_only",
+            ),
+            "latest_close",
+        )
+
     def test_resolve_execution_price_source_marks_latest_close_when_realtime_missing(self):
         self.assertEqual(
             StockAnalysisPipeline._resolve_execution_price_source(
@@ -114,6 +130,20 @@ class DecisionStructureTestCase(unittest.TestCase):
                 enhanced_context={"realtime": {"price": 52.31}, "today": {"close": 51.8}},
             ),
             "realtime",
+        )
+        self.assertEqual(
+            StockAnalysisPipeline._resolve_execution_price(
+                enhanced_context={"realtime": {"price": None}, "today": {"close": 51.8}},
+                policy="realtime_if_available",
+            ),
+            51.8,
+        )
+        self.assertEqual(
+            StockAnalysisPipeline._resolve_execution_price_source(
+                enhanced_context={"realtime": {"price": None}, "today": {"close": 51.8}},
+                policy="realtime_if_available",
+            ),
+            "latest_close",
         )
 
 
