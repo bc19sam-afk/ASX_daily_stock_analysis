@@ -137,6 +137,60 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn(expected_sim_line, feishu)
 
     @patch("src.notification.get_db")
+    def test_dashboard_report_suppresses_actionable_ai_commentary_when_conflict(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+
+        result = self._build_result(
+            operation_advice="建议卖出并减仓",
+            position_action="ADD",
+            final_decision="BUY",
+        )
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertIn("AI解读与确定性主动作存在方向冲突，已转为中性说明", report)
+        self.assertNotIn("建议卖出并减仓", report)
+
+    @patch("src.notification.get_db")
+    def test_wechat_dashboard_suppresses_actionable_ai_commentary_when_conflict(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 120000.0,
+            "equity_value": 180000.0,
+            "total_value": 300000.0,
+            "holdings": [],
+        }
+        service = self._build_service()
+        result = self._build_result(
+            operation_advice="建议卖出并减仓",
+            position_action="ADD",
+            final_decision="BUY",
+        )
+
+        wechat = service.generate_wechat_dashboard([result])
+        self.assertIn("AI解读与确定性主动作存在方向冲突，已转为中性说明", wechat)
+        self.assertNotIn("建议卖出并减仓", wechat)
+
+    def test_single_stock_report_suppresses_actionable_ai_position_commentary_when_conflict(self) -> None:
+        service = self._build_service()
+        result = self._build_result(
+            operation_advice="建议卖出并减仓",
+            position_action="ADD",
+            final_decision="BUY",
+            dashboard={
+                "core_conclusion": {
+                    "position_advice": {
+                        "no_position": "建议卖出并减仓",
+                        "has_position": "建议卖出并减仓",
+                    }
+                }
+            },
+        )
+
+        report = service.generate_single_stock_report(result)
+        self.assertIn("AI解读与确定性主动作存在方向冲突，已转为中性说明", report)
+        self.assertNotIn("建议卖出并减仓", report)
+
+    @patch("src.notification.get_db")
     def test_wechat_dashboard_separates_executed_recommended_and_simulated(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {
             "cash": 120000.0,
@@ -159,6 +213,20 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("ADD · 目标18.00% · 模拟Δ3,200.00", wechat)
         self.assertIn("**C) 目标仓位（模拟，不代表已成交）**", wechat)
         self.assertIn("执行中 0.00% → 模拟目标 18.00% (Δ3,200.00)", wechat)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_report_preserves_ai_commentary_when_not_conflict(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+
+        result = self._build_result(
+            operation_advice="区间交易，耐心等待",
+            position_action="ADD",
+            final_decision="BUY",
+        )
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertIn("区间交易，耐心等待", report)
 
     @patch("src.notification.datetime")
     def test_daily_report_includes_data_time_baseline_and_mixed_source_disclosure(self, mock_datetime) -> None:
@@ -575,8 +643,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
         self.assertIn("AI Commentary (Secondary)", report)
-        self.assertIn("必须立即卖出止损 · 评分 75 · 震荡上行", report)
-        self.assertIn("⚠️(与确定性动作不一致，仅供参考)", report)
+        self.assertIn("AI解读与确定性主动作存在方向冲突，已转为中性说明 · 评分 75 · 震荡上行", report)
+        self.assertIn("⚠️(已抑制冲突态AI操作措辞)", report)
 
     @patch("src.notification.get_db")
     def test_per_stock_heading_uses_deterministic_action_semantics(self, mock_get_db) -> None:
@@ -593,7 +661,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("### 📌 核心结论", report)
         self.assertIn("**⚪ 持有/观望**", report)
         self.assertIn("**🧭 确定性动作(主指令)**: HOLD | 目标仓位 18.00% | 模拟Δ 3,200.00", report)
-        self.assertIn("**💬 AI解读(次要参考)**: 卖出", report)
+        self.assertIn("**💬 AI解读(次要参考)**: AI解读与确定性主动作存在方向冲突，已转为中性说明", report)
         self.assertIn("⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。", report)
 
     @patch("src.notification.get_db")
@@ -608,7 +676,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report(results, report_date="2026-03-30")
 
         self.assertIn("| 🟢 **贵州茅台(AAA)** | OPEN · 目标18.00% · 模拟Δ3,200.00 | 可轻仓跟踪 · 评分 75 · 震荡上行 |", report)
-        self.assertIn("| ⚪ **贵州茅台(BBB)** | HOLD · 目标18.00% · 模拟Δ3,200.00 | 可买入 · 评分 75 · 震荡上行 ⚠️(与确定性动作不一致，仅供参考) |", report)
+        self.assertIn("| ⚪ **贵州茅台(BBB)** | HOLD · 目标18.00% · 模拟Δ3,200.00 | AI解读与确定性主动作存在方向冲突，已转为中性说明 · 评分 75 · 震荡上行 ⚠️(已抑制冲突态AI操作措辞) |", report)
         self.assertIn("| 🔴 **贵州茅台(CCC)** | CLOSE · 目标18.00% · 模拟Δ3,200.00 | 继续拿住 · 评分 75 · 震荡上行 |", report)
 
     @patch("src.notification.get_db")
