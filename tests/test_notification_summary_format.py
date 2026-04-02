@@ -355,10 +355,13 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 - 持仓市值: **300,000.00**
 - 账户总值: **500,000.00**
 
-| 当前持仓 | 数量 | 权重 |
-|---------|------|------|
-| 贵州茅台(600519) | 100.00 | 36.00% |
-| 五粮液(000858) | 200.00 | 24.00% |
+| 当前持仓 | 数量 | 权重 | 估值来源 | 今日分析覆盖 |
+|---------|------|------|----------|--------------|
+| 贵州茅台(600519) | 100.00 | 36.00% | stored_market_value_fallback | yes |
+| 五粮液(000858) | 200.00 | 24.00% | stored_market_value_fallback | yes |
+
+注：`估值来源=report_time_price` 表示使用报告时点价格；`stored_market_value_fallback` 表示缺少报告时点价格，回退至账户快照市值。
+注：`今日分析覆盖=yes` 表示该持仓在今日 analysis universe 中；`no` 表示账户持有但今日未分析。
 
 ## B. Recommended Actions Today
 
@@ -511,8 +514,11 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 • 持仓市值: **300,000.00**
 • 账户总值: **500,000.00**
 
-• 当前持仓：贵州茅台(600519) | 数量：100.00 | 权重：36.00%
-• 当前持仓：五粮液(000858) | 数量：200.00 | 权重：24.00%
+• 当前持仓：贵州茅台(600519) | 数量：100.00 | 权重：36.00% | 估值来源：stored_market_value_fallback | 今日分析覆盖：yes
+• 当前持仓：五粮液(000858) | 数量：200.00 | 权重：24.00% | 估值来源：stored_market_value_fallback | 今日分析覆盖：yes
+
+注：`估值来源=report_time_price` 表示使用报告时点价格；`stored_market_value_fallback` 表示缺少报告时点价格，回退至账户快照市值。
+注：`今日分析覆盖=yes` 表示该持仓在今日 analysis universe 中；`no` 表示账户持有但今日未分析。
 
 **B. Recommended Actions Today**
 
@@ -557,12 +563,13 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("| SHL(SHL.AX) | 172.00 | 50.20% |", report)
 
     @patch("src.notification.get_db")
-    def test_dashboard_overview_falls_back_to_stored_market_value_when_fresh_price_missing(self, mock_get_db) -> None:
+    def test_dashboard_overview_exposes_valuation_source_and_analysis_coverage(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {
             "cash": 112.01,
             "holdings": [
                 {"code": "BHP.AX", "name": "BHP", "quantity": 66, "market_value": 3432.0},
                 {"code": "LAU.AX", "name": "LAU", "quantity": 2958, "market_value": 1996.65},
+                {"code": "TLS.AX", "name": "TLS", "quantity": 100, "market_value": 300.0},
             ],
         }
         service = self._build_service()
@@ -572,11 +579,15 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         ]
 
         report = service.generate_dashboard_report(results, report_date="2026-03-30")
-        # BHP uses report-time price (66*52=3432), LAU falls back to stored market_value
-        self.assertIn("- 持仓市值: **5,428.65**", report)
-        self.assertIn("- 账户总值: **5,540.66**", report)
-        self.assertIn("| BHP(BHP.AX) | 66.00 | 61.94% |", report)
-        self.assertIn("| LAU(LAU.AX) | 2,958.00 | 36.04% |", report)
+        self.assertIn("| 当前持仓 | 数量 | 权重 | 估值来源 | 今日分析覆盖 |", report)
+        # BHP uses report-time price and is analyzed today
+        self.assertIn("| BHP(BHP.AX) | 66.00 | 58.76% | report_time_price | yes |", report)
+        # LAU falls back to stored market_value and is analyzed today
+        self.assertIn("| LAU(LAU.AX) | 2,958.00 | 34.19% | stored_market_value_fallback | yes |", report)
+        # TLS is not in today's analysis results
+        self.assertIn("| TLS(TLS.AX) | 100.00 | 5.14% | stored_market_value_fallback | no |", report)
+        self.assertIn("`stored_market_value_fallback`", report)
+        self.assertIn("`今日分析覆盖=yes`", report)
 
     @patch("src.notification.get_db")
     def test_market_snapshot_displays_yfinance_source_name(self, mock_get_db) -> None:
