@@ -1824,6 +1824,7 @@ class NotificationService:
 
     # Display name mapping for realtime data sources
     _SOURCE_DISPLAY_NAMES = {
+        "yfinance": "Yahoo Finance",
         "tencent": "腾讯财经",
         "akshare_em": "东方财富",
         "akshare_sina": "新浪财经",

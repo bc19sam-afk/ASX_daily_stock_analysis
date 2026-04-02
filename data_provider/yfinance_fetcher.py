@@ -561,7 +561,7 @@ class YfinanceFetcher(BaseFetcher):
             quote = UnifiedRealtimeQuote(
                 code=symbol,
                 name=name,
-                source=RealtimeSource.FALLBACK,
+                source=RealtimeSource.YFINANCE,
                 price=price,
                 change_pct=round(change_pct, 2) if change_pct is not None else None,
                 change_amount=round(change_amount, 4) if change_amount is not None else None,

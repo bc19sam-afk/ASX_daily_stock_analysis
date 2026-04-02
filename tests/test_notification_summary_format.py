@@ -579,6 +579,37 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("| LAU(LAU.AX) | 2,958.00 | 36.04% |", report)
 
     @patch("src.notification.get_db")
+    def test_market_snapshot_displays_yfinance_source_name(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            code="BHP.AX",
+            name="BHP",
+            market_snapshot={
+                "date": "2026-03-30",
+                "close": "50.00",
+                "prev_close": "49.00",
+                "open": "49.50",
+                "high": "50.20",
+                "low": "49.30",
+                "pct_chg": "2.04%",
+                "change_amount": "1.00",
+                "amplitude": "1.84%",
+                "volume": "1.20 M",
+                "amount": "60.00 M AUD",
+                "price": "50.10",
+                "volume_ratio": "N/A",
+                "turnover_rate": "N/A",
+                "source": "yfinance",
+            },
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        self.assertIn("| 当前价 | 量比 | 换手率 | 行情来源 |", report)
+        self.assertIn("| 50.10 | N/A | N/A | Yahoo Finance |", report)
+
+    @patch("src.notification.get_db")
     def test_dashboard_report_generation_is_read_only_against_db(self, mock_get_db) -> None:
         db = mock_get_db.return_value
         db.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
