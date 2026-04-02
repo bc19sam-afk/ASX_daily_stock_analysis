@@ -298,6 +298,44 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.assertTrue(intel["latest_news"].results)
         self.assertEqual(intel["latest_news"].results[0].url, "https://example.com/latest-name-only")
 
+    def test_latest_news_name_only_fallback_not_applied_for_non_asx(self) -> None:
+        """非 ASX 股票不应启用 name-only fallback。"""
+        code = "WMT"
+        name = "Walmart Inc"
+        name_only = SearchResult(
+            title="Walmart Inc expands logistics automation",
+            snippet="Company announced new warehouse initiative",
+            url="https://example.com/us-name-only",
+            source="example.com",
+        )
+        filtered = self.service._filter_entity_consistent_results(
+            self._resp(name_only),
+            stock_code=code,
+            stock_name=name,
+            dimension="latest_news",
+        )
+
+        self.assertEqual(len(filtered.results), 0)
+
+    def test_non_asx_latest_news_weak_or_wrong_market_result_still_filtered(self) -> None:
+        """非 ASX latest_news 中弱相关/错误市场结果继续被挡住。"""
+        code = "WMT"
+        name = "Walmart Inc"
+        weak_or_wrong = SearchResult(
+            title="Walmart Inc discussed with NYSE retail basket volatility",
+            snippet="No ticker symbol match in this weakly-related article",
+            url="https://example.com/us-weak",
+            source="example.com",
+        )
+        filtered = self.service._filter_entity_consistent_results(
+            self._resp(weak_or_wrong),
+            stock_code=code,
+            stock_name=name,
+            dimension="latest_news",
+        )
+
+        self.assertEqual(len(filtered.results), 0)
+
     def test_search_stock_news_cache_when_filtered_results_non_empty(self) -> None:
         """过滤后仍有结果时保持正常返回与缓存。"""
         valid_asx = SearchResponse(

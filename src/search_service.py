@@ -520,11 +520,15 @@ class SearchService:
         score: int,
         reasons: List[str],
         dimension: Optional[str],
+        stock_code: str,
     ) -> bool:
         """
         受控兜底：latest_news 维度允许“仅公司名强命中”的低风险结果保留，
         但仍禁止出现明确市场冲突信号的结果。
         """
+        hints = self._parse_entity_hints(stock_code=stock_code, stock_name="")
+        if not hints["is_asx"]:
+            return False
         if dimension != "latest_news":
             return False
         if score != 2:
@@ -557,7 +561,7 @@ class SearchService:
         kept: List[SearchResult] = []
         dropped: List[Tuple[int, SearchResult, List[str]]] = []
         for score, result, reasons in scored:
-            if score >= threshold or self._is_low_risk_name_only_fallback(score, reasons, dimension):
+            if score >= threshold or self._is_low_risk_name_only_fallback(score, reasons, dimension, stock_code):
                 kept.append(result)
             else:
                 dropped.append((score, result, reasons))
