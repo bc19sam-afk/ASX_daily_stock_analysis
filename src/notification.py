@@ -697,7 +697,7 @@ class NotificationService:
                 if hasattr(result, 'ma_analysis') and result.ma_analysis:
                     tech_lines.append(f"**均线**：{result.ma_analysis}")
                 if hasattr(result, 'volume_analysis') and result.volume_analysis:
-                    tech_lines.append(f"**量能**：{result.volume_analysis}")
+                    tech_lines.append(f"**量能**：{self._guard_volume_commentary(result, result.volume_analysis)}")
                 if hasattr(result, 'pattern_analysis') and result.pattern_analysis:
                     tech_lines.append(f"**形态**：{result.pattern_analysis}")
                 if tech_lines:
@@ -830,6 +830,42 @@ class NotificationService:
             return "AI仓位建议（非执行）"
         return normalized
 
+    @staticmethod
+    def _is_missing_snapshot_metric(value: Any) -> bool:
+        """Return True when snapshot metric should be treated as unavailable."""
+        if value is None:
+            return True
+        normalized = str(value).strip().upper()
+        return normalized in {"", "N/A", "-", "NONE", "NULL", "未知"}
+
+    def _has_missing_volume_snapshot_metrics(self, result: AnalysisResult) -> bool:
+        """Detect missing key volume metrics in market snapshot."""
+        snapshot = getattr(result, "market_snapshot", None) or {}
+        return (
+            self._is_missing_snapshot_metric(snapshot.get("volume_ratio"))
+            or self._is_missing_snapshot_metric(snapshot.get("turnover_rate"))
+        )
+
+    @staticmethod
+    def _looks_like_volume_commentary(text: Any) -> bool:
+        """Heuristic matcher for volume/turnover conclusions."""
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        keywords = ("量比", "换手", "放量", "缩量", "量能")
+        return any(keyword in normalized for keyword in keywords)
+
+    def _guard_volume_commentary(self, result: AnalysisResult, text: Any) -> str:
+        """Downgrade only volume-related AI commentary when key snapshot fields are missing."""
+        normalized = str(text or "").strip()
+        if not normalized:
+            return ""
+        if not self._has_missing_volume_snapshot_metrics(result):
+            return normalized
+        if not self._looks_like_volume_commentary(normalized):
+            return normalized
+        return "量能数据不足（量比/换手率缺失），不做量能结论"
+
     def _build_recommended_actions_table(self, results: List[AnalysisResult]) -> List[str]:
         """Build recommended actions table (analysis output; not yet executed)."""
         lines = [
@@ -920,7 +956,7 @@ class NotificationService:
         action_model = self._get_primary_action_model(result)
         if action_model['ai_conflict']:
             return "AI解读与确定性主动作存在方向冲突，已转为中性说明"
-        return self._get_normalized_ai_operation_advice(result)
+        return self._guard_volume_commentary(result, self._get_normalized_ai_operation_advice(result))
 
     def _get_conflict_safe_core_conclusion(self, result: AnalysisResult, text: Any) -> str:
         """Return core conclusion text safe for conflict-state presentation."""
@@ -1407,11 +1443,18 @@ class NotificationService:
                         ])
                     # 量能分析
                     if vol_data:
-                        report_lines.extend([
-                            f"**量能**: 量比 {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | 换手率 {vol_data.get('turnover_rate', 'N/A')}%",
-                            f"💡 *{vol_data.get('volume_meaning', '')}*",
-                            "",
-                        ])
+                        volume_meaning = self._guard_volume_commentary(result, vol_data.get('volume_meaning', ''))
+                        if volume_meaning == "量能数据不足（量比/换手率缺失），不做量能结论":
+                            report_lines.extend([
+                                f"**量能**: {volume_meaning}",
+                                "",
+                            ])
+                        else:
+                            report_lines.extend([
+                                f"**量能**: 量比 {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | 换手率 {vol_data.get('turnover_rate', 'N/A')}%",
+                                f"💡 *{volume_meaning}*",
+                                "",
+                            ])
                     # 筹码结构
                     if chip_data:
                         chip_health = chip_data.get('chip_health', 'N/A')
@@ -1485,7 +1528,7 @@ class NotificationService:
                         if result.ma_analysis:
                             report_lines.append(f"**均线**: {result.ma_analysis}")
                         if result.volume_analysis:
-                            report_lines.append(f"**量能**: {result.volume_analysis}")
+                            report_lines.append(f"**量能**: {self._guard_volume_commentary(result, result.volume_analysis)}")
                         report_lines.append("")
                     # 消息面
                     if result.news_summary:
