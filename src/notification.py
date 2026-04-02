@@ -23,7 +23,7 @@ import smtplib
 import re
 import time
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
@@ -1012,10 +1012,12 @@ class NotificationService:
         original_holdings = (overview or {}).get("holdings") or []
 
         report_time_prices: Dict[str, float] = {}
+        analyzed_codes: Set[str] = set()
         for result in results or []:
             code = str(getattr(result, "code", "") or "").strip()
             if not code:
                 continue
+            analyzed_codes.add(code)
             price = self._to_positive_float(getattr(result, "current_price", None))
             if price is not None:
                 report_time_prices[code] = price
@@ -1048,6 +1050,7 @@ class NotificationService:
                     "current_price": report_time_price if report_time_price is not None else holding.get("current_price"),
                     "market_value": market_value,
                     "valuation_source": valuation_source,
+                    "analyzed_today": code in analyzed_codes,
                 }
             )
 
@@ -1134,14 +1137,21 @@ class NotificationService:
         }
         if holdings:
             report_lines.extend([
-                "| 当前持仓 | 数量 | 权重 |",
-                "|---------|------|------|",
+                "| 当前持仓 | 数量 | 权重 | 估值来源 | 今日分析覆盖 |",
+                "|---------|------|------|----------|--------------|",
             ])
             for h in holdings:
+                valuation_source = "report_time_price" if h.get("valuation_source") == "report_time_price" else "stored_market_value_fallback"
+                analyzed_today = "yes" if h.get("analyzed_today") else "no"
                 report_lines.append(
-                    f"| {h.get('name', h.get('code'))}({h.get('code')}) | {h.get('quantity', 0):,.2f} | {h.get('weight', 0.0):.2%} |"
+                    f"| {h.get('name', h.get('code'))}({h.get('code')}) | {h.get('quantity', 0):,.2f} | {h.get('weight', 0.0):.2%} | {valuation_source} | {analyzed_today} |"
                 )
-            report_lines.append("")
+            report_lines.extend([
+                "",
+                "注：`估值来源=report_time_price` 表示使用报告时点价格；`stored_market_value_fallback` 表示缺少报告时点价格，回退至账户快照市值。",
+                "注：`今日分析覆盖=yes` 表示该持仓在今日 analysis universe 中；`no` 表示账户持有但今日未分析。",
+                "",
+            ])
 
         # === 分离展示：实际账户状态 vs 今日建议/模拟结果 ===
         if results:
