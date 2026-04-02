@@ -824,9 +824,12 @@ class NotificationService:
                 f"{action_model['position_action']} · 目标{action_model['target_weight']:.2%} · "
                 f"模拟Δ{action_model['delta_amount']:,.2f}"
             )
-            ai_view_text = f"{self._get_normalized_ai_operation_advice(r)} · 评分 {r.sentiment_score} · {r.trend_prediction}"
+            ai_view_text = (
+                f"{self._get_conflict_safe_ai_commentary(r)} · "
+                f"评分 {r.sentiment_score} · {r.trend_prediction}"
+            )
             if action_model['ai_conflict']:
-                ai_view_text += " ⚠️(与确定性动作不一致，仅供参考)"
+                ai_view_text += " ⚠️(已抑制冲突态AI操作措辞)"
             ai_view_cell = self._to_markdown_table_cell(ai_view_text)
 
             lines.append(
@@ -888,6 +891,20 @@ class NotificationService:
             return self._get_canonical_operation_advice(result)
         advice = advice.replace("\r\n", "\n").replace("\r", "\n")
         return " ".join(part.strip() for part in advice.split("\n") if part.strip())
+
+    def _get_conflict_safe_ai_commentary(self, result: AnalysisResult) -> str:
+        """Return AI commentary text safe for conflict-state presentation."""
+        action_model = self._get_primary_action_model(result)
+        if action_model['ai_conflict']:
+            return "AI解读与确定性主动作存在方向冲突，已转为中性说明"
+        return self._get_normalized_ai_operation_advice(result)
+
+    def _get_conflict_safe_core_conclusion(self, result: AnalysisResult, text: Any) -> str:
+        """Return core conclusion text safe for conflict-state presentation."""
+        if self._get_primary_action_model(result)['ai_conflict']:
+            return "AI总结与确定性主动作存在方向冲突，请仅按确定性主动作执行"
+        normalized = str(text or '').strip()
+        return normalized
 
     def _build_simulated_target_allocation_table(
         self,
@@ -1198,7 +1215,10 @@ class NotificationService:
                 
                 # ========== 核心结论 ==========
                 core = dashboard.get('core_conclusion', {}) if dashboard else {}
-                one_sentence = core.get('one_sentence', result.analysis_summary)
+                one_sentence = self._get_conflict_safe_core_conclusion(
+                    result,
+                    core.get('one_sentence', result.analysis_summary),
+                )
                 time_sense = core.get('time_sensitivity', '本周内')
                 pos_advice = core.get('position_advice', {})
                 
@@ -1209,7 +1229,7 @@ class NotificationService:
                     "",
                     f"**🧭 确定性动作(主指令)**: {self._format_primary_action_text(result)}",
                     "",
-                    f"**💬 AI解读(次要参考)**: {self._get_normalized_ai_operation_advice(result)}",
+                    f"**💬 AI解读(次要参考)**: {self._get_conflict_safe_ai_commentary(result)}",
                     "",
                     f"> **一句话决策**: {one_sentence}",
                     "",
@@ -1459,7 +1479,7 @@ class NotificationService:
                     f"{signal_emoji} **{stock_name}({r.code})**: "
                     f"{action_model['position_action']} · 目标{action_model['target_weight']:.2%} · "
                     f"模拟Δ{action_model['delta_amount']:,.2f} "
-                    f"(AI次要参考: {self._get_normalized_ai_operation_advice(r)} / {r.sentiment_score})"
+                    f"(AI次要参考: {self._get_conflict_safe_ai_commentary(r)} / {r.sentiment_score})"
                 )
             lines.extend([
                 "",
@@ -1491,13 +1511,16 @@ class NotificationService:
                 lines.append("")
 
                 lines.append(f"📋 今日主动作(未执行): {self._format_primary_action_text(result)[:80]}")
-                lines.append(f"💬 AI次要解读: {self._get_normalized_ai_operation_advice(result)[:60]}")
+                lines.append(f"💬 AI次要解读: {self._get_conflict_safe_ai_commentary(result)[:60]}")
                 if action_model['ai_conflict']:
                     lines.append("⚠️ AI解读与主动作不一致，请以主动作为准")
                 lines.append("")
                 
                 # 核心决策（一句话）
-                one_sentence = core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary
+                one_sentence = self._get_conflict_safe_core_conclusion(
+                    result,
+                    core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary,
+                )
                 if one_sentence:
                     lines.append(f"📌 **{one_sentence[:80]}**")
                     lines.append("")
@@ -1560,9 +1583,13 @@ class NotificationService:
                     has_pos = pos_advice.get('has_position', '')
                     if no_pos:
                         ai_no_pos = self._sanitize_ai_share_count_commentary(no_pos)
+                        if action_model['ai_conflict']:
+                            ai_no_pos = self._get_conflict_safe_ai_commentary(result)
                         lines.append(f"💬 AI空仓者评论(非执行): {ai_no_pos[:44]}")
                     if has_pos:
                         ai_has_pos = self._sanitize_ai_share_count_commentary(has_pos)
+                        if action_model['ai_conflict']:
+                            ai_has_pos = self._get_conflict_safe_ai_commentary(result)
                         lines.append(f"💬 AI持仓者评论(非执行): {ai_has_pos[:44]}")
                     lines.append("")
                 
@@ -1700,7 +1727,10 @@ class NotificationService:
         self._append_market_snapshot(lines, result)
         
         # 核心决策（一句话）
-        one_sentence = core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary
+        one_sentence = self._get_conflict_safe_core_conclusion(
+            result,
+            core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary,
+        )
         if one_sentence:
             lines.extend([
                 "### 📌 核心结论",
@@ -1771,8 +1801,8 @@ class NotificationService:
                 "### 💼 持仓建议",
                 "",
                 f"- 🧮 **确定性仓位指引(主指令)**: {self._format_deterministic_sizing_text(result)}",
-                f"- 💬 **AI空仓者评论(非执行)**: {pos_advice.get('no_position', self._get_normalized_ai_operation_advice(result))}",
-                f"- 💬 **AI持仓者评论(非执行)**: {pos_advice.get('has_position', '继续持有')}",
+                f"- 💬 **AI空仓者评论(非执行)**: {self._get_conflict_safe_ai_commentary(result) if self._get_primary_action_model(result)['ai_conflict'] else pos_advice.get('no_position', self._get_normalized_ai_operation_advice(result))}",
+                f"- 💬 **AI持仓者评论(非执行)**: {self._get_conflict_safe_ai_commentary(result) if self._get_primary_action_model(result)['ai_conflict'] else pos_advice.get('has_position', '继续持有')}",
                 "",
             ])
         
