@@ -14,6 +14,7 @@ A股/澳股自选股智能分析系统 - 搜索服务模块
 
 import logging
 import random
+import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -439,6 +440,124 @@ class SearchService:
 
     def _put_cache(self, key: str, response: 'SearchResponse') -> None:
         self._cache[key] = (time.time(), response)
+
+    @staticmethod
+    def _parse_entity_hints(stock_code: str, stock_name: str) -> Dict[str, Any]:
+        """提取股票实体消歧所需的关键字段。"""
+        code = (stock_code or "").strip().upper()
+        name = (stock_name or "").strip()
+        base_ticker = code.split(".")[0]
+        exchange_suffix = code.split(".")[-1] if "." in code else ""
+        is_asx = exchange_suffix == "AX"
+
+        market_terms = []
+        if is_asx:
+            market_terms = ["ASX", "Australia", "Australian Securities Exchange", ".AX"]
+
+        return {
+            "code": code,
+            "name": name,
+            "base_ticker": base_ticker,
+            "exchange_suffix": exchange_suffix,
+            "is_asx": is_asx,
+            "market_terms": market_terms
+        }
+
+    def _build_grounded_query(self, stock_code: str, stock_name: str, intent_terms: List[str]) -> str:
+        """构建包含 ticker/exchange/company/market 约束的搜索 query。"""
+        hints = self._parse_entity_hints(stock_code, stock_name)
+        parts = [hints["name"], hints["code"], hints["base_ticker"]]
+        if hints["is_asx"]:
+            parts.extend(["ASX", "Australia"])
+        parts.extend(intent_terms)
+        return " ".join([p for p in parts if p])
+
+    @staticmethod
+    def _contains_exchange_conflict(text: str) -> bool:
+        conflict_terms = ["nasdaq", "nyse", "hkex", "lse", "tsx", "sgx"]
+        return any(term in text for term in conflict_terms)
+
+    def _score_result_entity_match(self, result: SearchResult, stock_code: str, stock_name: str) -> Tuple[int, List[str]]:
+        """对搜索结果进行实体一致性打分。"""
+        hints = self._parse_entity_hints(stock_code, stock_name)
+        haystack = " ".join([
+            result.title or "",
+            result.snippet or "",
+            result.url or "",
+            result.source or "",
+        ]).lower()
+
+        score = 0
+        reasons: List[str] = []
+        code_lower = hints["code"].lower()
+        base_lower = hints["base_ticker"].lower()
+        name_lower = hints["name"].lower()
+
+        if code_lower and code_lower in haystack:
+            score += 3
+            reasons.append("ticker_exact")
+        elif base_lower and len(base_lower) >= 3 and re.search(rf"\b{re.escape(base_lower)}\b", haystack):
+            score += 2
+            reasons.append("ticker_base")
+
+        if name_lower and name_lower in haystack:
+            score += 2
+            reasons.append("company_name")
+
+        if hints["is_asx"]:
+            has_market_hit = any(term.lower() in haystack for term in hints["market_terms"])
+            if has_market_hit:
+                score += 2
+                reasons.append("asx_market")
+            if self._contains_exchange_conflict(haystack) and not has_market_hit:
+                score -= 2
+                reasons.append("conflict_market")
+
+        return score, reasons
+
+    def _filter_entity_consistent_results(self, response: SearchResponse, stock_code: str, stock_name: str) -> SearchResponse:
+        """
+        过滤可能串台的结果：低分结果留在 debug，不进入主分析上下文。
+        """
+        if not response.results:
+            return response
+
+        scored: List[Tuple[int, SearchResult, List[str]]] = []
+        for result in response.results:
+            score, reasons = self._score_result_entity_match(result, stock_code, stock_name)
+            scored.append((score, result, reasons))
+
+        threshold = 3
+        kept = [item[1] for item in scored if item[0] >= threshold]
+        dropped = [item for item in scored if item[0] < threshold]
+
+        if dropped:
+            logger.debug(
+                "实体消歧过滤: %s(%s) 丢弃 %d 条低分结果: %s",
+                stock_name,
+                stock_code,
+                len(dropped),
+                [{"title": r.title[:80], "score": s, "reasons": rs} for s, r, rs in dropped]
+            )
+
+        if not kept:
+            return SearchResponse(
+                query=response.query,
+                results=[],
+                provider=response.provider,
+                success=response.success,
+                error_message=response.error_message,
+                search_time=response.search_time
+            )
+
+        return SearchResponse(
+            query=response.query,
+            results=kept,
+            provider=response.provider,
+            success=response.success,
+            error_message=response.error_message,
+            search_time=response.search_time
+        )
     
     def search_stock_news(self, stock_code: str, stock_name: str, max_results: int = 5, focus_keywords: Optional[List[str]] = None) -> SearchResponse:
         today_weekday = datetime.now().weekday()
@@ -453,7 +572,7 @@ class SearchService:
         if focus_keywords:
             query = " ".join(focus_keywords)
         elif is_foreign:
-            query = f"{stock_name} {stock_code} stock latest news"
+            query = self._build_grounded_query(stock_code, stock_name, ["stock", "latest news"])
         else:
             query = f"{stock_name} {stock_code} 股票 最新消息"
 
@@ -467,8 +586,20 @@ class SearchService:
             if not provider.is_available: continue
             response = provider.search(query, max_results, days=search_days)
             if response.success and response.results:
-                self._put_cache(cache_key, response)
-                return response
+                filtered_response = self._filter_entity_consistent_results(
+                    response,
+                    stock_code=stock_code,
+                    stock_name=stock_name
+                )
+                if filtered_response.results:
+                    self._put_cache(cache_key, filtered_response)
+                    return filtered_response
+                logger.debug(
+                    "搜索结果在实体消歧后为空，继续尝试下一个 provider: %s(%s) provider=%s",
+                    stock_name,
+                    stock_code,
+                    provider.name
+                )
         
         return SearchResponse(query=query, results=[], provider="None", success=False, error_message="All providers failed")
 
@@ -494,11 +625,11 @@ class SearchService:
         if is_foreign:
             # 针对外盘（澳股/美股），直接使用 stock_code 搜索，避开中文名干扰
             dims = [
-                {'name': 'latest_news', 'query': f"{stock_code} latest news events", 'desc': '最新消息'},
-                {'name': 'market_analysis', 'query': f"{stock_code} analyst rating target price report", 'desc': '机构分析'},
-                {'name': 'risk_check', 'query': f"{stock_code} risk insider selling lawsuit litigation", 'desc': '风险排查'},
-                {'name': 'earnings', 'query': f"{stock_code} earnings revenue profit growth forecast", 'desc': '业绩预期'},
-                {'name': 'industry', 'query': f"{stock_code} industry competitors market share outlook", 'desc': '行业分析'},
+                {'name': 'latest_news', 'query': self._build_grounded_query(stock_code, stock_name, ["latest news events"]), 'desc': '最新消息'},
+                {'name': 'market_analysis', 'query': self._build_grounded_query(stock_code, stock_name, ["analyst rating target price report"]), 'desc': '机构分析'},
+                {'name': 'risk_check', 'query': self._build_grounded_query(stock_code, stock_name, ["risk insider selling lawsuit litigation"]), 'desc': '风险排查'},
+                {'name': 'earnings', 'query': self._build_grounded_query(stock_code, stock_name, ["earnings revenue profit growth forecast"]), 'desc': '业绩预期'},
+                {'name': 'industry', 'query': self._build_grounded_query(stock_code, stock_name, ["industry competitors market share outlook"]), 'desc': '行业分析'},
             ]
         else:
             dims = [
@@ -511,13 +642,38 @@ class SearchService:
 
         for dim in dims:
             # 始终优先使用 Tavily (如果配置了且排在第一位)
+            selected_resp: Optional[SearchResponse] = None
             for provider in self._providers:
                 if not provider.is_available: continue
                 resp = provider.search(dim['query'], max_results=3)
-                results[dim['name']] = resp
-                if resp.success: break # 只要有一个成功就跳出，进行下一个维度
+                if resp.success and resp.results:
+                    filtered_resp = self._filter_entity_consistent_results(
+                        resp,
+                        stock_code=stock_code,
+                        stock_name=stock_name
+                    )
+                    if filtered_resp.results:
+                        selected_resp = filtered_resp
+                        break  # 仅当过滤后仍有有效结果时才跳出
+                    logger.debug(
+                        "维度 %s 在实体消歧后为空，继续尝试下一个 provider: %s(%s) provider=%s",
+                        dim['name'],
+                        stock_name,
+                        stock_code,
+                        provider.name
+                    )
                 time.sleep(0.5)
-                
+            if selected_resp:
+                results[dim['name']] = selected_resp
+            else:
+                results[dim['name']] = SearchResponse(
+                    query=dim['query'],
+                    results=[],
+                    provider="None",
+                    success=False,
+                    error_message="No entity-consistent results"
+                )
+
         return results
 
     def format_intel_report(self, intel_results: Dict[str, SearchResponse], stock_name: str) -> str:
