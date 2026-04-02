@@ -1330,7 +1330,7 @@ class NotificationService:
             report_lines.extend([
                 "## B. 今日建议动作（未执行）",
                 "",
-                "> 以下以确定性动作为主（final_decision / position_action / target_weight / delta_amount），仅用于今日计划，不代表账户已变化。",
+                "> 以下以确定性主动作、目标仓位与模拟调仓金额为主，仅用于今日计划，不代表账户已变化。",
                 "",
             ])
             report_lines.extend(self._build_recommended_actions_table(sorted_results))
