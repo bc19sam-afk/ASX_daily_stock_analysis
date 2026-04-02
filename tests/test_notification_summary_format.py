@@ -847,6 +847,94 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("HOLD | 目标仓位 13.00% | 模拟Δ 0.00 | 目标数量 保持当前持仓（不执行）", text)
         self.assertNotIn("目标数量 13 股", text)
 
+    def test_daily_report_preserves_non_volume_signals_in_mixed_technical_analysis_when_snapshot_metrics_missing(self) -> None:
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            technical_analysis="放量突破 MA20，MACD 金叉",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": None,
+                "turnover_rate": None,
+            },
+        )
+
+        report = service.generate_daily_report([result], report_date="2026-03-30")
+        self.assertIn("**综合**：突破 MA20，MACD 金叉", report)
+        self.assertNotIn("**综合**：量能数据不足（量比/换手率缺失），不做量能结论", report)
+
+    def test_daily_report_downgrades_pure_volume_technical_analysis_when_snapshot_metrics_missing(self) -> None:
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            technical_analysis="量比走强并放量突破，换手率提升",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": None,
+                "turnover_rate": None,
+            },
+        )
+
+        report = service.generate_daily_report([result], report_date="2026-03-30")
+        self.assertIn("**综合**：量能数据不足（量比/换手率缺失），不做量能结论", report)
+        self.assertNotIn("量比走强并放量突破", report)
+
+    def test_daily_report_preserves_mixed_and_pure_technical_analysis_when_snapshot_metrics_available(self) -> None:
+        service = self._build_service()
+        service._report_summary_only = False
+        mixed = self._build_result(
+            code="600519",
+            technical_analysis="放量突破 MA20，MACD 金叉",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": 1.8,
+                "turnover_rate": "3.6%",
+            },
+        )
+        pure = self._build_result(
+            code="000858",
+            technical_analysis="量比走强，放量突破",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "88.30",
+                "volume_ratio": 2.1,
+                "turnover_rate": "4.2%",
+            },
+        )
+
+        report = service.generate_daily_report([mixed, pure], report_date="2026-03-30")
+        self.assertIn("**综合**：放量突破 MA20，MACD 金叉", report)
+        self.assertIn("**综合**：量比走强，放量突破", report)
+
+    @patch("src.notification.get_db")
+    def test_existing_dashboard_wechat_single_stock_volume_guard_behavior_unchanged(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+        result = self._build_result(
+            operation_advice="量比2.3，明显放量，建议追涨",
+            analysis_summary="保持观察",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": None,
+                "turnover_rate": None,
+            },
+        )
+
+        dashboard = service.generate_dashboard_report([result], report_date="2026-03-30")
+        wechat = service.generate_wechat_dashboard([result])
+        single = service.generate_single_stock_report(result)
+
+        for rendered in (dashboard, wechat):
+            self.assertIn("量能数据不足（量比/换手率缺失），不做量能结论", rendered)
+            self.assertNotIn("量比2.3，明显放量", rendered)
+
+        self.assertIn("量能数据不足（量比/换手率缺失），不做量能结论", single)
+        self.assertNotIn("量比2.3，明显放量", single)
+
     @patch("src.notification.get_db")
     def test_dashboard_report_downgrades_volume_commentary_when_snapshot_metrics_missing(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {}
