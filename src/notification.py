@@ -485,10 +485,33 @@ class NotificationService:
     @staticmethod
     def _format_price_basis_label(basis: str) -> str:
         return {
-            "realtime": "realtime price（实时价格）",
-            "latest_close": "latest close（日线收盘口径）",
-            "close_only": "无实时价格可用；仅按收盘口径（close-only basis）",
-        }.get(basis, "无实时价格可用；仅按收盘口径（close-only basis）")
+            "realtime": "实时价格",
+            "latest_close": "最新收盘",
+            "close_only": "仅收盘口径（无实时价格）",
+        }.get(basis, "仅收盘口径（无实时价格）")
+
+    @staticmethod
+    def _format_valuation_source_label(source: str) -> str:
+        return {
+            "report_time_price": "报告时点价格",
+            "stored_market_value_fallback": "账户快照市值回退",
+        }.get(source, "账户快照市值回退")
+
+    @staticmethod
+    def _format_yes_no_label(flag: Any) -> str:
+        return "是" if bool(flag) else "否"
+
+    @staticmethod
+    def _format_position_action_label(action: str) -> str:
+        action_text = str(action or "").strip().upper()
+        return {
+            "OPEN": "建仓",
+            "ADD": "加仓",
+            "HOLD": "持有",
+            "TRIM": "减仓",
+            "REDUCE": "减仓",
+            "CLOSE": "清仓",
+        }.get(action_text, action_text or "持有")
 
     def _build_data_baseline_lines(
         self,
@@ -529,9 +552,9 @@ class NotificationService:
             f"- 技术面判断：基于 **{daily_anchor}**。",
             f"- 新闻更新：截至 **{news_cutoff}**。",
             (
-                f"- 执行参考价格：**{realtime_count}/{total_count}** 只使用实时价格（realtime price）；"
-                f"**{latest_close_count}/{total_count}** 只使用 latest close（日线收盘口径）；"
-                f"**{close_only_count}/{total_count}** 只为 close-only basis。"
+                f"- 执行参考价格：**{realtime_count}/{total_count}** 只使用实时价格；"
+                f"**{latest_close_count}/{total_count}** 只使用最新收盘；"
+                f"**{close_only_count}/{total_count}** 只按收盘口径。"
             ),
         ]
         if has_mixed_dates:
@@ -810,7 +833,7 @@ class NotificationService:
     def _build_recommended_actions_table(self, results: List[AnalysisResult]) -> List[str]:
         """Build recommended actions table (analysis output; not yet executed)."""
         lines = [
-            "| Stock | Deterministic Action Today (Primary / Not Executed) | AI Commentary (Secondary) |",
+            "| 标的 | 今日主动作（确定性/未执行） | AI补充（仅参考） |",
             "|---|---|---|",
         ]
 
@@ -821,7 +844,7 @@ class NotificationService:
                 f"{signal_emoji} **{self._escape_md(r.name)}({r.code})**"
             )
             action_cell = self._to_markdown_table_cell(
-                f"{action_model['position_action']} · 目标{action_model['target_weight']:.2%} · "
+                f"{self._format_position_action_label(action_model['position_action'])} · 目标{action_model['target_weight']:.2%} · "
                 f"模拟Δ{action_model['delta_amount']:,.2f}"
             )
             ai_view_text = (
@@ -914,7 +937,7 @@ class NotificationService:
         """Build simulated target allocation table; clearly separated from executed state."""
         executed_weight_by_code = executed_weight_by_code or {}
         lines = [
-            "| Stock | Current Executed Weight | Simulated Target Weight | Simulated Delta Amount |",
+            "| 标的 | 当前已执行权重 | 模拟目标权重 | 模拟调仓金额 |",
             "|---|---:|---:|---:|",
         ]
 
@@ -1171,7 +1194,7 @@ class NotificationService:
         )
 
         report_lines.extend([
-            "## A. Current Portfolio Overview (Executed / Real State)",
+            "## A. 当前账户总览（已执行）",
             "",
             f"- 可用现金: **{overview.get('cash', 0.0):,.2f}**",
             f"- 持仓市值: **{overview.get('equity_value', 0.0):,.2f}**",
@@ -1190,32 +1213,31 @@ class NotificationService:
                 "|---------|------|------|----------|--------------|",
             ])
             for h in holdings:
-                valuation_source = "report_time_price" if h.get("valuation_source") == "report_time_price" else "stored_market_value_fallback"
-                analyzed_today = "yes" if h.get("analyzed_today") else "no"
+                valuation_source = self._format_valuation_source_label(h.get("valuation_source"))
+                analyzed_today = self._format_yes_no_label(h.get("analyzed_today"))
                 report_lines.append(
                     f"| {h.get('name', h.get('code'))}({h.get('code')}) | {h.get('quantity', 0):,.2f} | {h.get('weight', 0.0):.2%} | {valuation_source} | {analyzed_today} |"
                 )
             report_lines.extend([
                 "",
-                "注：`估值来源=report_time_price` 表示使用报告时点价格；`stored_market_value_fallback` 表示缺少报告时点价格，回退至账户快照市值。",
-                "注：`今日分析覆盖=yes` 表示该持仓在今日 analysis universe 中；`no` 表示账户持有但今日未分析。",
+                "注：估值来源“报告时点价格”表示直接按报告时点行情估值；“账户快照市值回退”表示缺少报告时点价格时回退到账户快照。今日分析覆盖：是/否。",
                 "",
             ])
 
         # === 分离展示：实际账户状态 vs 今日建议/模拟结果 ===
         if results:
             report_lines.extend([
-                "## B. Recommended Actions Today",
+                "## B. 今日建议动作（未执行）",
                 "",
-                "> 以下内容以确定性动作模型为主（final_decision / position_action / target_weight / delta_amount），尚未执行，不代表真实账户已变化。",
+                "> 以下以确定性动作为主（final_decision / position_action / target_weight / delta_amount），仅用于今日计划，不代表账户已变化。",
                 "",
             ])
             report_lines.extend(self._build_recommended_actions_table(sorted_results))
             report_lines.extend([
                 "",
-                "## C. Hypothetical Target Allocation (Simulated / Recommended)",
+                "## C. 目标仓位模拟（计划视图）",
                 "",
-                "> 以下目标仓位为模拟结果，仅用于计划参考。Portfolio Overview 始终展示已执行的真实状态。",
+                "> 以下目标仓位仅为模拟计划；A 段始终展示已执行的真实账户状态。",
                 "",
             ])
             report_lines.extend(
@@ -1301,11 +1323,11 @@ class NotificationService:
                     "",
                     f"**{signal_emoji} {signal_text}** | {result.trend_prediction}",
                     "",
-                    f"**🧭 确定性动作(主指令)**: {self._format_primary_action_text(result)}",
+                    f"**🧭 主动作（优先执行）**: {self._format_primary_action_text(result)}",
                     "",
-                    f"**💬 AI解读(次要参考)**: {self._get_conflict_safe_ai_commentary(result)}",
+                    f"> **一句话结论**: {one_sentence}",
                     "",
-                    f"> **一句话决策**: {one_sentence}",
+                    f"**💬 AI补充（非执行）**: {self._get_conflict_safe_ai_commentary(result)}",
                     "",
                     f"⏰ **时效性**: {time_sense}",
                     "",
@@ -1551,9 +1573,9 @@ class NotificationService:
                 action_model = self._get_primary_action_model(r)
                 lines.append(
                     f"{signal_emoji} **{stock_name}({r.code})**: "
-                    f"{action_model['position_action']} · 目标{action_model['target_weight']:.2%} · "
+                    f"{self._format_position_action_label(action_model['position_action'])} · 目标{action_model['target_weight']:.2%} · "
                     f"模拟Δ{action_model['delta_amount']:,.2f} "
-                    f"(AI次要参考: {self._get_conflict_safe_ai_commentary(r)} / {r.sentiment_score})"
+                    f"(AI补充: {self._get_conflict_safe_ai_commentary(r)} / 评分{r.sentiment_score})"
                 )
             lines.extend([
                 "",
@@ -1584,20 +1606,12 @@ class NotificationService:
                 lines.append(f"### {signal_emoji} **{signal_text}** | {stock_name}({result.code})")
                 lines.append("")
 
-                lines.append(f"📋 今日主动作(未执行): {self._format_primary_action_text(result)[:80]}")
-                lines.append(f"💬 AI次要解读: {self._get_conflict_safe_ai_commentary(result)[:60]}")
+                lines.append(f"📋 主动作(未执行): {self._format_primary_action_text(result)[:80]}")
+                lines.append(f"📌 一句话: {self._get_conflict_safe_core_conclusion(result, core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary)[:80]}")
+                lines.append(f"💬 AI补充(非执行): {self._get_conflict_safe_ai_commentary(result)[:60]}")
                 if action_model['ai_conflict']:
                     lines.append("⚠️ AI解读与主动作不一致，请以主动作为准")
                 lines.append("")
-                
-                # 核心决策（一句话）
-                one_sentence = self._get_conflict_safe_core_conclusion(
-                    result,
-                    core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary,
-                )
-                if one_sentence:
-                    lines.append(f"📌 **{one_sentence[:80]}**")
-                    lines.append("")
                 
                 # 重要信息区（舆情+基本面）
                 info_lines = []
@@ -1809,7 +1823,9 @@ class NotificationService:
             lines.extend([
                 "### 📌 核心结论",
                 "",
-                f"**{signal_text}**: {one_sentence}",
+                f"- 🧭 **主动作（优先执行）**: {self._format_primary_action_text(result)}",
+                f"- 📌 **一句话结论**: {one_sentence}",
+                f"- 💬 **AI补充（非执行）**: {self._get_conflict_safe_ai_commentary(result)}",
                 "",
             ])
         
