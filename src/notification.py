@@ -959,7 +959,8 @@ class NotificationService:
             return f"{base} | 目标数量 N/A（确定性引擎未提供）"
         if target_quantity < 0:
             return f"{base} | 目标数量 N/A（确定性引擎未提供）"
-        return f"{base} | 目标数量 {target_quantity:,.4f} 股"
+        normalized_quantity = int(round(target_quantity, 0))
+        return f"{base} | 目标数量 {normalized_quantity:,d} 股"
 
     def _get_signal_level(self, result: AnalysisResult) -> tuple:
         """

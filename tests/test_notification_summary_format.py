@@ -733,8 +733,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         setattr(result, "target_quantity", 321.5)
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("目标数量 321.5000 股", report)
-        self.assertIn("ADD \\| 目标仓位 20.00% \\| 模拟Δ 6,000.00 \\| 目标数量 321.5000 股", report)
+        self.assertIn("目标数量 322 股", report)
+        self.assertIn("ADD \\| 目标仓位 20.00% \\| 模拟Δ 6,000.00 \\| 目标数量 322 股", report)
         self.assertIn("- 🆕 空仓者: AI仓位建议（非执行）", report)
         self.assertIn("- 💼 持仓者: 再加仓500股", report)
         self.assertIn("AI仓位解读（次要评论，非执行指令）", report)
@@ -834,7 +834,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         setattr(result, "target_quantity", 0)
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("CLOSE \\| 目标仓位 0.00% \\| 模拟Δ -3,200.00 \\| 目标数量 0.0000 股", report)
+        self.assertIn("CLOSE \\| 目标仓位 0.00% \\| 模拟Δ -3,200.00 \\| 目标数量 0 股", report)
         self.assertNotIn("目标数量 N/A（确定性引擎未提供）", report)
 
 

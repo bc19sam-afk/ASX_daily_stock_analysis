@@ -25,6 +25,7 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         self.pipeline.db = self.db
         self.pipeline.position_manager = PositionManager()
+        self.pipeline.config = SimpleNamespace(min_position_delta_amount=0.0, min_order_notional=0.0)
 
     def tearDown(self):
         DatabaseManager.reset_instance()
@@ -96,8 +97,8 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
 
         snap = self.db.get_latest_account_snapshot()
         self.assertIsNotNone(snap)
-        self.assertAlmostEqual(snap.equity_value, 1000.0, places=2)
-        self.assertAlmostEqual(snap.cash, 9000.0, places=2)
+        self.assertAlmostEqual(snap.equity_value, 990.0, places=2)
+        self.assertAlmostEqual(snap.cash, 9010.0, places=2)
         self.assertAlmostEqual(snap.total_value, 10000.0, places=2)
 
     def test_close_large_position_restores_cash(self):
@@ -461,12 +462,12 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertAlmostEqual(ro_result.delta_amount, rw_result.delta_amount, places=2)
         self.assertEqual(ro_result.position_action, "REDUCE")
         self.assertAlmostEqual(ro_result.current_weight, 0.9091, places=4)
-        self.assertAlmostEqual(ro_result.target_weight, 0.35, places=4)
-        self.assertAlmostEqual(ro_result.delta_amount, -615.0, places=2)
-        self.assertAlmostEqual(ro_result.target_quantity, 3.85, places=4)
+        self.assertAlmostEqual(ro_result.target_weight, 0.3636, places=4)
+        self.assertAlmostEqual(ro_result.delta_amount, -600.0, places=2)
+        self.assertEqual(ro_result.target_quantity, 4)
 
         latest_journal = self.db.get_trade_journal(code="AFB", limit=1)[0]
-        self.assertAlmostEqual(latest_journal.target_quantity, 3.85, places=4)
+        self.assertEqual(latest_journal.target_quantity, 4.0)
         self.assertAlmostEqual(latest_journal.delta_amount, ro_result.delta_amount, places=2)
 
     def test_computed_target_quantity_is_attached_to_result_in_read_only_and_persist_modes(self):
@@ -488,8 +489,8 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
             persist=True,
         )
 
-        self.assertEqual(ro_result.target_quantity, 10.0)
-        self.assertEqual(rw_result.target_quantity, 10.0)
+        self.assertEqual(ro_result.target_quantity, 10)
+        self.assertEqual(rw_result.target_quantity, 10)
 
     def test_close_target_quantity_zero_is_preserved_and_reported_deterministically(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=9000, equity_value=1000, total_value=10000)
@@ -519,12 +520,12 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
             persist=True,
         )
 
-        self.assertEqual(ro_result.target_quantity, 0.0)
-        self.assertEqual(rw_result.target_quantity, 0.0)
+        self.assertEqual(ro_result.target_quantity, 0)
+        self.assertEqual(rw_result.target_quantity, 0)
 
         service = NotificationService.__new__(NotificationService)
         formatted = service._format_deterministic_sizing_text(ro_result)
-        self.assertIn("CLOSE | 目标仓位 0.00% | 模拟Δ -1,000.00 | 目标数量 0.0000 股", formatted)
+        self.assertIn("CLOSE | 目标仓位 0.00% | 模拟Δ -1,000.00 | 目标数量 0 股", formatted)
         self.assertNotIn("目标数量 N/A（确定性引擎未提供）", formatted)
 
     def test_stale_stored_weight_does_not_drive_position_decision_math(self):
@@ -625,8 +626,60 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
 
         self.assertEqual(result.position_action, "ADD")
         self.assertAlmostEqual(result.current_weight, 0.0909, places=4)
-        self.assertAlmostEqual(result.target_weight, 0.1409, places=4)
-        self.assertAlmostEqual(result.delta_amount, 5.5, places=2)
+        self.assertAlmostEqual(result.target_weight, 0.1818, places=4)
+        self.assertAlmostEqual(result.delta_amount, 10.0, places=2)
+
+    def test_small_delta_amount_is_suppressed_to_hold(self):
+        self.pipeline.config = SimpleNamespace(min_position_delta_amount=200.0, min_order_notional=0.0)
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=6510, equity_value=3490, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="SDA",
+            name="SDA",
+            quantity=349,
+            avg_cost=10,
+            current_price=10,
+            weight=0.349,
+            market_value=3490,
+        )
+
+        result = self._result("SDA", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=result,
+            query_id="q_small_delta",
+            current_price=10,
+            persist=False,
+        )
+
+        self.assertEqual(result.position_action, "HOLD")
+        self.assertEqual(result.target_quantity, 349)
+        self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
+        self.assertIn("execution_blocked=min_delta_amount", result.action_reason)
+
+    def test_small_order_notional_is_suppressed_to_hold(self):
+        self.pipeline.config = SimpleNamespace(min_position_delta_amount=0.0, min_order_notional=200.0)
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=6510, equity_value=3490, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="SON",
+            name="SON",
+            quantity=349,
+            avg_cost=10,
+            current_price=10,
+            weight=0.349,
+            market_value=3490,
+        )
+
+        result = self._result("SON", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=result,
+            query_id="q_small_notional",
+            current_price=10,
+            persist=False,
+        )
+
+        self.assertEqual(result.position_action, "HOLD")
+        self.assertEqual(result.target_quantity, 349)
+        self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
+        self.assertIn("execution_blocked=min_order_notional", result.action_reason)
 
 
     def test_analyze_stock_defaults_to_read_only_position_management(self):

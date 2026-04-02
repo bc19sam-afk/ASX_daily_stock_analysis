@@ -213,6 +213,10 @@ class Config:
     # - realtime_if_available: 优先实时价，缺失时回退到 latest close
     # - close_only: 仅使用 latest close，忽略实时价
     execution_price_policy: str = "realtime_if_available"
+    # ASX 可执行性约束：最小调仓金额（绝对值，小于该值则不产生可执行买卖动作）
+    min_position_delta_amount: float = 0.0
+    # ASX 可执行性约束：最小订单名义金额（小于该值则不产生可执行买卖动作）
+    min_order_notional: float = 0.0
     # 筹码分布开关（该接口不稳定，云端部署建议关闭）
     enable_chip_distribution: bool = True
     # 实时行情数据源优先级（逗号分隔）
@@ -496,6 +500,8 @@ class Config:
             # 实时行情增强数据配置
             enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'true').lower() == 'true',
             execution_price_policy=cls._resolve_execution_price_policy(),
+            min_position_delta_amount=max(0.0, float(os.getenv('MIN_POSITION_DELTA_AMOUNT', '0'))),
+            min_order_notional=max(0.0, float(os.getenv('MIN_ORDER_NOTIONAL', '0'))),
             enable_chip_distribution=os.getenv('ENABLE_CHIP_DISTRIBUTION', 'true').lower() == 'true',
             # 实时行情数据源优先级：
             # - tencent: 腾讯财经，有量比/换手率/PE/PB等，单股查询稳定（推荐）
