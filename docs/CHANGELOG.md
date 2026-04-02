@@ -35,6 +35,11 @@
   - 新增 `AI_REVIEW_STRICT` 开关，可选将 AI 审查失败升级为阻断
 
 ### 新增
+- 🧭 **执行参考价口径策略（PR2 / PR45 follow-up）**
+  - 新增 `EXECUTION_PRICE_POLICY`：支持 `realtime_if_available` 与 `close_only`
+  - 默认 `realtime_if_available`
+  - 兼容旧配置：未设置该项时回退到 `ENABLE_REALTIME_QUOTE`（`true`→`realtime_if_available`，`false`→`close_only`）
+  - 显式值非法时，同样按 `ENABLE_REALTIME_QUOTE` 回退，避免隐藏强制口径
 - 🧾 **GitHub Actions 手工记账工作流**
   - 新增 `Init Portfolio` 手工触发工作流：通过表单一次性初始化现金与最多 5 个持仓，空行自动忽略并拒绝重复代码
   - 新增 `Record Trade` 手工触发工作流：通过表单记录 BUY/SELL、手续费，自动更新 `trade_journal`、`portfolio_positions`、`account_snapshots`

@@ -111,7 +111,7 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "is_editable": True,
         "default_value": "realtime_if_available",
         "options": ["realtime_if_available", "close_only"],
-        "validation": {},
+        "validation": {"enum": ["realtime_if_available", "close_only"]},
         "display_order": 25,
     },
     "TAVILY_API_KEYS": {

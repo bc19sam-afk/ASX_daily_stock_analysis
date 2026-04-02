@@ -12,12 +12,15 @@ A股自选股智能分析系统 - 配置管理模块
 
 import os
 import re
+import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 from dotenv import load_dotenv, dotenv_values
 from dataclasses import dataclass, field
 
 from src.enums import ReportType
+
+logger = logging.getLogger(__name__)
 
 
 def setup_env(override: bool = False):
@@ -568,7 +571,13 @@ class Config:
             "latest_close_only": "close_only",
         }
         if explicit:
-            return aliases.get(explicit, "realtime_if_available")
+            normalized = aliases.get(explicit)
+            if normalized:
+                return normalized
+            logger.warning(
+                "Invalid EXECUTION_PRICE_POLICY=%s; fallback to ENABLE_REALTIME_QUOTE compatibility",
+                explicit,
+            )
 
         enable_realtime = os.getenv("ENABLE_REALTIME_QUOTE", "true").lower() == "true"
         return "realtime_if_available" if enable_realtime else "close_only"
