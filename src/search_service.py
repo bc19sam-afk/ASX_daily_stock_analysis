@@ -515,7 +515,33 @@ class SearchService:
 
         return score, reasons
 
-    def _filter_entity_consistent_results(self, response: SearchResponse, stock_code: str, stock_name: str) -> SearchResponse:
+    def _is_low_risk_name_only_fallback(
+        self,
+        score: int,
+        reasons: List[str],
+        dimension: Optional[str],
+    ) -> bool:
+        """
+        受控兜底：latest_news 维度允许“仅公司名强命中”的低风险结果保留，
+        但仍禁止出现明确市场冲突信号的结果。
+        """
+        if dimension != "latest_news":
+            return False
+        if score != 2:
+            return False
+        if "company_name" not in reasons:
+            return False
+        if "conflict_market" in reasons:
+            return False
+        return True
+
+    def _filter_entity_consistent_results(
+        self,
+        response: SearchResponse,
+        stock_code: str,
+        stock_name: str,
+        dimension: Optional[str] = None
+    ) -> SearchResponse:
         """
         过滤可能串台的结果：低分结果留在 debug，不进入主分析上下文。
         """
@@ -528,8 +554,13 @@ class SearchService:
             scored.append((score, result, reasons))
 
         threshold = 3
-        kept = [item[1] for item in scored if item[0] >= threshold]
-        dropped = [item for item in scored if item[0] < threshold]
+        kept: List[SearchResult] = []
+        dropped: List[Tuple[int, SearchResult, List[str]]] = []
+        for score, result, reasons in scored:
+            if score >= threshold or self._is_low_risk_name_only_fallback(score, reasons, dimension):
+                kept.append(result)
+            else:
+                dropped.append((score, result, reasons))
 
         if dropped:
             logger.debug(
@@ -589,7 +620,8 @@ class SearchService:
                 filtered_response = self._filter_entity_consistent_results(
                     response,
                     stock_code=stock_code,
-                    stock_name=stock_name
+                    stock_name=stock_name,
+                    dimension="latest_news"
                 )
                 if filtered_response.results:
                     self._put_cache(cache_key, filtered_response)
@@ -650,7 +682,8 @@ class SearchService:
                     filtered_resp = self._filter_entity_consistent_results(
                         resp,
                         stock_code=stock_code,
-                        stock_name=stock_name
+                        stock_name=stock_name,
+                        dimension=dim['name']
                     )
                     if filtered_resp.results:
                         selected_resp = filtered_resp

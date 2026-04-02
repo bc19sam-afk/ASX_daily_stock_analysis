@@ -117,6 +117,64 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         report = self.service.format_intel_report({"latest_news": filtered}, stock_name=self.name)
         self.assertIn("ASX: CBA.AX extends rally", report)
 
+    def test_latest_news_keeps_name_only_true_positive(self) -> None:
+        """latest_news: 仅公司名命中但无冲突市场信号时，受控兜底保留。"""
+        code = "WES.AX"
+        name = "Wesfarmers Limited"
+        name_only = SearchResult(
+            title="Wesfarmers Limited announces digital operations update",
+            snippet="The bank said the rollout improves customer onboarding",
+            url="https://example.com/name-only-latest",
+            source="example.com",
+        )
+        filtered = self.service._filter_entity_consistent_results(
+            self._resp(name_only),
+            stock_code=code,
+            stock_name=name,
+            dimension="latest_news",
+        )
+
+        self.assertEqual(len(filtered.results), 1)
+        self.assertEqual(filtered.results[0].url, "https://example.com/name-only-latest")
+
+    def test_name_only_wrong_market_still_filtered(self) -> None:
+        """仅公司名命中但出现冲突市场信号时，仍必须过滤。"""
+        code = "WES.AX"
+        name = "Wesfarmers Limited"
+        name_with_conflict = SearchResult(
+            title="Wesfarmers Limited discussed on NYSE podcast",
+            snippet="Analysts compared exposure to NASDAQ peers",
+            url="https://example.com/name-conflict",
+            source="example.com",
+        )
+        filtered = self.service._filter_entity_consistent_results(
+            self._resp(name_with_conflict),
+            stock_code=code,
+            stock_name=name,
+            dimension="latest_news",
+        )
+
+        self.assertEqual(len(filtered.results), 0)
+
+    def test_market_analysis_name_only_not_relaxed(self) -> None:
+        """非 latest_news 维度保持原阈值，不放宽 name-only。"""
+        code = "WES.AX"
+        name = "Wesfarmers Limited"
+        name_only = SearchResult(
+            title="Wesfarmers Limited sector outlook summary",
+            snippet="General banking outlook without ticker/exchange signal",
+            url="https://example.com/name-only-analysis",
+            source="example.com",
+        )
+        filtered = self.service._filter_entity_consistent_results(
+            self._resp(name_only),
+            stock_code=code,
+            stock_name=name,
+            dimension="market_analysis",
+        )
+
+        self.assertEqual(len(filtered.results), 0)
+
     def test_grounded_query_contains_entity_constraints(self) -> None:
         """query 同时包含 ticker/exchange/company/market 约束。"""
         query = self.service._build_grounded_query(
@@ -215,6 +273,30 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.assertTrue(intel["latest_news"].results)
         self.assertEqual(intel["latest_news"].provider, "p2")
         self.assertGreaterEqual(p2.call_count, 1)
+
+    def test_search_comprehensive_intel_latest_news_name_only_fallback(self) -> None:
+        """latest_news 维度应修复 name-only 误杀。"""
+        code = "WES.AX"
+        name = "Wesfarmers Limited"
+        name_only_latest = SearchResponse(
+            query="name-only",
+            results=[
+                SearchResult(
+                    title="Wesfarmers Limited launches customer remediation program",
+                    snippet="Program details released without ticker symbol mention",
+                    url="https://example.com/latest-name-only",
+                    source="example.com",
+                )
+            ],
+            provider="p1",
+            success=True,
+        )
+        p1 = FakeSearchProvider("p1", [name_only_latest] * 5)
+        self.service._providers = [p1]
+
+        intel = self.service.search_comprehensive_intel(code, name, max_searches=5)
+        self.assertTrue(intel["latest_news"].results)
+        self.assertEqual(intel["latest_news"].results[0].url, "https://example.com/latest-name-only")
 
     def test_search_stock_news_cache_when_filtered_results_non_empty(self) -> None:
         """过滤后仍有结果时保持正常返回与缓存。"""
