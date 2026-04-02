@@ -864,6 +864,40 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("**综合**：突破 MA20，MACD 金叉", report)
         self.assertNotIn("**综合**：量能数据不足（量比/换手率缺失），不做量能结论", report)
 
+    def test_daily_report_strips_chengjiaoliang_clause_but_keeps_macd_when_snapshot_metrics_missing(self) -> None:
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            technical_analysis="成交量放大，MACD金叉",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": None,
+                "turnover_rate": None,
+            },
+        )
+
+        report = service.generate_daily_report([result], report_date="2026-03-30")
+        self.assertIn("**综合**：MACD金叉", report)
+        self.assertNotIn("成交量放大", report)
+
+    def test_daily_report_downgrades_pure_chengjiaoliang_commentary_when_snapshot_metrics_missing(self) -> None:
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            technical_analysis="成交量放大",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": None,
+                "turnover_rate": None,
+            },
+        )
+
+        report = service.generate_daily_report([result], report_date="2026-03-30")
+        self.assertIn("**综合**：量能数据不足（量比/换手率缺失），不做量能结论", report)
+        self.assertNotIn("成交量放大", report)
+
     def test_daily_report_downgrades_pure_volume_technical_analysis_when_snapshot_metrics_missing(self) -> None:
         service = self._build_service()
         service._report_summary_only = False
@@ -908,6 +942,34 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_daily_report([mixed, pure], report_date="2026-03-30")
         self.assertIn("**综合**：放量突破 MA20，MACD 金叉", report)
         self.assertIn("**综合**：量比走强，放量突破", report)
+
+    def test_daily_report_preserves_chengjiaoliang_mixed_and_pure_when_snapshot_metrics_available(self) -> None:
+        service = self._build_service()
+        service._report_summary_only = False
+        mixed = self._build_result(
+            code="600519",
+            technical_analysis="成交量放大，MACD金叉",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": 1.8,
+                "turnover_rate": "3.6%",
+            },
+        )
+        pure = self._build_result(
+            code="000858",
+            technical_analysis="成交量放大",
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "88.30",
+                "volume_ratio": 2.1,
+                "turnover_rate": "4.2%",
+            },
+        )
+
+        report = service.generate_daily_report([mixed, pure], report_date="2026-03-30")
+        self.assertIn("**综合**：成交量放大，MACD金叉", report)
+        self.assertIn("**综合**：成交量放大", report)
 
     @patch("src.notification.get_db")
     def test_existing_dashboard_wechat_single_stock_volume_guard_behavior_unchanged(self, mock_get_db) -> None:

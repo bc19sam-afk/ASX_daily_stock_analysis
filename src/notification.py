@@ -871,7 +871,7 @@ class NotificationService:
         normalized = str(text or "").strip()
         if not normalized:
             return False
-        keywords = ("量比", "换手", "放量", "缩量", "量能")
+        keywords = ("量比", "换手", "放量", "缩量", "量能", "成交量")
         return any(keyword in normalized for keyword in keywords)
 
     def _guard_volume_commentary(self, result: AnalysisResult, text: Any) -> str:
