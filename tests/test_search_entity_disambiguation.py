@@ -3,7 +3,28 @@
 
 import unittest
 
-from src.search_service import SearchService, SearchResponse, SearchResult
+from src.search_service import (
+    BaseSearchProvider,
+    SearchService,
+    SearchResponse,
+    SearchResult,
+)
+
+
+class FakeSearchProvider(BaseSearchProvider):
+    def __init__(self, name: str, scripted_responses):
+        super().__init__(api_keys=["fake-key"], name=name)
+        self._scripted_responses = list(scripted_responses)
+        self.call_count = 0
+
+    def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+        self.call_count += 1
+        if self._scripted_responses:
+            response = self._scripted_responses.pop(0)
+            response.query = query
+            response.provider = self.name
+            return response
+        return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message="no scripted response")
 
 
 class SearchEntityDisambiguationTestCase(unittest.TestCase):
@@ -109,6 +130,117 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.assertIn("Commonwealth Bank of Australia", query)
         self.assertIn("ASX", query)
         self.assertIn("Australia", query)
+
+    def test_search_stock_news_continue_when_first_provider_filtered_empty(self) -> None:
+        """第一个 provider 过滤后为空时，继续后续 provider 且不缓存空结果。"""
+        wrong_market = SearchResponse(
+            query="wrong",
+            results=[
+                SearchResult(
+                    title="CBA rises on NYSE",
+                    snippet="US CBA stock jumps",
+                    url="https://example.com/wrong",
+                    source="example.com",
+                )
+            ],
+            provider="p1",
+            success=True,
+        )
+        valid_asx = SearchResponse(
+            query="right",
+            results=[
+                SearchResult(
+                    title="ASX: CBA.AX gains",
+                    snippet="Commonwealth Bank of Australia advances",
+                    url="https://example.com/right",
+                    source="example.com",
+                )
+            ],
+            provider="p2",
+            success=True,
+        )
+        p1 = FakeSearchProvider("p1", [wrong_market])
+        p2 = FakeSearchProvider("p2", [valid_asx])
+        self.service._providers = [p1, p2]
+
+        first = self.service.search_stock_news(self.code, self.name, max_results=3)
+        self.assertTrue(first.success)
+        self.assertEqual(len(first.results), 1)
+        self.assertEqual(first.provider, "p2")
+        self.assertEqual(first.results[0].url, "https://example.com/right")
+        self.assertEqual(p1.call_count, 1)
+        self.assertEqual(p2.call_count, 1)
+
+        # 第二次应命中缓存（缓存的是 p2 的有效结果），不再调用 provider
+        second = self.service.search_stock_news(self.code, self.name, max_results=3)
+        self.assertEqual(second.provider, "p2")
+        self.assertEqual(second.results[0].url, "https://example.com/right")
+        self.assertEqual(p1.call_count, 1)
+        self.assertEqual(p2.call_count, 1)
+
+    def test_search_comprehensive_intel_continue_on_filtered_empty(self) -> None:
+        """某维度首个 provider 过滤后为空时，不应提前 break。"""
+        wrong_market = SearchResponse(
+            query="wrong",
+            results=[
+                SearchResult(
+                    title="CBA on NASDAQ",
+                    snippet="US CBA ticker",
+                    url="https://example.com/wrong-dim",
+                    source="example.com",
+                )
+            ],
+            provider="p1",
+            success=True,
+        )
+        valid_result = SearchResponse(
+            query="right",
+            results=[
+                SearchResult(
+                    title="ASX: CBA.AX analysts lift target",
+                    snippet="Commonwealth Bank of Australia coverage",
+                    url="https://example.com/right-dim",
+                    source="example.com",
+                )
+            ],
+            provider="p2",
+            success=True,
+        )
+        p1 = FakeSearchProvider("p1", [wrong_market] * 5)
+        p2 = FakeSearchProvider("p2", [valid_result] * 5)
+        self.service._providers = [p1, p2]
+
+        intel = self.service.search_comprehensive_intel(self.code, self.name, max_searches=5)
+        self.assertIn("latest_news", intel)
+        self.assertTrue(intel["latest_news"].results)
+        self.assertEqual(intel["latest_news"].provider, "p2")
+        self.assertGreaterEqual(p2.call_count, 1)
+
+    def test_search_stock_news_cache_when_filtered_results_non_empty(self) -> None:
+        """过滤后仍有结果时保持正常返回与缓存。"""
+        valid_asx = SearchResponse(
+            query="right",
+            results=[
+                SearchResult(
+                    title="ASX: CBA.AX steady",
+                    snippet="Commonwealth Bank of Australia remains resilient",
+                    url="https://example.com/cached-right",
+                    source="example.com",
+                )
+            ],
+            provider="p1",
+            success=True,
+        )
+        p1 = FakeSearchProvider("p1", [valid_asx])
+        self.service._providers = [p1]
+
+        first = self.service.search_stock_news(self.code, self.name, max_results=3)
+        self.assertTrue(first.results)
+        self.assertEqual(p1.call_count, 1)
+
+        second = self.service.search_stock_news(self.code, self.name, max_results=3)
+        self.assertTrue(second.results)
+        self.assertEqual(p1.call_count, 1)
 
 
 if __name__ == "__main__":

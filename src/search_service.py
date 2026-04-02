@@ -586,9 +586,20 @@ class SearchService:
             if not provider.is_available: continue
             response = provider.search(query, max_results, days=search_days)
             if response.success and response.results:
-                response = self._filter_entity_consistent_results(response, stock_code=stock_code, stock_name=stock_name)
-                self._put_cache(cache_key, response)
-                return response
+                filtered_response = self._filter_entity_consistent_results(
+                    response,
+                    stock_code=stock_code,
+                    stock_name=stock_name
+                )
+                if filtered_response.results:
+                    self._put_cache(cache_key, filtered_response)
+                    return filtered_response
+                logger.debug(
+                    "搜索结果在实体消歧后为空，继续尝试下一个 provider: %s(%s) provider=%s",
+                    stock_name,
+                    stock_code,
+                    provider.name
+                )
         
         return SearchResponse(query=query, results=[], provider="None", success=False, error_message="All providers failed")
 
@@ -631,15 +642,42 @@ class SearchService:
 
         for dim in dims:
             # 始终优先使用 Tavily (如果配置了且排在第一位)
+            selected_resp: Optional[SearchResponse] = None
+            last_resp: Optional[SearchResponse] = None
             for provider in self._providers:
                 if not provider.is_available: continue
                 resp = provider.search(dim['query'], max_results=3)
+                last_resp = resp
                 if resp.success and resp.results:
-                    resp = self._filter_entity_consistent_results(resp, stock_code=stock_code, stock_name=stock_name)
-                results[dim['name']] = resp
-                if resp.success: break # 只要有一个成功就跳出，进行下一个维度
+                    filtered_resp = self._filter_entity_consistent_results(
+                        resp,
+                        stock_code=stock_code,
+                        stock_name=stock_name
+                    )
+                    if filtered_resp.results:
+                        selected_resp = filtered_resp
+                        break  # 仅当过滤后仍有有效结果时才跳出
+                    logger.debug(
+                        "维度 %s 在实体消歧后为空，继续尝试下一个 provider: %s(%s) provider=%s",
+                        dim['name'],
+                        stock_name,
+                        stock_code,
+                        provider.name
+                    )
                 time.sleep(0.5)
-                
+            if selected_resp:
+                results[dim['name']] = selected_resp
+            elif last_resp:
+                results[dim['name']] = last_resp
+            else:
+                results[dim['name']] = SearchResponse(
+                    query=dim['query'],
+                    results=[],
+                    provider="None",
+                    success=False,
+                    error_message="No provider available"
+                )
+
         return results
 
     def format_intel_report(self, intel_results: Dict[str, SearchResponse], stock_name: str) -> str:
