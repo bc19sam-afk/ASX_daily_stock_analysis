@@ -694,7 +694,9 @@ class NotificationService:
                 # 技术面分析
                 tech_lines = []
                 if result.technical_analysis:
-                    tech_lines.append(f"**综合**：{result.technical_analysis}")
+                    tech_lines.append(
+                        f"**综合**：{self._guard_technical_analysis_volume_commentary(result, result.technical_analysis)}"
+                    )
                 if hasattr(result, 'ma_analysis') and result.ma_analysis:
                     tech_lines.append(f"**均线**：{result.ma_analysis}")
                 if hasattr(result, 'volume_analysis') and result.volume_analysis:
@@ -869,7 +871,7 @@ class NotificationService:
         normalized = str(text or "").strip()
         if not normalized:
             return False
-        keywords = ("量比", "换手", "放量", "缩量", "量能")
+        keywords = ("量比", "换手", "放量", "缩量", "量能", "成交量")
         return any(keyword in normalized for keyword in keywords)
 
     def _guard_volume_commentary(self, result: AnalysisResult, text: Any) -> str:
@@ -881,6 +883,52 @@ class NotificationService:
             return normalized
         if not self._looks_like_volume_commentary(normalized):
             return normalized
+        return "量能数据不足（量比/换手率缺失），不做量能结论"
+
+    @staticmethod
+    def _looks_like_non_volume_technical_signal(text: Any) -> bool:
+        """Heuristic matcher for non-volume technical signals worth preserving."""
+        normalized = str(text or "").strip().lower()
+        if not normalized:
+            return False
+
+        keywords = (
+            "ma", "macd", "kdj", "rsi", "boll", "布林", "均线", "金叉", "死叉",
+            "趋势", "形态", "支撑", "阻力", "背离", "通道", "超买", "超卖",
+        )
+        if any(keyword in normalized for keyword in keywords):
+            return True
+        return bool(re.search(r"\d+\s*日线", normalized))
+
+    def _guard_technical_analysis_volume_commentary(self, result: AnalysisResult, text: Any) -> str:
+        """Downgrade only volume fragments in technical_analysis while preserving other signals."""
+        normalized = str(text or "").strip()
+        if not normalized:
+            return ""
+        if not self._has_missing_volume_snapshot_metrics(result):
+            return normalized
+        if not self._looks_like_volume_commentary(normalized):
+            return normalized
+
+        clauses = [
+            clause.strip()
+            for clause in re.split(r"[，,；;。！？!?\n]+", normalized)
+            if clause and clause.strip()
+        ]
+
+        preserved_clauses = []
+        for clause in clauses:
+            if not self._looks_like_volume_commentary(clause):
+                preserved_clauses.append(clause)
+                continue
+
+            sanitized = re.sub(r"量比|换手率|换手|放量|缩量|量能|成交量", "", clause, flags=re.IGNORECASE)
+            sanitized = re.sub(r"\s+", " ", sanitized).strip(" ：:、，,；;。")
+            if sanitized and self._looks_like_non_volume_technical_signal(sanitized):
+                preserved_clauses.append(sanitized)
+
+        if preserved_clauses:
+            return "，".join(preserved_clauses)
         return "量能数据不足（量比/换手率缺失），不做量能结论"
 
     def _build_recommended_actions_table(self, results: List[AnalysisResult]) -> List[str]:
