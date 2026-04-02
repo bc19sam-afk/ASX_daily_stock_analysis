@@ -93,6 +93,19 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertNotIn("模拟目标权重", section_a)
 
     @patch("src.notification.get_db")
+    def test_dashboard_section_b_copy_uses_user_facing_wording(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+
+        report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
+
+        self.assertIn("确定性主动作、目标仓位与模拟调仓金额", report)
+        self.assertNotIn("final_decision", report)
+        self.assertNotIn("position_action", report)
+        self.assertNotIn("target_weight", report)
+        self.assertNotIn("delta_amount", report)
+
+    @patch("src.notification.get_db")
     def test_dashboard_summary_escapes_long_operation_advice_and_reason(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {}
         service = self._build_service()
