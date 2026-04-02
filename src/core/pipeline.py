@@ -12,6 +12,7 @@ A股自选股智能分析系统 - 核心分析流水线
 """
 
 import logging
+import math
 import time
 import uuid
 from collections import defaultdict
@@ -658,6 +659,8 @@ class StockAnalysisPipeline:
                 total_value=portfolio_state["total_value"],
                 current_price=current_price,
                 current_value=portfolio_state["current_position_value"],
+                min_delta_amount=self._get_min_position_delta_amount(),
+                min_order_notional=self._get_min_order_notional(),
             )
             if calc is None:
                 result.position_action = "HOLD"
@@ -676,7 +679,11 @@ class StockAnalysisPipeline:
                 else 0.0
             )
             result.delta_amount = calc["delta_amount"]
-            result.action_reason = decision.reason
+            result.action_reason = (
+                f"{decision.reason}, execution_blocked={calc['suppressed_by']}"
+                if calc.get("suppressed_by")
+                else decision.reason
+            )
             logger.info("[%s] 分析只读模式：仅计算仓位建议，不写入账户状态", result.code)
             return
 
@@ -713,9 +720,11 @@ class StockAnalysisPipeline:
                     decision=decision,
                     cash=portfolio_state["cash"],
                     total_value=portfolio_state["total_value"],
-                    current_price=current_price,
-                    current_value=portfolio_state["current_position_value"],
-                )
+                current_price=current_price,
+                current_value=portfolio_state["current_position_value"],
+                min_delta_amount=self._get_min_position_delta_amount(),
+                min_order_notional=self._get_min_order_notional(),
+            )
                 if calc is None:
                     result.position_action = "HOLD"
                     result.current_weight = round(portfolio_state["current_weight"], 4)
@@ -733,7 +742,11 @@ class StockAnalysisPipeline:
                     else 0.0
                 )
                 result.delta_amount = calc["delta_amount"]
-                result.action_reason = decision.reason
+                result.action_reason = (
+                    f"{decision.reason}, execution_blocked={calc['suppressed_by']}"
+                    if calc.get("suppressed_by")
+                    else decision.reason
+                )
 
                 self.db.upsert_portfolio_position_in_session(
                     session=session,
@@ -767,7 +780,7 @@ class StockAnalysisPipeline:
                     current_price=calc["price"] or None,
                     available_cash_before=portfolio_state["cash"],
                     available_cash_after=calc["cash_after"],
-                    reason=decision.reason,
+                    reason=result.action_reason,
                 )
                 session.flush()
                 open_positions = self.db.get_open_portfolio_positions_in_session(session)
@@ -799,7 +812,16 @@ class StockAnalysisPipeline:
         total_value: float,
         current_price: Optional[float],
         current_value: Optional[float] = None,
+        min_delta_amount: float = 0.0,
+        min_order_notional: float = 0.0,
     ) -> Optional[Dict[str, float | str]]:
+        # Deterministic precedence order for executable sizing:
+        # 1) normalize executable sizing to whole shares
+        # 2) compute delta/notional from normalized values
+        # 3) apply affordability safeguard (floor, never round-up)
+        # 4) apply MIN_POSITION_DELTA_AMOUNT
+        # 5) apply MIN_ORDER_NOTIONAL
+        # 6) if blocked, suppress to HOLD/no-action with consistent accounting fields
         price = float(current_price) if current_price and current_price > 0 else 0.0
         if price <= 0 and existing and existing.current_price and existing.current_price > 0:
             price = float(existing.current_price)
@@ -808,14 +830,32 @@ class StockAnalysisPipeline:
 
         current_value = float(current_value or 0.0)
         target_value = decision.target_weight * total_value
-        target_quantity = round(target_value / price, 4)
-        delta_amount = round(target_value - current_value, 2)
+        target_quantity = int(round(target_value / price, 0))
+        delta_amount = round(target_quantity * price - current_value, 2)
         cash_after = round(cash - delta_amount, 2)
         if cash_after < 0:
             affordable_target_value = current_value + cash
-            target_quantity = round(max(affordable_target_value, 0.0) / price, 4)
+            target_quantity = int(math.floor(max(affordable_target_value, 0.0) / price))
             target_value = round(target_quantity * price, 2)
             delta_amount = round(target_value - current_value, 2)
+            cash_after = round(cash - delta_amount, 2)
+            if cash_after < 0:
+                max_affordable_delta_shares = int(math.floor(max(cash, 0.0) / price))
+                current_quantity = float(quantity or 0.0)
+                affordable_quantity = min(target_quantity, int(math.floor(current_quantity + max_affordable_delta_shares)))
+                target_quantity = max(affordable_quantity, 0)
+                target_value = round(target_quantity * price, 2)
+                delta_amount = round(target_value - current_value, 2)
+                cash_after = round(cash - delta_amount, 2)
+                if cash_after < 0:
+                    cash_after = 0.0
+        else:
+            target_value = round(target_quantity * price, 2)
+
+        if target_quantity < 0:
+            target_quantity = 0
+            target_value = 0.0
+            delta_amount = round(-current_value, 2)
             cash_after = round(cash - delta_amount, 2)
 
         if quantity <= 0 and target_quantity > 0:
@@ -829,6 +869,30 @@ class StockAnalysisPipeline:
         else:
             action = "HOLD"
 
+        suppressed_by = None
+        order_notional = round(abs(target_quantity - quantity) * price, 2)
+        if action != "HOLD" and abs(delta_amount) < max(min_delta_amount, 0.0):
+            suppressed_by = "min_delta_amount"
+        if (
+            action != "HOLD"
+            and suppressed_by is None
+            and order_notional < max(min_order_notional, 0.0)
+        ):
+            suppressed_by = "min_order_notional"
+        if suppressed_by:
+            logger.info(
+                "仓位调整被抑制: constraint=%s, action=%s, abs_delta_amount=%.2f, order_notional=%.2f",
+                suppressed_by,
+                action,
+                abs(delta_amount),
+                order_notional,
+            )
+            target_quantity = float(quantity or 0.0)
+            target_value = round(current_value, 2)
+            delta_amount = 0.0
+            cash_after = round(cash, 2)
+            action = "HOLD"
+
         return {
             "price": price,
             "current_value": current_value,
@@ -838,7 +902,20 @@ class StockAnalysisPipeline:
             "cash_after": cash_after,
             "action": action,
             "current_weight": current_weight,
+            "suppressed_by": suppressed_by,
         }
+
+    def _get_min_position_delta_amount(self) -> float:
+        config = getattr(self, "config", None)
+        if config is None:
+            return 0.0
+        return max(float(getattr(config, "min_position_delta_amount", 0.0) or 0.0), 0.0)
+
+    def _get_min_order_notional(self) -> float:
+        config = getattr(self, "config", None)
+        if config is None:
+            return 0.0
+        return max(float(getattr(config, "min_order_notional", 0.0) or 0.0), 0.0)
 
     @staticmethod
     def _build_live_portfolio_state(

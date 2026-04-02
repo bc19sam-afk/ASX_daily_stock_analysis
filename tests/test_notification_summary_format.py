@@ -733,8 +733,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         setattr(result, "target_quantity", 321.5)
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("目标数量 321.5000 股", report)
-        self.assertIn("ADD \\| 目标仓位 20.00% \\| 模拟Δ 6,000.00 \\| 目标数量 321.5000 股", report)
+        self.assertIn("目标数量 322 股", report)
+        self.assertIn("ADD \\| 目标仓位 20.00% \\| 模拟Δ 6,000.00 \\| 目标数量 322 股", report)
         self.assertIn("- 🆕 空仓者: AI仓位建议（非执行）", report)
         self.assertIn("- 💼 持仓者: 再加仓500股", report)
         self.assertIn("AI仓位解读（次要评论，非执行指令）", report)
@@ -834,8 +834,23 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         setattr(result, "target_quantity", 0)
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("CLOSE \\| 目标仓位 0.00% \\| 模拟Δ -3,200.00 \\| 目标数量 0.0000 股", report)
+        self.assertIn("CLOSE \\| 目标仓位 0.00% \\| 模拟Δ -3,200.00 \\| 目标数量 0 股", report)
         self.assertNotIn("目标数量 N/A（确定性引擎未提供）", report)
+
+    def test_suppressed_hold_with_legacy_fractional_target_quantity_shows_no_execution_text(self) -> None:
+        service = self._build_service()
+        result = self._build_result(
+            position_action="HOLD",
+            final_decision="HOLD",
+            target_weight=0.13,
+            delta_amount=0.0,
+        )
+        setattr(result, "target_quantity", 12.75)
+        setattr(result, "action_reason", "final_decision=BUY, execution_blocked=min_order_notional")
+
+        text = service._format_deterministic_sizing_text(result)
+        self.assertIn("HOLD | 目标仓位 13.00% | 模拟Δ 0.00 | 目标数量 保持当前持仓（不执行）", text)
+        self.assertNotIn("目标数量 13 股", text)
 
 
 if __name__ == "__main__":

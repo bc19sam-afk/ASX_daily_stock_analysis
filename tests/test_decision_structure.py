@@ -2,6 +2,7 @@
 """Tests for deterministic decision structure."""
 
 import unittest
+from types import SimpleNamespace
 
 from src.analyzer import GeminiAnalyzer
 from src.core.pipeline import StockAnalysisPipeline
@@ -115,6 +116,70 @@ class DecisionStructureTestCase(unittest.TestCase):
             ),
             "realtime",
         )
+
+    def test_calculate_position_transition_normalizes_to_whole_shares(self):
+        calc = StockAnalysisPipeline._calculate_position_transition(
+            existing=None,
+            quantity=0.0,
+            current_weight=0.0,
+            decision=SimpleNamespace(target_weight=0.1),
+            cash=10000.0,
+            total_value=10000.0,
+            current_price=33.0,
+            current_value=0.0,
+        )
+        self.assertIsNotNone(calc)
+        self.assertEqual(calc["target_quantity"], 30)
+        self.assertEqual(calc["action"], "OPEN")
+
+    def test_calculate_position_transition_suppresses_small_notional_to_hold(self):
+        calc = StockAnalysisPipeline._calculate_position_transition(
+            existing=None,
+            quantity=100.0,
+            current_weight=0.1,
+            decision=SimpleNamespace(target_weight=0.11),
+            cash=9000.0,
+            total_value=10000.0,
+            current_price=10.0,
+            current_value=1000.0,
+            min_order_notional=200.0,
+        )
+        self.assertIsNotNone(calc)
+        self.assertEqual(calc["action"], "HOLD")
+        self.assertEqual(calc["target_quantity"], 100)
+        self.assertEqual(calc["suppressed_by"], "min_order_notional")
+
+    def test_affordability_fallback_uses_floor_and_cash_after_non_negative(self):
+        calc = StockAnalysisPipeline._calculate_position_transition(
+            existing=None,
+            quantity=0.0,
+            current_weight=0.0,
+            decision=SimpleNamespace(target_weight=0.5),
+            cash=100.0,
+            total_value=1000.0,
+            current_price=9.2,
+            current_value=0.0,
+        )
+        self.assertIsNotNone(calc)
+        self.assertEqual(calc["target_quantity"], 10)
+        self.assertGreaterEqual(calc["cash_after"], 0.0)
+
+    def test_precedence_order_applies_min_delta_before_min_order_notional(self):
+        calc = StockAnalysisPipeline._calculate_position_transition(
+            existing=None,
+            quantity=349.0,
+            current_weight=0.349,
+            decision=SimpleNamespace(target_weight=0.35),
+            cash=6510.0,
+            total_value=10000.0,
+            current_price=10.0,
+            current_value=3490.0,
+            min_delta_amount=20.0,
+            min_order_notional=5.0,
+        )
+        self.assertIsNotNone(calc)
+        self.assertEqual(calc["action"], "HOLD")
+        self.assertEqual(calc["suppressed_by"], "min_delta_amount")
 
 
 if __name__ == "__main__":
