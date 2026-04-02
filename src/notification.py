@@ -899,6 +899,13 @@ class NotificationService:
             return "AI解读与确定性主动作存在方向冲突，已转为中性说明"
         return self._get_normalized_ai_operation_advice(result)
 
+    def _get_conflict_safe_core_conclusion(self, result: AnalysisResult, text: Any) -> str:
+        """Return core conclusion text safe for conflict-state presentation."""
+        if self._get_primary_action_model(result)['ai_conflict']:
+            return "AI总结与确定性主动作存在方向冲突，请仅按确定性主动作执行"
+        normalized = str(text or '').strip()
+        return normalized
+
     def _build_simulated_target_allocation_table(
         self,
         results: List[AnalysisResult],
@@ -1208,7 +1215,10 @@ class NotificationService:
                 
                 # ========== 核心结论 ==========
                 core = dashboard.get('core_conclusion', {}) if dashboard else {}
-                one_sentence = core.get('one_sentence', result.analysis_summary)
+                one_sentence = self._get_conflict_safe_core_conclusion(
+                    result,
+                    core.get('one_sentence', result.analysis_summary),
+                )
                 time_sense = core.get('time_sensitivity', '本周内')
                 pos_advice = core.get('position_advice', {})
                 
@@ -1507,7 +1517,10 @@ class NotificationService:
                 lines.append("")
                 
                 # 核心决策（一句话）
-                one_sentence = core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary
+                one_sentence = self._get_conflict_safe_core_conclusion(
+                    result,
+                    core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary,
+                )
                 if one_sentence:
                     lines.append(f"📌 **{one_sentence[:80]}**")
                     lines.append("")
@@ -1714,7 +1727,10 @@ class NotificationService:
         self._append_market_snapshot(lines, result)
         
         # 核心决策（一句话）
-        one_sentence = core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary
+        one_sentence = self._get_conflict_safe_core_conclusion(
+            result,
+            core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary,
+        )
         if one_sentence:
             lines.extend([
                 "### 📌 核心结论",
