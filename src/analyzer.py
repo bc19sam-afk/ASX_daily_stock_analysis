@@ -59,7 +59,7 @@ class AnalysisOutputSchema(BaseModel):
     confidence_level: str
     analysis_summary: str = Field(min_length=1)
     risk_warning: str = Field(min_length=1)
-    dashboard: DashboardSchema
+    dashboard: Optional[DashboardSchema] = None
 
     @field_validator("confidence_level")
     @classmethod
@@ -1693,10 +1693,57 @@ class GeminiAnalyzer:
         json_str = self._fix_json_string(json_str)
         return json.loads(json_str)
 
+    def _call_single_attempt_repair(self, prompt: str, generation_config: dict) -> str:
+        """补救路径专用：只发起单次请求，不走全量重试/多 provider fallback。"""
+        if self._use_anthropic and self._anthropic_client:
+            message = self._anthropic_client.messages.create(
+                model=self._current_model_name,
+                max_tokens=generation_config.get("max_output_tokens", 2048),
+                system=self.SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=generation_config.get("temperature", 0.1),
+            )
+            if message.content and len(message.content) > 0 and hasattr(message.content[0], "text"):
+                return message.content[0].text
+            raise ValueError("Anthropic repair returned empty response")
+
+        if self._use_openai and self._openai_client:
+            response = self._openai_client.chat.completions.create(
+                model=self._current_model_name,
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=generation_config.get("temperature", 0.1),
+                max_tokens=generation_config.get("max_output_tokens", 2048),
+            )
+            if response and response.choices and response.choices[0].message.content:
+                return response.choices[0].message.content
+            raise ValueError("OpenAI repair returned empty response")
+
+        if self._model is not None:
+            from google.genai import types as genai_types
+
+            response = self._model.models.generate_content(
+                model=self._current_model_name,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=self.SYSTEM_PROMPT,
+                    temperature=generation_config.get("temperature", 0.1),
+                    max_output_tokens=generation_config.get("max_output_tokens", 2048),
+                ),
+            )
+            if response and response.text:
+                return response.text
+            raise ValueError("Gemini repair returned empty response")
+
+        raise ValueError("No available model for one-shot repair")
+
     def _repair_and_revalidate(self, response_text: str) -> Optional[Dict[str, Any]]:
         """仅一次定向补救：要求模型修复为合法 JSON 并补齐关键字段。"""
         repair_prompt = f"""请修复下面内容，仅输出一个合法 JSON 对象，不要输出任何额外文字。
-必须包含字段：stock_name, sentiment_score(0-100), trend_prediction, operation_advice, confidence_level(高/中/低), analysis_summary, risk_warning, dashboard.core_conclusion.one_sentence, dashboard.data_perspective, dashboard.intelligence, dashboard.battle_plan。
+必须包含字段：stock_name, sentiment_score(0-100), trend_prediction, operation_advice, confidence_level(高/中/低), analysis_summary, risk_warning。
+dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core_conclusion.one_sentence, dashboard.data_perspective, dashboard.intelligence, dashboard.battle_plan。
 
 原始内容如下：
 {response_text}
@@ -1708,7 +1755,7 @@ class GeminiAnalyzer:
             "max_output_tokens": 2048,
         }
         try:
-            repaired_response = self._call_api_with_retry(repair_prompt, repair_generation_config)
+            repaired_response = self._call_single_attempt_repair(repair_prompt, repair_generation_config)
             repaired_data = self._extract_json_data(repaired_response)
             return self._validate_analysis_output(repaired_data)
         except Exception as e:
@@ -1721,13 +1768,44 @@ class GeminiAnalyzer:
         code: str,
         name: str,
         reason: str,
+        parsed_data: Optional[Dict[str, Any]] = None,
     ) -> AnalysisResult:
         """schema gate 失败后的安全降级结果。"""
-        fallback_result = self._parse_text_response(response_text, code, name)
-        fallback_result.success = False
-        fallback_result.confidence_level = "低"
-        fallback_result.error_message = reason
-        return fallback_result
+        safe_data = parsed_data or {}
+
+        def _safe_int_0_100(value: Any) -> Optional[int]:
+            try:
+                score = int(value)
+                return score if 0 <= score <= 100 else None
+            except (TypeError, ValueError):
+                return None
+
+        def _safe_text(value: Any) -> Optional[str]:
+            text = str(value).strip() if value is not None else ""
+            return text if text else None
+
+        stock_name = _safe_text(safe_data.get("stock_name")) or name
+        sentiment_score = _safe_int_0_100(safe_data.get("sentiment_score"))
+        trend_prediction = _safe_text(safe_data.get("trend_prediction"))
+        operation_advice = _safe_text(safe_data.get("operation_advice"))
+        analysis_summary = _safe_text(safe_data.get("analysis_summary"))
+        risk_warning = _safe_text(safe_data.get("risk_warning"))
+
+        return AnalysisResult(
+            code=code,
+            name=stock_name,
+            sentiment_score=sentiment_score if sentiment_score is not None else 50,
+            trend_prediction=trend_prediction if trend_prediction is not None else "震荡",
+            operation_advice=operation_advice if operation_advice is not None else "观望",
+            decision_type="hold",
+            confidence_level="低",
+            analysis_summary=analysis_summary if analysis_summary is not None else "结构化输出校验失败，已降级为保守结果。",
+            risk_warning=risk_warning if risk_warning is not None else "结构化输出未通过校验，请谨慎参考。",
+            key_points="schema gate 失败，触发保守降级",
+            raw_response=response_text,
+            success=False,
+            error_message=reason,
+        )
 
     def _parse_response(
         self, 
@@ -1754,6 +1832,7 @@ class GeminiAnalyzer:
                         code=code,
                         name=name,
                         reason=f"schema 校验失败: {schema_error}",
+                        parsed_data=data,
                     )
                 data = repaired_data
 
