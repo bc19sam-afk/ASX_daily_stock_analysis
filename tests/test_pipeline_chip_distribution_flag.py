@@ -7,7 +7,7 @@ from src.core.pipeline import StockAnalysisPipeline
 
 def test_pipeline_init_respects_passed_chip_distribution_flag(monkeypatch):
     monkeypatch.setattr("src.core.pipeline.get_db", lambda: SimpleNamespace())
-    monkeypatch.setattr("src.core.pipeline.DataFetcherManager", lambda: SimpleNamespace())
+    monkeypatch.setattr("src.core.pipeline.DataFetcherManager", lambda config=None: SimpleNamespace())
     monkeypatch.setattr("src.core.pipeline.StockTrendAnalyzer", lambda: SimpleNamespace())
     monkeypatch.setattr("src.core.pipeline.GeminiAnalyzer", lambda: SimpleNamespace())
     monkeypatch.setattr("src.core.pipeline.NotificationService", lambda source_message=None: SimpleNamespace())
