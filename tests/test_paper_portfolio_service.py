@@ -122,6 +122,46 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         forced = self.service.init_from_current(force=True)
         self.assertEqual(forced["cash"], 150.0)
 
+    def test_insufficient_cash_buy_is_skipped_and_cash_never_negative(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            {
+                "code": "BBB",
+                "position_action": "OPEN",
+                "analysis_status": "OK",
+                "current_price": 10.0,
+                "target_quantity": 50,  # 500 > current cash 100
+            }
+        ])
+        self.assertGreaterEqual(overview["cash"], 0.0)
+        self.assertEqual(overview["cash"], 100.0)
+        self.assertEqual(len([h for h in overview["holdings"] if h["code"] == "BBB"]), 0)
+        self.assertIn("insufficient cash", overview["latest_simulated_trades"][0]["reason"])
+        self.assertFalse(overview["latest_simulated_trades"][0]["executed"])
+
+    def test_malformed_target_payload_is_skipped_without_crash(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            {
+                "code": "AAA",
+                "position_action": "ADD",
+                "analysis_status": "OK",
+                "current_price": 10.0,
+                "target_weight": "abc",
+            },
+            {
+                "code": "AAA",
+                "position_action": "HOLD",
+                "analysis_status": "OK",
+                "current_price": 10.0,
+            },
+        ])
+        self.assertEqual(overview["cash"], 100.0)
+        holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
+        self.assertEqual(holding["quantity"], 10.0)
+        reasons = [t["reason"] for t in overview["latest_simulated_trades"][:2]]
+        self.assertTrue(any("missing target info" in str(r) for r in reasons))
+
 
 if __name__ == "__main__":
     unittest.main()

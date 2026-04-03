@@ -223,7 +223,29 @@ class PaperPortfolioService:
                     delta_qty = round(target_qty - before_qty, 6)
                     cash_before = cash
                     if delta_qty > 0:
-                        cash -= round(delta_qty * price, 2)
+                        required_cash = round(delta_qty * price, 2)
+                        if required_cash > cash_before:
+                            self._log_trade(
+                                session,
+                                simulation_time=sim_time,
+                                code=code,
+                                action=action,
+                                analysis_status=analysis_status,
+                                executed=False,
+                                before_qty=before_qty,
+                                after_qty=before_qty,
+                                price=price,
+                                cash_before=cash_before,
+                                cash_after=cash_before,
+                                reason=(
+                                    "Skipped: insufficient cash for target quantity "
+                                    f"(required={required_cash:.2f}, available={cash_before:.2f})"
+                                ),
+                                target_weight=payload.get("target_weight"),
+                                target_quantity=target_qty,
+                            )
+                            continue
+                        cash -= required_cash
                     elif delta_qty < 0:
                         cash += round(abs(delta_qty) * price, 2)
                     cash = round(cash, 2)
@@ -335,6 +357,8 @@ class PaperPortfolioService:
         target_weight: Optional[float],
         target_quantity: Optional[float],
     ) -> None:
+        safe_target_weight = PaperPortfolioService._safe_to_float(target_weight)
+        safe_target_quantity = PaperPortfolioService._safe_to_float(target_quantity)
         session.add(
             PaperPortfolioTrade(
                 simulation_time=simulation_time,
@@ -342,8 +366,8 @@ class PaperPortfolioService:
                 action=action,
                 analysis_status=analysis_status,
                 executed=executed,
-                target_weight=float(target_weight) if target_weight is not None else None,
-                target_quantity=float(target_quantity) if target_quantity is not None else None,
+                target_weight=safe_target_weight,
+                target_quantity=safe_target_quantity,
                 before_quantity=before_qty,
                 after_quantity=after_qty,
                 price=price,
@@ -353,6 +377,15 @@ class PaperPortfolioService:
                 created_at=datetime.now(),
             )
         )
+
+    @staticmethod
+    def _safe_to_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _upsert_holding(
