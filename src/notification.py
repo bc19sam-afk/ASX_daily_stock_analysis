@@ -103,6 +103,21 @@ def _decision_to_signal_emoji(decision: str) -> str:
     }.get(str(decision or '').upper(), '⚪')
 
 
+def _normalize_analysis_status(result: Any) -> str:
+    """Normalize outer analysis status to OK/DEGRADED/FAILED."""
+    if not bool(getattr(result, 'success', True)):
+        return 'FAILED'
+    status = str(getattr(result, 'analysis_status', '') or '').strip().upper()
+    if status in ('OK', 'DEGRADED', 'FAILED'):
+        return status
+    return 'OK'
+
+
+def _is_failed_analysis(result: Any) -> bool:
+    """Return whether result should be treated as failed analysis output."""
+    return _normalize_analysis_status(result) == 'FAILED'
+
+
 class NotificationChannel(Enum):
     """通知渠道类型"""
     WECHAT = "wechat"      # 企业微信
@@ -538,9 +553,11 @@ class NotificationService:
             daily_anchor = "多只股票日线日期不一致（混合日期）"
 
         news_cutoff = generated_at.strftime("%Y-%m-%d %H:%M")
-        total_count = len(results)
+        normal_results = [r for r in results if not _is_failed_analysis(r)]
+        failed_results = [r for r in results if _is_failed_analysis(r)]
+        total_count = len(normal_results)
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
-        for result in results:
+        for result in normal_results:
             basis_counts[self._classify_price_basis(result)] += 1
         realtime_count = basis_counts["realtime"]
         latest_close_count = basis_counts["latest_close"]
@@ -607,13 +624,15 @@ class NotificationService:
             key=lambda x: x.sentiment_score, 
             reverse=True
         )
-        
-        # 统计信息 - 使用主决策（优先 final_decision）
-        decision_counts = self._count_primary_decisions(results)
+        normal_results = [r for r in sorted_results if not _is_failed_analysis(r)]
+        failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
+
+        # 统计信息 - 仅统计非失败结果
+        decision_counts = self._count_primary_decisions(normal_results)
         buy_count = decision_counts['BUY']
         sell_count = decision_counts['SELL']
         hold_count = decision_counts['HOLD']
-        avg_score = sum(r.sentiment_score for r in results) / len(results) if results else 0
+        avg_score = sum(r.sentiment_score for r in normal_results) / len(normal_results) if normal_results else 0
         
         report_lines.extend([
             "## 📊 操作建议汇总",
@@ -632,7 +651,7 @@ class NotificationService:
         # Issue #262: summary_only 时仅输出摘要，跳过个股详情
         if self._report_summary_only:
             report_lines.extend(["## 📊 分析结果摘要", ""])
-            for r in sorted_results:
+            for r in normal_results:
                 _, emoji, _ = self._get_signal_level(r)
                 report_lines.append(
                     f"{emoji} **{r.name}({r.code})**: {self._get_canonical_operation_advice(r)} | "
@@ -641,7 +660,7 @@ class NotificationService:
         else:
             report_lines.extend(["## 📈 个股详细分析", ""])
             # 逐个股票的详细分析
-            for result in sorted_results:
+            for result in normal_results:
                 _, emoji, _ = self._get_signal_level(result)
                 confidence_stars = result.get_confidence_stars() if hasattr(result, 'get_confidence_stars') else '⭐⭐'
                 
@@ -774,6 +793,16 @@ class NotificationService:
                     "",
                 ])
         
+        if failed_results:
+            report_lines.extend([
+                "",
+                "## ⚠️ 分析失败 / 需重跑",
+                "",
+            ])
+            for result in failed_results:
+                reason = str(getattr(result, "error_message", "") or "未知错误")
+                report_lines.append(f"- {result.name}({result.code})：{reason[:120]}")
+
         # 底部信息（去除免责声明）
         report_lines.extend([
             "",
@@ -1010,6 +1039,8 @@ class NotificationService:
 
     def _get_canonical_operation_advice(self, result: AnalysisResult) -> str:
         """Return unified final advice wording aligned with deterministic decision."""
+        if _is_failed_analysis(result):
+            return "分析失败（需重跑）"
         decision = self._get_primary_action_model(result)['decision']
         return _decision_to_canonical_advice(decision)
 
@@ -1109,6 +1140,8 @@ class NotificationService:
     def _count_primary_decisions(self, results: List[AnalysisResult]) -> Dict[str, int]:
         counts = {'BUY': 0, 'HOLD': 0, 'SELL': 0}
         for result in results:
+            if _is_failed_analysis(result):
+                continue
             decision = self._get_primary_action_model(result)['decision']
             counts[decision] = counts.get(decision, 0) + 1
         return counts
@@ -1150,6 +1183,8 @@ class NotificationService:
         Returns:
             (signal_text, emoji, color_tag)
         """
+        if _is_failed_analysis(result):
+            return ("分析失败（需重跑）", '⚠️', '失败')
         action_model = self._get_primary_action_model(result)
         decision = action_model['decision']
         if decision == 'BUY':
@@ -1275,8 +1310,8 @@ class NotificationService:
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
 
-        successful_results_for_summary = [r for r in sorted_results if bool(getattr(r, "success", True))]
-        failed_results_for_summary = [r for r in sorted_results if not bool(getattr(r, "success", True))]
+        successful_results_for_summary = [r for r in sorted_results if not _is_failed_analysis(r)]
+        failed_results_for_summary = [r for r in sorted_results if _is_failed_analysis(r)]
 
         # 统计信息（仅统计成功分析，避免与后续可见区块口径不一致）
         decision_counts = self._count_primary_decisions(successful_results_for_summary)
@@ -1312,8 +1347,8 @@ class NotificationService:
             for item in holdings
             if self._normalize_stock_code(item.get("code", ""))
         }
-        successful_results = [r for r in sorted_results if bool(getattr(r, "success", True))]
-        failed_results = [r for r in sorted_results if not bool(getattr(r, "success", True))]
+        successful_results = [r for r in sorted_results if not _is_failed_analysis(r)]
+        failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
         successful_codes = {
             self._normalize_stock_code(getattr(r, "code", ""))
             for r in successful_results
@@ -1756,9 +1791,11 @@ class NotificationService:
         
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
+        normal_results = [r for r in sorted_results if not _is_failed_analysis(r)]
+        failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
         
         # 统计 - 使用主决策（优先 final_decision）
-        decision_counts = self._count_primary_decisions(results)
+        decision_counts = self._count_primary_decisions(normal_results)
         buy_count = decision_counts['BUY']
         sell_count = decision_counts['SELL']
         hold_count = decision_counts['HOLD']
@@ -1766,7 +1803,7 @@ class NotificationService:
         lines = [
             f"## 🎯 {report_date} 决策仪表盘",
             "",
-            f"> {len(results)}只股票 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
+            f"> 成功 {len(normal_results)} 只 | 失败 {len(failed_results)} 只 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
             "",
         ]
         lines.extend(self._build_data_baseline_lines(results, generated_at, title="**🕒 数据时间基准**"))
@@ -1798,7 +1835,7 @@ class NotificationService:
         
         # Issue #262: summary_only 时仅输出摘要列表
         if self._report_summary_only:
-            for r in sorted_results:
+            for r in normal_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 action_model = self._get_primary_action_model(r)
@@ -1812,7 +1849,7 @@ class NotificationService:
                 "",
                 "**C) 目标仓位（模拟，不代表已成交）**",
             ])
-            for r in sorted_results:
+            for r in normal_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 lines.append(
@@ -1821,7 +1858,7 @@ class NotificationService:
                     f"(Δ{getattr(r, 'delta_amount', 0.0):,.2f})"
                 )
         else:
-            for result in sorted_results:
+            for result in normal_results:
                 signal_text, signal_emoji, _ = self._get_signal_level(result)
                 action_model = self._get_primary_action_model(result)
                 dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
@@ -1932,6 +1969,12 @@ class NotificationService:
                 
                 lines.append("---")
                 lines.append("")
+        if failed_results:
+            lines.extend(["**⚠️ 分析失败（建议重跑）**"])
+            for result in failed_results:
+                reason = str(getattr(result, "error_message", "") or "未知错误")
+                lines.append(f"- {result.name}({result.code})：{reason[:80]}")
+            lines.append("")
         
         # 底部
         lines.append(f"*生成时间: {generated_at.strftime('%H:%M')}*")
@@ -1955,24 +1998,26 @@ class NotificationService:
 
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
+        normal_results = [r for r in sorted_results if not _is_failed_analysis(r)]
+        failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
 
         # 统计 - 使用主决策（优先 final_decision）
-        decision_counts = self._count_primary_decisions(results)
+        decision_counts = self._count_primary_decisions(normal_results)
         buy_count = decision_counts['BUY']
         sell_count = decision_counts['SELL']
         hold_count = decision_counts['HOLD']
-        avg_score = sum(r.sentiment_score for r in results) / len(results) if results else 0
+        avg_score = sum(r.sentiment_score for r in normal_results) / len(normal_results) if normal_results else 0
 
         lines = [
             f"## 📅 {report_date} 股票分析报告",
             "",
-            f"> 共 **{len(results)}** 只 | 🟢买入:{buy_count} 🟡持有:{hold_count} 🔴卖出:{sell_count} | 均分:{avg_score:.0f}",
+            f"> 成功 **{len(normal_results)}** 只 | 失败 **{len(failed_results)}** 只 | 🟢买入:{buy_count} 🟡持有:{hold_count} 🔴卖出:{sell_count} | 均分:{avg_score:.0f}",
             "",
         ]
         lines.extend(self._build_data_baseline_lines(results, generated_at, title="**🕒 数据时间基准**"))
         
         # 每只股票精简信息（控制长度）
-        for result in sorted_results:
+        for result in normal_results:
             _, emoji, _ = self._get_signal_level(result)
             
             # 核心信息行
@@ -2005,6 +2050,11 @@ class NotificationService:
             "*AI生成，仅供参考，不构成投资建议*",
             f"*详细报告见 reports/report_{report_date.replace('-', '')}.md*"
         ])
+        if failed_results:
+            lines.extend(["", "**⚠️ 分析失败（建议重跑）**"])
+            for result in failed_results:
+                reason = str(getattr(result, "error_message", "") or "未知错误")
+                lines.append(f"- {result.name}({result.code})：{reason[:80]}")
         
         content = "\n".join(lines)
         
@@ -2131,7 +2181,7 @@ class NotificationService:
             "---",
             "*AI生成，仅供参考，不构成投资建议*",
         ])
-        
+
         return "\n".join(lines)
 
     # Display name mapping for realtime data sources
@@ -4301,9 +4351,11 @@ class NotificationBuilder:
         else:
             daily_anchor = "最新可用日线（通常为昨日收盘）"
 
-        total_count = len(results)
+        normal_results = [r for r in results if not _is_failed_analysis(r)]
+        failed_results = [r for r in results if _is_failed_analysis(r)]
+        total_count = len(normal_results)
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
-        for result in results:
+        for result in normal_results:
             basis_counts[NotificationService._classify_price_basis(result)] += 1
         lines = [
             "📊 **今日自选股摘要**",
@@ -4317,7 +4369,7 @@ class NotificationBuilder:
             "",
         ]
         
-        for r in sorted(results, key=lambda x: x.sentiment_score, reverse=True):
+        for r in sorted(normal_results, key=lambda x: x.sentiment_score, reverse=True):
             decision = _get_effective_decision(r)
             emoji = _decision_to_signal_emoji(decision)
             basis = NotificationService._format_price_basis_label(NotificationService._classify_price_basis(r))
@@ -4326,6 +4378,12 @@ class NotificationBuilder:
                 f"评分 {r.sentiment_score} | 价格基准：{basis}"
             )
         
+        if failed_results:
+            lines.extend(["", "⚠️ 分析失败（建议重跑）:"])
+            for r in failed_results:
+                reason = str(getattr(r, "error_message", "") or "未知错误")
+                lines.append(f"- {r.name}({r.code}): {reason[:80]}")
+
         return "\n".join(lines)
 
 

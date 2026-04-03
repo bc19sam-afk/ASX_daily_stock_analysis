@@ -105,6 +105,7 @@ class ReportMeta(BaseModel):
     created_at: Optional[str] = Field(None, description="创建时间")
     current_price: Optional[float] = Field(None, description="分析时股价")
     change_pct: Optional[float] = Field(None, description="分析时涨跌幅(%)")
+    analysis_status: Optional[str] = Field(None, description="外层分析状态(OK/DEGRADED/FAILED)")
 
 
 class ReportSummary(BaseModel):
@@ -112,6 +113,7 @@ class ReportSummary(BaseModel):
     
     analysis_summary: Optional[str] = Field(None, description="关键结论")
     operation_advice: Optional[str] = Field(None, description="操作建议")
+    analysis_status: Optional[str] = Field(None, description="外层分析状态(OK/DEGRADED/FAILED)")
     trend_prediction: Optional[str] = Field(None, description="趋势预测")
     sentiment_score: Optional[int] = Field(
         None, 

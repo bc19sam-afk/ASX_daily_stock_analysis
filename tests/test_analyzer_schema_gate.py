@@ -93,7 +93,8 @@ def test_schema_invalid_fallback_does_not_use_keyword_sentiment_guess(monkeypatc
 
     result = analyzer._parse_response(json.dumps(payload, ensure_ascii=False), "CBA.AX", "股票CBA.AX")
 
-    assert result.success is False
+    assert result.success is True
+    assert result.analysis_status == "DEGRADED"
     assert result.decision_type == "hold"
     assert result.operation_advice == "观望"
     assert result.trend_prediction == "震荡"
@@ -108,10 +109,21 @@ def test_missing_top_level_required_fields_triggers_safe_degrade(monkeypatch):
 
     result = analyzer._parse_response(json.dumps(payload, ensure_ascii=False), "CBA.AX", "股票CBA.AX")
 
-    assert result.success is False
+    assert result.success is True
+    assert result.analysis_status == "DEGRADED"
     assert result.confidence_level == "低"
     assert result.error_message is not None
     assert "schema 校验失败" in result.error_message
+
+
+def test_normal_success_response_status_is_ok():
+    analyzer = GeminiAnalyzer(api_key=None)
+    payload = _valid_payload(include_dashboard=False)
+
+    result = analyzer._parse_response(json.dumps(payload, ensure_ascii=False), "CBA.AX", "股票CBA.AX")
+
+    assert result.success is True
+    assert result.analysis_status == "OK"
 
 
 def test_schema_fails_when_sentiment_score_out_of_range():

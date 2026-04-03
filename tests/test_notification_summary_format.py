@@ -390,6 +390,21 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("价格基准：实时价格", summary)
 
     @patch("src.notification.datetime")
+    def test_build_stock_summary_uses_zero_denominator_when_all_results_failed(self, mock_datetime) -> None:
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        failed = self._build_result(
+            code="000858",
+            name="五粮液",
+            success=False,
+            error_message="连接超时",
+        )
+
+        summary = NotificationBuilder.build_stock_summary([failed])
+
+        self.assertIn("执行参考价=实时 0/0，latest close 0/0，close-only 0/0", summary)
+        self.assertNotIn("0/1", summary)
+
+    @patch("src.notification.datetime")
     @patch("src.notification.get_db")
     def test_dashboard_report_snapshot_regression(self, mock_get_db, mock_datetime) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {
@@ -516,6 +531,42 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         self.assertIn("成功分析 **1** 只 | 失败 **1** 只 | 🟢买入:1 🟡观望:0 🔴卖出:0", report)
         self.assertNotIn("🟡观望:1", report)
+
+    @patch("src.notification.get_db")
+    def test_failed_result_is_excluded_from_normal_action_tables(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100000.0, "holdings": []}
+        service = self._build_service()
+        ok_result = self._build_result(code="600519", name="贵州茅台", final_decision="BUY", position_action="ADD")
+        failed_result = self._build_result(
+            code="000858",
+            name="五粮液",
+            final_decision="HOLD",
+            position_action="HOLD",
+            success=False,
+            error_message="Connection error",
+        )
+
+        report = service.generate_dashboard_report([ok_result, failed_result], report_date="2026-03-30")
+        self.assertIn("## 非持仓观察名单", report)
+        self.assertIn("贵州茅台(600519)", report)
+        non_holding_section = report.split("## 非持仓观察名单", 1)[1]
+        self.assertNotIn("五粮液(000858)", non_holding_section)
+        self.assertIn("五粮液(000858)：Connection error", report)
+
+    def test_failed_result_canonical_advice_is_not_hold(self) -> None:
+        service = self._build_service()
+        failed_result = self._build_result(
+            code="000858",
+            name="五粮液",
+            final_decision="HOLD",
+            position_action="HOLD",
+            success=False,
+            error_message="上游连接异常",
+        )
+
+        summary = NotificationBuilder.build_stock_summary([failed_result])
+        self.assertIn("⚠️ 分析失败（建议重跑）", summary)
+        self.assertNotIn("持有/观望", summary)
 
     @patch("src.notification.datetime")
     @patch("src.notification.get_db")
