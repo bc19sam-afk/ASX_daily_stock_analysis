@@ -18,7 +18,8 @@ import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from typing import List, Dict, Any, Optional, Tuple
 from itertools import cycle
 import requests
@@ -65,6 +66,7 @@ class SearchResult:
     url: str
     source: str  # 来源网站
     published_date: Optional[str] = None
+    published_fields: Dict[str, Any] = field(default_factory=dict)
     
     def to_text(self) -> str:
         """转换为文本格式"""
@@ -204,6 +206,13 @@ class TavilySearchProvider(BaseSearchProvider):
                     url=item.get('url', ''),
                     source=self._extract_domain(item.get('url', '')),
                     published_date=item.get('published_date'),
+                    published_fields={
+                        "published_date": item.get("published_date"),
+                        "published_at": item.get("published_at"),
+                        "publish_time": item.get("publish_time"),
+                        "date": item.get("date"),
+                        "time": item.get("time"),
+                    },
                 ))
             
             return SearchResponse(query=query, results=results, provider=self.name, success=True)
@@ -255,6 +264,13 @@ class SerpAPISearchProvider(BaseSearchProvider):
                     url=item.get('link', ''),
                     source=item.get('source', 'Google'),
                     published_date=item.get('date'),
+                    published_fields={
+                        "published_date": item.get("published_date"),
+                        "published_at": item.get("published_at"),
+                        "publish_time": item.get("publish_time"),
+                        "date": item.get("date"),
+                        "time": item.get("time"),
+                    },
                 ))
             
             return SearchResponse(query=query, results=results, provider=self.name, success=True)
@@ -298,6 +314,13 @@ class BochaSearchProvider(BaseSearchProvider):
                     url=item.get('url', ''),
                     source=item.get('siteName', ''),
                     published_date=item.get('datePublished'),
+                    published_fields={
+                        "published_date": item.get("datePublished"),
+                        "published_at": item.get("published_at"),
+                        "publish_time": item.get("publish_time"),
+                        "date": item.get("date"),
+                        "time": item.get("time"),
+                    },
                 ))
                 
             return SearchResponse(query=query, results=results, provider=self.name, success=True)
@@ -336,7 +359,14 @@ class BraveSearchProvider(BaseSearchProvider):
                     snippet=item.get('description', '')[:500],
                     url=item.get('url', ''),
                     source="Brave",
-                    published_date=item.get('age')
+                    published_date=item.get('age'),
+                    published_fields={
+                        "published_date": item.get("published_date"),
+                        "published_at": item.get("published_at"),
+                        "publish_time": item.get("publish_time"),
+                        "date": item.get("date"),
+                        "time": item.get("time"),
+                    },
                 ))
             
             return SearchResponse(query=query, results=results, provider=self.name, success=True)
@@ -367,6 +397,13 @@ class SearchService:
         "{name} K线 技术分析",
         "{name} {code} 涨跌 成交量",
     ]
+    _PUBLISHED_TIME_FIELDS = (
+        "published_date",
+        "published_at",
+        "publish_time",
+        "date",
+        "time",
+    )
     
     def __init__(
         self,
@@ -593,6 +630,152 @@ class SearchService:
             error_message=response.error_message,
             search_time=response.search_time
         )
+
+    def _parse_published_datetime(
+        self,
+        result: SearchResult,
+        now_utc: Optional[datetime] = None
+    ) -> Tuple[Optional[datetime], Optional[str], Optional[str]]:
+        """解析新闻发布时间，返回 (datetime_utc, field_name, reason)。"""
+        raw_candidates: List[Tuple[str, Any]] = []
+        if result.published_date:
+            raw_candidates.append(("published_date", result.published_date))
+
+        for field_name in self._PUBLISHED_TIME_FIELDS:
+            raw_value = (result.published_fields or {}).get(field_name)
+            if raw_value is not None:
+                raw_candidates.append((field_name, raw_value))
+
+        if not raw_candidates:
+            return None, None, "missing"
+
+        ref_now = now_utc or datetime.now(timezone.utc)
+        for field_name, raw_value in raw_candidates:
+            dt = self._parse_datetime_value(raw_value, now_utc=ref_now)
+            if dt is not None:
+                return dt, field_name, None
+
+        return None, raw_candidates[0][0], "invalid"
+
+    @staticmethod
+    def _parse_datetime_value(raw_value: Any, now_utc: Optional[datetime] = None) -> Optional[datetime]:
+        """尽量兼容常见时间格式并统一为 UTC。"""
+        if raw_value is None:
+            return None
+
+        if isinstance(raw_value, datetime):
+            dt = raw_value
+            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+        text = str(raw_value).strip()
+        if not text:
+            return None
+
+        ref_now = now_utc or datetime.now(timezone.utc)
+        if ref_now.tzinfo is None:
+            ref_now = ref_now.replace(tzinfo=timezone.utc)
+        else:
+            ref_now = ref_now.astimezone(timezone.utc)
+
+        relative_match = re.match(r"^\s*(\d+)\s+(minute|minutes|hour|hours|day|days)\s+ago\s*$", text, re.IGNORECASE)
+        if relative_match:
+            amount = int(relative_match.group(1))
+            unit = relative_match.group(2).lower()
+            if unit.startswith("minute"):
+                return ref_now - timedelta(minutes=amount)
+            if unit.startswith("hour"):
+                return ref_now - timedelta(hours=amount)
+            if unit.startswith("day"):
+                return ref_now - timedelta(days=amount)
+
+        for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
+            try:
+                dt = datetime.strptime(text, fmt)
+                return dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+
+        iso_candidate = text.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(iso_candidate)
+            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+        try:
+            dt = parsedate_to_datetime(text)
+            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return None
+
+    def _is_news_fresh_enough(self, published_at_utc: datetime, now_utc: datetime) -> Tuple[bool, str]:
+        max_age = timedelta(days=self.news_max_age_days)
+        future_tolerance = timedelta(days=1)
+
+        if published_at_utc > now_utc + future_tolerance:
+            return False, "future_over_tolerance"
+        if published_at_utc < now_utc - max_age:
+            return False, "too_old"
+        return True, "ok"
+
+    def _filter_by_news_age(self, response: SearchResponse, now: Optional[datetime] = None) -> SearchResponse:
+        """统一时效硬过滤：缺失/非法/超龄/未来超容差的新闻全部丢弃。"""
+        if not response.results:
+            return response
+
+        now_utc = now or datetime.now(timezone.utc)
+        if now_utc.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=timezone.utc)
+        else:
+            now_utc = now_utc.astimezone(timezone.utc)
+
+        kept: List[SearchResult] = []
+        dropped_count = 0
+        for result in response.results:
+            published_at, field_name, parse_reason = self._parse_published_datetime(result, now_utc=now_utc)
+            if published_at is None:
+                dropped_count += 1
+                logger.info(
+                    "新闻时效过滤丢弃: title=%s reason=%s field=%s raw=%s",
+                    (result.title or "")[:80],
+                    parse_reason,
+                    field_name,
+                    (result.published_fields or {}).get(field_name) if field_name else result.published_date,
+                )
+                continue
+
+            fresh_enough, stale_reason = self._is_news_fresh_enough(published_at, now_utc)
+            if not fresh_enough:
+                dropped_count += 1
+                logger.info(
+                    "新闻时效过滤丢弃: title=%s reason=%s published=%s now=%s max_age_days=%d",
+                    (result.title or "")[:80],
+                    stale_reason,
+                    published_at.isoformat(),
+                    now_utc.isoformat(),
+                    self.news_max_age_days,
+                )
+                continue
+
+            kept.append(result)
+
+        if dropped_count:
+            logger.debug(
+                "新闻时效过滤完成: query=%s provider=%s kept=%d dropped=%d",
+                response.query,
+                response.provider,
+                len(kept),
+                dropped_count,
+            )
+
+        return SearchResponse(
+            query=response.query,
+            results=kept,
+            provider=response.provider,
+            success=response.success,
+            error_message=response.error_message,
+            search_time=response.search_time,
+        )
     
     def search_stock_news(self, stock_code: str, stock_name: str, max_results: int = 5, focus_keywords: Optional[List[str]] = None) -> SearchResponse:
         today_weekday = datetime.now().weekday()
@@ -621,8 +804,17 @@ class SearchService:
             if not provider.is_available: continue
             response = provider.search(query, max_results, days=search_days)
             if response.success and response.results:
+                fresh_response = self._filter_by_news_age(response)
+                if not fresh_response.results:
+                    logger.debug(
+                        "搜索结果在时效过滤后为空，继续尝试下一个 provider: %s(%s) provider=%s",
+                        stock_name,
+                        stock_code,
+                        provider.name
+                    )
+                    continue
                 filtered_response = self._filter_entity_consistent_results(
-                    response,
+                    fresh_response,
                     stock_code=stock_code,
                     stock_name=stock_name,
                     dimension="latest_news"
@@ -683,8 +875,18 @@ class SearchService:
                 if not provider.is_available: continue
                 resp = provider.search(dim['query'], max_results=3)
                 if resp.success and resp.results:
+                    fresh_resp = self._filter_by_news_age(resp)
+                    if not fresh_resp.results:
+                        logger.debug(
+                            "维度 %s 在时效过滤后为空，继续尝试下一个 provider: %s(%s) provider=%s",
+                            dim['name'],
+                            stock_name,
+                            stock_code,
+                            provider.name
+                        )
+                        continue
                     filtered_resp = self._filter_entity_consistent_results(
-                        resp,
+                        fresh_resp,
                         stock_code=stock_code,
                         stock_name=stock_name,
                         dimension=dim['name']
