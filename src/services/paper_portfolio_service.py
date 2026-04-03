@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import date, datetime
 from typing import Any, Dict, Iterable, Mapping, Optional
 
@@ -173,7 +174,7 @@ class PaperPortfolioService:
                         )
                         continue
 
-                    if price is None or price <= 0:
+                    if price is None or (not math.isfinite(price)) or price <= 0:
                         self._log_trade(
                             session,
                             simulation_time=sim_time,
@@ -186,7 +187,7 @@ class PaperPortfolioService:
                             price=price,
                             cash_before=cash,
                             cash_after=cash,
-                            reason="Skipped: missing current price",
+                            reason="Skipped: invalid current price",
                             target_weight=payload.get("target_weight"),
                             target_quantity=payload.get("target_quantity"),
                         )
@@ -472,6 +473,7 @@ class PaperPortfolioService:
         row.updated_at = now
 
     def _refresh_holdings_weights_and_snapshot(self, *, session, cash: float, snapshot_date: date) -> None:
+        session.flush()
         open_positions = session.execute(
             select(PaperPortfolioHolding).where(PaperPortfolioHolding.status == "OPEN")
         ).scalars().all()

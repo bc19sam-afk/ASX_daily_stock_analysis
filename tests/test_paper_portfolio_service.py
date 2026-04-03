@@ -6,7 +6,7 @@ import unittest
 from datetime import date
 
 from src.services.paper_portfolio_service import PaperPortfolioService
-from src.storage import DatabaseManager
+from src.storage import DatabaseManager, PaperPortfolioSnapshot
 
 
 class PaperPortfolioServiceTestCase(unittest.TestCase):
@@ -101,7 +101,7 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         overview = self.service.apply_analysis_results([
             {"code": "AAA", "position_action": "REDUCE", "analysis_status": "OK", "target_quantity": 8}
         ])
-        self.assertIn("missing current price", overview["latest_simulated_trades"][0]["reason"])
+        self.assertIn("invalid current price", overview["latest_simulated_trades"][0]["reason"])
         holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
         self.assertEqual(holding["quantity"], 10.0)
 
@@ -186,6 +186,39 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         self.assertIn("no-op", str(trade["reason"]).lower())
         holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
         self.assertEqual(holding["quantity"], 10.0)
+
+    def test_snapshot_matches_holdings_after_open_trade(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            {"code": "BBB", "position_action": "OPEN", "analysis_status": "OK", "current_price": 5.0, "target_quantity": 4},
+        ])
+
+        holdings = overview["holdings"]
+        equity_from_holdings = round(sum(float(h["market_value"]) for h in holdings), 2)
+        total_from_holdings = round(float(overview["cash"]) + equity_from_holdings, 2)
+
+        with self.db.get_session() as session:
+            latest_snapshot = session.query(PaperPortfolioSnapshot).order_by(
+                PaperPortfolioSnapshot.snapshot_date.desc(),
+                PaperPortfolioSnapshot.created_at.desc(),
+            ).first()
+
+        self.assertIsNotNone(latest_snapshot)
+        self.assertAlmostEqual(float(latest_snapshot.cash), float(overview["cash"]), places=2)
+        self.assertAlmostEqual(float(latest_snapshot.equity_value), equity_from_holdings, places=2)
+        self.assertAlmostEqual(float(latest_snapshot.total_value), total_from_holdings, places=2)
+
+    def test_nan_and_inf_price_are_skipped_as_invalid(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            {"code": "BBB", "position_action": "OPEN", "analysis_status": "OK", "current_price": "nan", "target_quantity": 3},
+            {"code": "CCC", "position_action": "OPEN", "analysis_status": "OK", "current_price": "inf", "target_quantity": 3},
+        ])
+
+        self.assertEqual(len([h for h in overview["holdings"] if h["code"] in {"BBB", "CCC"}]), 0)
+        latest_two = overview["latest_simulated_trades"][:2]
+        self.assertTrue(all(not t["executed"] for t in latest_two))
+        self.assertTrue(all("invalid current price" in str(t["reason"]).lower() for t in latest_two))
 
 
 if __name__ == "__main__":
