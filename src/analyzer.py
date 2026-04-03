@@ -11,6 +11,7 @@
 """
 
 import json
+import math
 import logging
 import time
 from dataclasses import dataclass
@@ -1096,6 +1097,7 @@ class GeminiAnalyzer:
             
             # 解析响应
             result = self._parse_response(response_text, code, name)
+            result = self._apply_fundamental_sanitization_guard(result, context)
             result.raw_response = response_text
             result.search_performed = bool(news_context)
             result.market_snapshot = self._build_market_snapshot(context)
@@ -1212,12 +1214,18 @@ class GeminiAnalyzer:
                 price_table = f'N/A (无数据, 可用字段: {keys_str})'
         # <<<<<< [修改结束] <<<<<<
         
-        # 生成基本面数据表格
-        fundamentals = context.get('fundamentals', {})
+        # 基本面硬校验：异常值在进入 Prompt 前统一降级为 N/A
+        raw_fundamentals = context.get('fundamentals', {})
+        fundamentals, sanitized_fields = self._sanitize_fundamentals(raw_fundamentals)
+        context['fundamentals'] = fundamentals
+        context['_fundamentals_sanitized_fields'] = sanitized_fields
+
         if fundamentals:
             fund_lines = ["| 指标 | 数值 |", "|------|------|"]
             for k, v in fundamentals.items():
                 fund_lines.append(f"| {k} | {v} |")
+            if sanitized_fields:
+                fund_lines.append("| 说明 | 检测到异常基本面值，已统一降级为 N/A，禁止据此做确定性结论 |")
             fundamentals_table = "\n".join(fund_lines)
         else:
             fundamentals_table = "暂无基本面数据"
@@ -1417,8 +1425,98 @@ class GeminiAnalyzer:
 2. 你必须将【30天历史回测胜率】结论，强制写在 `建仓策略` 或 `分析摘要` 字段中！
 绝不允许用“轻仓/重仓”等模糊词汇敷衍，必须给出具体数字！
 """
+        if sanitized_fields:
+            prompt += (
+                "\n### 基本面数据质量约束\n"
+                "- 以下指标值被判定为异常并降级为 N/A："
+                + ", ".join(sanitized_fields)
+                + "。\n"
+                "- 对 N/A 指标必须明确说明“数据异常/不可用”，"
+                "不得输出确定性基本面结论，不得给出高置信度表述。\n"
+            )
         
         return prompt
+
+    def _sanitize_fundamentals(self, fundamentals: Dict[str, Any]) -> tuple[Dict[str, Any], List[str]]:
+        """基本面硬校验：异常值一律降级为 N/A。"""
+        if not isinstance(fundamentals, dict) or not fundamentals:
+            return {}, []
+
+        sanitized: Dict[str, Any] = {}
+        sanitized_fields: List[str] = []
+        for key, value in fundamentals.items():
+            if self._is_abnormal_fundamental_value(key, value):
+                sanitized[key] = "N/A"
+                sanitized_fields.append(key)
+            else:
+                sanitized[key] = value
+        return sanitized, sanitized_fields
+
+    def _parse_fundamental_number(self, value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            parsed = float(value)
+        elif isinstance(value, str):
+            cleaned = (
+                value.strip()
+                .replace('%', '')
+                .replace(',', '')
+                .replace('亿AUD', '')
+                .replace('AUD', '')
+            )
+            if not cleaned:
+                return None
+            try:
+                parsed = float(cleaned)
+            except ValueError:
+                return None
+        else:
+            return None
+
+        if not math.isfinite(parsed):
+            return None
+        return parsed
+
+    def _is_abnormal_fundamental_value(self, key: str, value: Any) -> bool:
+        k = (key or "").strip().lower()
+        numeric = self._parse_fundamental_number(value)
+        if numeric is None:
+            return True
+
+        if k in {"pe", "市盈率"}:
+            return numeric <= 0 or numeric > 200
+        if k in {"pb", "市净率"}:
+            return numeric <= 0 or numeric > 50
+        if "股息率" in k or "dividend" in k or "yield" in k:
+            return numeric < 0 or numeric > 100
+        if "增速" in k or "growth" in k:
+            return numeric < -100 or numeric > 500
+        if "payout" in k or "派息率" in k or "分红率" in k:
+            return numeric < 0 or numeric > 100
+        if "roe" in k or "净资产收益率" in k:
+            return numeric < -100 or numeric > 100
+        if "负债权益比" in k or "debt" in k:
+            return numeric < 0 or numeric > 1000
+
+        return False
+
+    def _apply_fundamental_sanitization_guard(
+        self,
+        result: AnalysisResult,
+        context: Dict[str, Any],
+    ) -> AnalysisResult:
+        sanitized_fields = context.get('_fundamentals_sanitized_fields') or []
+        if not sanitized_fields:
+            return result
+
+        result.fundamental_analysis = "N/A（关键基本面指标存在异常值，已禁用基本面自动解读）"
+        if result.confidence_level == "高":
+            result.confidence_level = "中"
+        result.data_quality_flag = "MISSING"
+        warning = f"基本面关键指标异常（{', '.join(sanitized_fields)}）"
+        result.risk_warning = f"{result.risk_warning}；{warning}" if result.risk_warning else warning
+        return result
     
     def _format_volume(self, volume: Optional[float]) -> str:
         """格式化成交量显示 (ASX适配)"""
