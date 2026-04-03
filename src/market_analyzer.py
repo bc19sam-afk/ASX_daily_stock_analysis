@@ -73,6 +73,8 @@ class MarketOverview:
     # 板块涨幅榜
     top_sectors: List[Dict] = field(default_factory=list)     # 涨幅前5板块
     bottom_sectors: List[Dict] = field(default_factory=list)  # 跌幅前5板块
+    market_stats_available: bool = False                      # 涨跌统计是否可用（避免误导性 0 值）
+    sector_rankings_available: bool = False                   # 板块榜是否可用（避免空占位）
 
 
 class MarketAnalyzer:
@@ -172,17 +174,28 @@ class MarketAnalyzer:
 
             stats = self.data_manager.get_market_stats()
 
-            if stats:
+            required_keys = {
+                'up_count', 'down_count', 'flat_count',
+                'limit_up_count', 'limit_down_count', 'total_amount'
+            }
+            has_required_stats = bool(stats) and required_keys.issubset(stats.keys()) and all(
+                stats.get(key) is not None for key in required_keys
+            )
+
+            if has_required_stats:
                 overview.up_count = stats.get('up_count', 0)
                 overview.down_count = stats.get('down_count', 0)
                 overview.flat_count = stats.get('flat_count', 0)
                 overview.limit_up_count = stats.get('limit_up_count', 0)
                 overview.limit_down_count = stats.get('limit_down_count', 0)
                 overview.total_amount = stats.get('total_amount', 0.0)
+                overview.market_stats_available = True
 
                 logger.info(f"[大盘] 涨:{overview.up_count} 跌:{overview.down_count} 平:{overview.flat_count} "
                           f"涨停:{overview.limit_up_count} 跌停:{overview.limit_down_count} "
                           f"成交额:{overview.total_amount:.0f}亿")
+            else:
+                logger.warning("[大盘] 涨跌统计数据不完整，标记为不可用")
 
         except Exception as e:
             logger.error(f"[大盘] 获取涨跌统计失败: {e}")
@@ -194,12 +207,15 @@ class MarketAnalyzer:
 
             top_sectors, bottom_sectors = self.data_manager.get_sector_rankings(5)
 
-            if top_sectors or bottom_sectors:
+            if top_sectors is not None and bottom_sectors is not None:
                 overview.top_sectors = top_sectors
                 overview.bottom_sectors = bottom_sectors
+                overview.sector_rankings_available = True
 
                 logger.info(f"[大盘] 领涨板块: {[s['name'] for s in overview.top_sectors]}")
                 logger.info(f"[大盘] 领跌板块: {[s['name'] for s in overview.bottom_sectors]}")
+            else:
+                logger.warning("[大盘] 板块涨跌榜缺失，标记为不可用")
 
         except Exception as e:
             logger.error(f"[大盘] 获取板块涨跌榜失败: {e}")
@@ -355,9 +371,8 @@ class MarketAnalyzer:
 
     def _build_stats_block(self, overview: MarketOverview) -> str:
         """Build market statistics block."""
-        has_stats = overview.up_count or overview.down_count or overview.total_amount
-        if not has_stats:
-            return ""
+        if not overview.market_stats_available:
+            return "> ⚠️ 市场广度/成交额统计暂不可用（上游数据缺失），本节仅保留定性解读。"
         lines = [
             f"> 📈 上涨 **{overview.up_count}** 家 / 下跌 **{overview.down_count}** 家 / "
             f"平盘 **{overview.flat_count}** 家 | "
@@ -383,8 +398,10 @@ class MarketAnalyzer:
 
     def _build_sector_block(self, overview: MarketOverview) -> str:
         """Build sector ranking block."""
+        if not overview.sector_rankings_available:
+            return "> ⚠️ 领涨/领跌板块统计暂不可用（上游数据缺失），请勿据此判断板块强弱。"
         if not overview.top_sectors and not overview.bottom_sectors:
-            return ""
+            return "> ℹ️ 今日未识别到明确的领涨或领跌板块。"
         lines = []
         if overview.top_sectors:
             top = " | ".join(
@@ -410,6 +427,17 @@ class MarketAnalyzer:
         # 板块信息
         top_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.top_sectors[:3]])
         bottom_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.bottom_sectors[:3]])
+        stats_text = (
+            f"上涨 {overview.up_count} / 下跌 {overview.down_count} / 平盘 {overview.flat_count} / "
+            f"涨停 {overview.limit_up_count} / 跌停 {overview.limit_down_count} / 成交额 {overview.total_amount:.0f} 亿"
+            if overview.market_stats_available
+            else "关键统计缺失：涨跌家数、涨跌停、成交额不可用。请在报告中明确标注“数据暂不可用”，禁止臆测数值。"
+        )
+        sector_text = (
+            f"领涨: {top_sectors_text or '暂无明显领涨'}；领跌: {bottom_sectors_text or '暂无明显领跌'}"
+            if overview.sector_rankings_available
+            else "关键统计缺失：领涨/领跌板块榜不可用。请在报告中明确标注“数据暂不可用”，禁止臆测板块强弱。"
+        )
         
         # 新闻信息 - 支持 SearchResult 对象或字典
         news_text = ""
@@ -439,6 +467,12 @@ class MarketAnalyzer:
 
 ## 核心指数与大宗商品
 {indices_text if indices_text else "暂无行情数据"}
+
+## 市场广度与成交额统计
+{stats_text}
+
+## 板块强弱（领涨/领跌）
+{sector_text}
 
 ## 宏观市场新闻（通常为英文，请用中文总结）
 {news_text if news_text else "暂无相关新闻"}
@@ -493,6 +527,26 @@ class MarketAnalyzer:
         # 板块信息
         top_text = "、".join([s['name'] for s in overview.top_sectors[:3]])
         bottom_text = "、".join([s['name'] for s in overview.bottom_sectors[:3]])
+        if overview.market_stats_available:
+            stats_section = (
+                "| 指标 | 数值 |\n"
+                "|------|------|\n"
+                f"| 上涨家数 | {overview.up_count} |\n"
+                f"| 下跌家数 | {overview.down_count} |\n"
+                f"| 涨停 | {overview.limit_up_count} |\n"
+                f"| 跌停 | {overview.limit_down_count} |\n"
+                f"| ASX 成交额 | {overview.total_amount:.0f}亿 |"
+            )
+        else:
+            stats_section = "⚠️ 关键统计（涨跌家数/涨跌停/成交额）暂不可用，已隐藏数值表以避免误导。"
+
+        if overview.sector_rankings_available:
+            sector_section = (
+                f"- **领涨**: {top_text or '暂无明显领涨板块'}\n"
+                f"- **领跌**: {bottom_text or '暂无明显领跌板块'}"
+            )
+        else:
+            sector_section = "⚠️ 板块涨跌榜暂不可用，已隐藏领涨/领跌结论以避免误导。"
         
         report = f"""## 📊 {overview.date} 大盘复盘
 
@@ -503,17 +557,10 @@ class MarketAnalyzer:
 {indices_text}
 
 ### 三、涨跌统计
-| 指标 | 数值 |
-|------|------|
-| 上涨家数 | {overview.up_count} |
-| 下跌家数 | {overview.down_count} |
-| 涨停 | {overview.limit_up_count} |
-| 跌停 | {overview.limit_down_count} |
-| ASX 成交额 | {overview.total_amount:.0f}亿 |
+{stats_section}
 
 ### 四、板块表现
-- **领涨**: {top_text}
-- **领跌**: {bottom_text}
+{sector_section}
 
 ### 五、风险提示
 市场有风险，投资需谨慎。以上数据仅供参考，不构成投资建议。
