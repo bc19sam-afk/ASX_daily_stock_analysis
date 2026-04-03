@@ -392,6 +392,10 @@ class StockAnalysisPipeline:
                     enhanced_context=enhanced_context,
                     trend_result=trend_result,
                 )
+                self._apply_backtest_guard(
+                    result=result,
+                    enhanced_context=enhanced_context,
+                )
                 self._apply_runtime_price_fields(
                     result=result,
                     enhanced_context=enhanced_context,
@@ -536,6 +540,68 @@ class StockAnalysisPipeline:
         result.data_quality_flag = data_quality_flag
         result.final_decision = final_decision
         result.watchlist_state = "ACTIVE"
+
+    @staticmethod
+    def _classify_backtest_quality(backtest_summary: Optional[Dict[str, Any]]) -> str:
+        """Classify backtest quality for deterministic risk guard."""
+        if not isinstance(backtest_summary, dict):
+            return "INSUFFICIENT"
+
+        completed_count = backtest_summary.get("completed_count", backtest_summary.get("total"))
+        try:
+            completed_count = int(completed_count)
+        except (TypeError, ValueError):
+            completed_count = 0
+        if completed_count < 5:
+            return "INSUFFICIENT"
+
+        def _to_float(value: Any) -> Optional[float]:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        direction_accuracy = _to_float(backtest_summary.get("direction_accuracy"))
+        win_rate = _to_float(backtest_summary.get("win_rate"))
+        stop_loss_rate = _to_float(backtest_summary.get("stop_loss_rate"))
+
+        if direction_accuracy is not None and direction_accuracy < 50:
+            return "WEAK"
+        if win_rate is not None and win_rate < 45:
+            return "WEAK"
+        if stop_loss_rate is not None and stop_loss_rate > 50:
+            return "WEAK"
+        return "NEUTRAL"
+
+    @staticmethod
+    def _downgrade_confidence_level(level: str) -> str:
+        if level == "高":
+            return "中"
+        if level == "中":
+            return "低"
+        return "低"
+
+    def _apply_backtest_guard(
+        self,
+        *,
+        result: AnalysisResult,
+        enhanced_context: Dict[str, Any],
+    ) -> None:
+        backtest_summary = enhanced_context.get("backtest_summary") if isinstance(enhanced_context, dict) else None
+        backtest_quality = self._classify_backtest_quality(backtest_summary)
+        if backtest_quality != "WEAK":
+            return
+
+        result.confidence_level = self._downgrade_confidence_level(result.confidence_level)
+        if result.final_decision == "BUY":
+            result.final_decision = "HOLD"
+        result.watchlist_state = "ACTIVE"
+
+        downgrade_note = "历史回测表现偏弱，已触发保守降级"
+        if downgrade_note not in (result.risk_warning or ""):
+            result.risk_warning = (
+                f"{result.risk_warning}；{downgrade_note}" if result.risk_warning else downgrade_note
+            )
 
     def _apply_runtime_price_fields(
         self,
