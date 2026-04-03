@@ -631,7 +631,11 @@ class SearchService:
             search_time=response.search_time
         )
 
-    def _parse_published_datetime(self, result: SearchResult) -> Tuple[Optional[datetime], Optional[str], Optional[str]]:
+    def _parse_published_datetime(
+        self,
+        result: SearchResult,
+        now_utc: Optional[datetime] = None
+    ) -> Tuple[Optional[datetime], Optional[str], Optional[str]]:
         """解析新闻发布时间，返回 (datetime_utc, field_name, reason)。"""
         raw_candidates: List[Tuple[str, Any]] = []
         if result.published_date:
@@ -645,15 +649,16 @@ class SearchService:
         if not raw_candidates:
             return None, None, "missing"
 
+        ref_now = now_utc or datetime.now(timezone.utc)
         for field_name, raw_value in raw_candidates:
-            dt = self._parse_datetime_value(raw_value)
+            dt = self._parse_datetime_value(raw_value, now_utc=ref_now)
             if dt is not None:
                 return dt, field_name, None
 
         return None, raw_candidates[0][0], "invalid"
 
     @staticmethod
-    def _parse_datetime_value(raw_value: Any) -> Optional[datetime]:
+    def _parse_datetime_value(raw_value: Any, now_utc: Optional[datetime] = None) -> Optional[datetime]:
         """尽量兼容常见时间格式并统一为 UTC。"""
         if raw_value is None:
             return None
@@ -665,6 +670,23 @@ class SearchService:
         text = str(raw_value).strip()
         if not text:
             return None
+
+        ref_now = now_utc or datetime.now(timezone.utc)
+        if ref_now.tzinfo is None:
+            ref_now = ref_now.replace(tzinfo=timezone.utc)
+        else:
+            ref_now = ref_now.astimezone(timezone.utc)
+
+        relative_match = re.match(r"^\s*(\d+)\s+(minute|minutes|hour|hours|day|days)\s+ago\s*$", text, re.IGNORECASE)
+        if relative_match:
+            amount = int(relative_match.group(1))
+            unit = relative_match.group(2).lower()
+            if unit.startswith("minute"):
+                return ref_now - timedelta(minutes=amount)
+            if unit.startswith("hour"):
+                return ref_now - timedelta(hours=amount)
+            if unit.startswith("day"):
+                return ref_now - timedelta(days=amount)
 
         for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S"):
             try:
@@ -710,7 +732,7 @@ class SearchService:
         kept: List[SearchResult] = []
         dropped_count = 0
         for result in response.results:
-            published_at, field_name, parse_reason = self._parse_published_datetime(result)
+            published_at, field_name, parse_reason = self._parse_published_datetime(result, now_utc=now_utc)
             if published_at is None:
                 dropped_count += 1
                 logger.info(

@@ -87,6 +87,30 @@ class SearchNewsAgeFilterTestCase(unittest.TestCase):
         filtered = self.service._filter_by_news_age(self._response(result), now=self.now)
         self.assertEqual(len(filtered.results), 1)
 
+    def test_keeps_relative_time_two_hours_ago(self) -> None:
+        result = SearchResult(
+            title="relative-2-hours",
+            snippet="",
+            url="https://example.com/7",
+            source="example.com",
+            published_fields={"publish_time": "2 hours ago"},
+        )
+
+        filtered = self.service._filter_by_news_age(self._response(result), now=self.now)
+        self.assertEqual(len(filtered.results), 1)
+
+    def test_drops_relative_time_five_days_ago(self) -> None:
+        result = SearchResult(
+            title="relative-5-days",
+            snippet="",
+            url="https://example.com/8",
+            source="example.com",
+            published_fields={"publish_time": "5 days ago"},
+        )
+
+        filtered = self.service._filter_by_news_age(self._response(result), now=self.now)
+        self.assertEqual(len(filtered.results), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@
 """Search / News 实体消歧测试。"""
 
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from src.search_service import (
     BaseSearchProvider,
@@ -32,6 +33,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.service = SearchService()
         self.code = "CBA.AX"
         self.name = "Commonwealth Bank of Australia"
+        self.fresh_published_date = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
 
     def _resp(self, *results: SearchResult) -> SearchResponse:
         return SearchResponse(
@@ -199,7 +201,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="US CBA stock jumps",
                     url="https://example.com/wrong",
                     source="example.com",
-                    published_date="2026-04-02",
+                    published_date=self.fresh_published_date,
                 )
             ],
             provider="p1",
@@ -213,7 +215,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="Commonwealth Bank of Australia advances",
                     url="https://example.com/right",
                     source="example.com",
-                    published_date="2026-04-02",
+                    published_date=self.fresh_published_date,
                 )
             ],
             provider="p2",
@@ -248,7 +250,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="US CBA ticker",
                     url="https://example.com/wrong-dim",
                     source="example.com",
-                    published_date="2026-04-02",
+                    published_date=self.fresh_published_date,
                 )
             ],
             provider="p1",
@@ -262,7 +264,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="Commonwealth Bank of Australia coverage",
                     url="https://example.com/right-dim",
                     source="example.com",
-                    published_date="2026-04-02",
+                    published_date=self.fresh_published_date,
                 )
             ],
             provider="p2",
@@ -290,7 +292,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="Program details released without ticker symbol mention",
                     url="https://example.com/latest-name-only",
                     source="example.com",
-                    published_date="2026-04-02",
+                    published_date=self.fresh_published_date,
                 )
             ],
             provider="p1",
@@ -351,7 +353,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="Commonwealth Bank of Australia remains resilient",
                     url="https://example.com/cached-right",
                     source="example.com",
-                    published_date="2026-04-02",
+                    published_date=self.fresh_published_date,
                 )
             ],
             provider="p1",
@@ -378,7 +380,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="US listing CBA up",
                     url="https://example.com/wrong1",
                     source="example.com",
-                    published_date="2026-04-02",
+                    published_date=self.fresh_published_date,
                 )
             ],
             provider="p1",
@@ -392,7 +394,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="US CBA stock gains",
                     url="https://example.com/wrong2",
                     source="example.com",
-                    published_date="2026-04-02",
+                    published_date=self.fresh_published_date,
                 )
             ],
             provider="p2",
