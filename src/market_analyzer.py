@@ -205,9 +205,26 @@ class MarketAnalyzer:
         try:
             logger.info("[大盘] 获取板块涨跌榜...")
 
-            top_sectors, bottom_sectors = self.data_manager.get_sector_rankings(5)
+            rankings = self.data_manager.get_sector_rankings(5)
+            if not rankings or not isinstance(rankings, (list, tuple)) or len(rankings) != 2:
+                logger.warning("[大盘] 板块涨跌榜缺失，标记为不可用")
+                return
 
-            if top_sectors is not None and bottom_sectors is not None:
+            top_sectors, bottom_sectors = rankings
+            top_sectors = top_sectors or []
+            bottom_sectors = bottom_sectors or []
+
+            def _has_valid_sector_entries(items: List[Dict]) -> bool:
+                return any(
+                    isinstance(item, dict)
+                    and item.get('name')
+                    and item.get('change_pct') is not None
+                    for item in items
+                )
+
+            # 注意：部分上游失败时会返回 ([], [])，这不是“无明显领涨/领跌”，而是“数据不可用”
+            has_valid_rankings = _has_valid_sector_entries(top_sectors) or _has_valid_sector_entries(bottom_sectors)
+            if has_valid_rankings:
                 overview.top_sectors = top_sectors
                 overview.bottom_sectors = bottom_sectors
                 overview.sector_rankings_available = True

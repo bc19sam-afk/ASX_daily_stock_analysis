@@ -81,3 +81,50 @@ def test_market_review_prompt_is_dedicated_markdown_prompt():
     assert "禁止输出 JSON 格式" in prompt
     assert "市场广度与成交额统计" in prompt
     assert "关键统计缺失" in prompt
+
+
+class _SectorRankingFetcher:
+    def __init__(self, rankings):
+        self.rankings = rankings
+
+    def get_sector_rankings(self, limit):
+        return self.rankings
+
+
+def test_sector_rankings_empty_pair_is_unavailable():
+    analyzer = MarketAnalyzer()
+    analyzer.data_manager = _SectorRankingFetcher(([], []))
+    overview = MarketOverview(date="2026-04-03")
+
+    analyzer._get_sector_rankings(overview)
+
+    assert overview.sector_rankings_available is False
+    assert overview.top_sectors == []
+    assert overview.bottom_sectors == []
+
+
+def test_sector_rankings_none_is_unavailable():
+    analyzer = MarketAnalyzer()
+    analyzer.data_manager = _SectorRankingFetcher(None)
+    overview = MarketOverview(date="2026-04-03")
+
+    analyzer._get_sector_rankings(overview)
+
+    assert overview.sector_rankings_available is False
+    assert overview.top_sectors == []
+    assert overview.bottom_sectors == []
+
+
+def test_sector_rankings_non_empty_is_available():
+    analyzer = MarketAnalyzer()
+    analyzer.data_manager = _SectorRankingFetcher((
+        [{"name": "Materials", "change_pct": 1.25}],
+        [{"name": "Utilities", "change_pct": -0.86}],
+    ))
+    overview = MarketOverview(date="2026-04-03")
+
+    analyzer._get_sector_rankings(overview)
+
+    assert overview.sector_rankings_available is True
+    assert overview.top_sectors[0]["name"] == "Materials"
+    assert overview.bottom_sectors[0]["name"] == "Utilities"
