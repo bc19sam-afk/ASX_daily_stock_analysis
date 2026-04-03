@@ -63,7 +63,6 @@ class StockAnalysisPipeline:
             max_workers: 最大并发线程数（可选，默认从配置读取）
         """
         self.config = config or get_config()
-        self.config.enable_chip_distribution = False
         self.max_workers = max_workers or self.config.max_workers
         self.source_message = source_message
         self.query_id = query_id
@@ -74,7 +73,7 @@ class StockAnalysisPipeline:
         
         # 初始化各模块
         self.db = get_db()
-        self.fetcher_manager = DataFetcherManager()
+        self.fetcher_manager = DataFetcherManager(config=self.config)
         # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
         self.trend_analyzer = StockTrendAnalyzer()  # 趋势分析器
         self.analyzer = GeminiAnalyzer()

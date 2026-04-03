@@ -20,7 +20,7 @@ import re
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict, Any, TYPE_CHECKING
 
 import pandas as pd
 import numpy as np
@@ -33,6 +33,9 @@ from tenacity import (
 
 # 配置日志
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from src.config import Config
 
 
 # === 标准化列名定义 ===
@@ -330,13 +333,16 @@ class DataFetcherManager:
     - 所有数据源都失败时抛出异常
     """
     
-    def __init__(self, fetchers: Optional[List[BaseFetcher]] = None):
+    def __init__(self, fetchers: Optional[List[BaseFetcher]] = None, config: Optional["Config"] = None):
         """
         初始化管理器
         
         Args:
             fetchers: 数据源列表（可选，默认按优先级自动创建）
         """
+        from src.config import get_config
+
+        self.config = config or get_config()
         self._fetchers: List[BaseFetcher] = []
         
         if fetchers:
@@ -572,9 +578,8 @@ class DataFetcherManager:
         stock_code = normalize_stock_code(stock_code)
 
         from .realtime_types import get_realtime_circuit_breaker
-        from src.config import get_config
         
-        config = get_config()
+        config = self.config
         
         # 如果实时行情功能被禁用，直接返回 None
         if not config.enable_realtime_quote:
@@ -743,9 +748,8 @@ class DataFetcherManager:
         stock_code = normalize_stock_code(stock_code)
 
         from .realtime_types import get_chip_circuit_breaker
-        from src.config import get_config
 
-        config = get_config()
+        config = self.config
 
         # 如果筹码分布功能被禁用，直接返回 None
         if not config.enable_chip_distribution:
