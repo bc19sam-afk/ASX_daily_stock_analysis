@@ -160,7 +160,7 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
         self.assertEqual(holding["quantity"], 10.0)
         reasons = [t["reason"] for t in overview["latest_simulated_trades"][:2]]
-        self.assertTrue(any("missing target info" in str(r) for r in reasons))
+        self.assertTrue(any("missing/invalid target info" in str(r) for r in reasons))
 
     def test_target_weight_uses_updated_portfolio_value_after_previous_trade(self):
         self.service.init_from_current()
@@ -240,6 +240,19 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         self.assertEqual(float(holdings["BBB"]["quantity"]), 5.0)
         # cash: 100 - (2*10) - (3*10) = 50
         self.assertEqual(float(overview["cash"]), 50.0)
+
+    def test_non_finite_target_values_are_skipped_without_crash(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            {"code": "BBB", "position_action": "OPEN", "analysis_status": "OK", "current_price": 10.0, "target_quantity": "nan"},
+            {"code": "CCC", "position_action": "OPEN", "analysis_status": "OK", "current_price": 10.0, "target_weight": "inf"},
+            {"code": "DDD", "position_action": "OPEN", "analysis_status": "OK", "current_price": 10.0, "target_quantity": float("nan")},
+            {"code": "EEE", "position_action": "OPEN", "analysis_status": "OK", "current_price": 10.0, "target_weight": float("inf")},
+        ])
+        self.assertEqual(len([h for h in overview["holdings"] if h["code"] in {"BBB", "CCC", "DDD", "EEE"}]), 0)
+        latest_four = overview["latest_simulated_trades"][:4]
+        self.assertTrue(all(not t["executed"] for t in latest_four))
+        self.assertTrue(all("missing/invalid target info" in str(t["reason"]).lower() for t in latest_four))
 
 
 if __name__ == "__main__":

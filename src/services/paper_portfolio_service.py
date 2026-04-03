@@ -216,7 +216,7 @@ class PaperPortfolioService:
                             price=price,
                             cash_before=cash,
                             cash_after=cash,
-                            reason="Skipped: missing target info",
+                            reason="Skipped: missing/invalid target info",
                             target_weight=payload.get("target_weight"),
                             target_quantity=payload.get("target_quantity"),
                         )
@@ -334,9 +334,12 @@ class PaperPortfolioService:
         target_quantity = payload.get("target_quantity")
         if target_quantity is not None:
             try:
-                return float(target_quantity)
+                resolved = float(target_quantity)
             except (TypeError, ValueError):
                 return None
+            if not math.isfinite(resolved):
+                return None
+            return resolved
 
         target_weight = payload.get("target_weight")
         if target_weight is None:
@@ -344,6 +347,8 @@ class PaperPortfolioService:
         try:
             tw = float(target_weight)
         except (TypeError, ValueError):
+            return None
+        if not math.isfinite(tw):
             return None
         if tw < 0:
             return None
@@ -440,9 +445,12 @@ class PaperPortfolioService:
         if value is None:
             return None
         try:
-            return float(value)
+            parsed = float(value)
         except (TypeError, ValueError):
             return None
+        if not math.isfinite(parsed):
+            return None
+        return parsed
 
     @staticmethod
     def _upsert_holding(
