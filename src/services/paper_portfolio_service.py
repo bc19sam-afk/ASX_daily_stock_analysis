@@ -85,7 +85,7 @@ class PaperPortfolioService:
 
                 session.add(
                     PaperPortfolioSnapshot(
-                        snapshot_date=date.today(),
+                        snapshot_date=real_snapshot.snapshot_date,
                         cash=float(real_snapshot.cash or 0.0),
                         equity_value=float(real_snapshot.equity_value or 0.0),
                         total_value=float(real_snapshot.total_value or 0.0),
@@ -336,21 +336,21 @@ class PaperPortfolioService:
 
                 for item in working_holdings.values():
                     current_price = item.get("current_price")
+                    current_price_val: Optional[float]
                     try:
-                        current_price_val = float(current_price) if current_price is not None else 0.0
+                        current_price_val = float(current_price) if current_price is not None else None
                     except (TypeError, ValueError):
-                        current_price_val = 0.0
-                    if not math.isfinite(current_price_val):
-                        current_price_val = 0.0
-                    if current_price is None:
-                        current_price = 0.0
+                        current_price_val = None
+                    if current_price_val is not None and (not math.isfinite(current_price_val)):
+                        current_price_val = None
                     self._upsert_holding(
                         session,
                         code=item["code"],
                         name=item.get("name") or item["code"],
                         quantity=float(item.get("quantity") or 0.0),
                         avg_cost=float(item.get("avg_cost") or 0.0),
-                        current_price=float(current_price_val),
+                        current_price=current_price_val,
+                        market_value=float(item.get("market_value") or 0.0),
                         status=item.get("status") or ("OPEN" if float(item.get("quantity") or 0.0) > 0 else "CLOSED"),
                     )
                 for trade_kwargs in pending_trades:
@@ -514,7 +514,8 @@ class PaperPortfolioService:
         name: str,
         quantity: float,
         avg_cost: float,
-        current_price: float,
+        current_price: Optional[float],
+        market_value: Optional[float] = None,
         status: str,
     ) -> None:
         session.flush()
@@ -522,7 +523,13 @@ class PaperPortfolioService:
             select(PaperPortfolioHolding).where(PaperPortfolioHolding.code == code).limit(1)
         ).scalar_one_or_none()
         now = datetime.now()
-        market_value = round(max(quantity, 0.0) * current_price, 2)
+        if market_value is None:
+            if current_price is None:
+                market_value_val = round(float(row.market_value or 0.0), 2) if row is not None else 0.0
+            else:
+                market_value_val = round(max(quantity, 0.0) * current_price, 2)
+        else:
+            market_value_val = round(float(market_value), 2)
         if row is None:
             row = PaperPortfolioHolding(
                 code=code,
@@ -530,7 +537,7 @@ class PaperPortfolioService:
                 quantity=max(quantity, 0.0),
                 avg_cost=max(avg_cost, 0.0),
                 current_price=current_price,
-                market_value=market_value,
+                market_value=market_value_val,
                 weight=0.0,
                 status=status,
                 opened_at=now if quantity > 0 else None,
@@ -544,7 +551,7 @@ class PaperPortfolioService:
         row.quantity = max(quantity, 0.0)
         row.avg_cost = max(avg_cost, 0.0) if quantity > 0 else 0.0
         row.current_price = current_price
-        row.market_value = market_value
+        row.market_value = market_value_val
         row.status = status
         if quantity > 0:
             row.closed_at = None

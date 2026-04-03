@@ -6,7 +6,7 @@ import unittest
 from datetime import date
 
 from src.services.paper_portfolio_service import PaperPortfolioService
-from src.storage import DatabaseManager, PaperPortfolioSnapshot
+from src.storage import AccountSnapshot, DatabaseManager, PaperPortfolioHolding, PaperPortfolioSnapshot
 
 
 class PaperPortfolioServiceTestCase(unittest.TestCase):
@@ -276,6 +276,35 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         self.assertEqual(float(holdings["BBB"]["market_value"]), 60.0)
         # cash: 100 - (2*10) - (3*12) = 44
         self.assertEqual(float(overview["cash"]), 44.0)
+
+    def test_missing_holding_price_does_not_zero_existing_valuation(self):
+        self.service.init_from_current()
+        with self.db.get_session() as session:
+            row = session.query(PaperPortfolioHolding).filter(PaperPortfolioHolding.code == "AAA").first()
+            row.current_price = None
+            row.market_value = 100.0
+            session.commit()
+
+        overview = self.service.apply_analysis_results([])
+        holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
+        self.assertEqual(float(holding["market_value"]), 100.0)
+        self.assertEqual(float(overview["equity_value"]), 100.0)
+        self.assertEqual(float(overview["total_value"]), 200.0)
+
+    def test_init_snapshot_date_aligns_with_real_snapshot_date(self):
+        with self.db.get_session() as session:
+            session.query(AccountSnapshot).delete()
+            session.commit()
+        real_date = date(2026, 1, 15)
+        self.db.save_account_snapshot(
+            snapshot_date=real_date,
+            cash=100,
+            equity_value=100,
+            total_value=200,
+            note="real_old_snapshot",
+        )
+        overview = self.service.init_from_current(force=True)
+        self.assertEqual(overview["snapshot_date"], real_date.isoformat())
 
 
 if __name__ == "__main__":
