@@ -965,6 +965,11 @@ class NotificationService:
             )
         return lines
 
+    def _is_actionable_today(self, result: AnalysisResult) -> bool:
+        """Return True when deterministic action implies execution-worthy change."""
+        action = self._get_primary_action_model(result)["position_action"]
+        return action in {"OPEN", "ADD", "REDUCE", "CLOSE"}
+
     def _infer_ai_commentary_decision(self, operation_advice: str) -> Optional[str]:
         """Infer BUY/HOLD/SELL bucket from AI narrative advice text."""
         advice = str(operation_advice or '').strip().lower()
@@ -1294,15 +1299,69 @@ class NotificationService:
             results=results,
         )
 
+        holdings = overview.get("holdings") or []
+        holding_codes = {
+            self._normalize_stock_code(item.get("code", ""))
+            for item in holdings
+            if self._normalize_stock_code(item.get("code", ""))
+        }
+        successful_results = [r for r in sorted_results if bool(getattr(r, "success", True))]
+        failed_results = [r for r in sorted_results if not bool(getattr(r, "success", True))]
+        successful_codes = {
+            self._normalize_stock_code(getattr(r, "code", ""))
+            for r in successful_results
+            if self._normalize_stock_code(getattr(r, "code", ""))
+        }
+        uncovered_holdings = [
+            item for item in holdings
+            if self._normalize_stock_code(item.get("code", "")) not in successful_codes
+        ]
+        holding_results = [
+            r for r in successful_results
+            if self._normalize_stock_code(getattr(r, "code", "")) in holding_codes
+        ]
+        non_holding_results = [
+            r for r in successful_results
+            if self._normalize_stock_code(getattr(r, "code", "")) not in holding_codes
+        ]
+        actionable_holding_results = [r for r in holding_results if self._is_actionable_today(r)]
+        actionable_non_holding_results = [r for r in non_holding_results if self._is_actionable_today(r)]
+        basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
+        for result in results:
+            basis_counts[self._classify_price_basis(result)] += 1
+        has_mixed_price_basis = basis_counts["realtime"] > 0 and (basis_counts["latest_close"] + basis_counts["close_only"]) > 0
+
         report_lines.extend([
-            "## A. 当前账户总览（已执行）",
+            "## 今日行动摘要",
+            "",
+        ])
+        if actionable_holding_results:
+            report_lines.append("**优先处理（当前持仓）**")
+            for result in actionable_holding_results:
+                action_model = self._get_primary_action_model(result)
+                report_lines.append(
+                    f"- {self._escape_md(result.name)}({result.code})："
+                    f"{self._format_position_action_label(action_model['position_action'])}（建议仓位 {action_model['target_weight']:.2%}）"
+                )
+            report_lines.append("")
+        else:
+            report_lines.append("- 今日当前持仓暂无必须立即执行的调仓动作。")
+        if uncovered_holdings:
+            report_lines.append(f"- 当前持仓有 **{len(uncovered_holdings)}** 只未覆盖分析，请优先补齐。")
+        if failed_results:
+            report_lines.append(f"- 今日有 **{len(failed_results)}** 只分析失败，建议重跑后再决策。")
+        if has_mixed_price_basis:
+            report_lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
+        report_lines.extend(["", "---", ""])
+
+        report_lines.extend([
+            "## 当前持仓总览",
             "",
             f"- 可用现金: **{overview.get('cash', 0.0):,.2f}**",
             f"- 持仓市值: **{overview.get('equity_value', 0.0):,.2f}**",
             f"- 账户总值: **{overview.get('total_value', 0.0):,.2f}**",
             "",
         ])
-        holdings = overview.get("holdings") or []
         executed_weight_by_code = {
             self._normalize_stock_code(item.get("code", "")): float(item.get("weight") or 0.0)
             for item in holdings
@@ -1325,31 +1384,63 @@ class NotificationService:
                 "",
             ])
 
-        # === 分离展示：实际账户状态 vs 今日建议/模拟结果 ===
-        if results:
+        if successful_results:
             report_lines.extend([
-                "## B. 今日建议动作（未执行）",
+                "## 当前持仓行动清单",
                 "",
-                "> 以下以确定性主动作、目标仓位与模拟调仓金额为主，仅用于今日计划，不代表账户已变化。",
+                "> 仅列出当前持仓中需要执行的动作；未出现即表示以持有观察为主。",
                 "",
             ])
-            report_lines.extend(self._build_recommended_actions_table(sorted_results))
+            if actionable_holding_results:
+                report_lines.extend(self._build_recommended_actions_table(actionable_holding_results))
+            else:
+                report_lines.append("- 当前持仓无明确调仓动作。")
             report_lines.extend([
                 "",
-                "## C. 目标仓位模拟（计划视图）",
+                "## 未覆盖 / 分析失败 / 风险提醒",
                 "",
-                "> 以下目标仓位仅为模拟计划；A 段始终展示已执行的真实账户状态。",
+            ])
+            if uncovered_holdings:
+                report_lines.append("**未覆盖持仓**")
+                for item in uncovered_holdings:
+                    report_lines.append(f"- {item.get('name', item.get('code'))}({item.get('code')})")
+                report_lines.append("")
+            if failed_results:
+                report_lines.append("**分析失败（建议重跑）**")
+                for result in failed_results:
+                    reason = str(getattr(result, "error_message", "") or "未知错误")
+                    report_lines.append(f"- {result.name}({result.code})：{reason[:120]}")
+                report_lines.append("")
+            if has_mixed_price_basis:
+                report_lines.extend([
+                    "**风险提醒**",
+                    "- 本次包含实时价格与非实时价格混用，执行前请二次确认价格基准。",
+                    "",
+                ])
+            report_lines.extend([
+                "## 非持仓观察名单",
+                "",
+            ])
+            if non_holding_results:
+                report_lines.extend(self._build_recommended_actions_table(non_holding_results))
+            else:
+                report_lines.append("- 今日无非持仓观察标的。")
+            report_lines.extend([
+                "",
+                "## 目标仓位模拟（计划视图）",
+                "",
+                "> 以下目标仓位仅为模拟计划；“当前持仓总览”始终展示已执行的真实账户状态。",
                 "",
             ])
             report_lines.extend(
                 self._build_simulated_target_allocation_table(
-                    sorted_results,
+                    successful_results,
                     executed_weight_by_code=executed_weight_by_code,
                 )
             )
             report_lines.extend(
                 self._build_section_c_reconciliation_lines(
-                    results=sorted_results,
+                    results=successful_results,
                     overview_holdings=holdings,
                 )
             )
@@ -1361,7 +1452,13 @@ class NotificationService:
 
         # 逐个股票的决策仪表盘（Issue #262: summary_only 时跳过详情）
         if not self._report_summary_only:
-            for result in sorted_results:
+            detail_results = holding_results + actionable_non_holding_results
+            detail_seen_codes = set()
+            for result in detail_results:
+                code = self._normalize_stock_code(getattr(result, "code", ""))
+                if code in detail_seen_codes:
+                    continue
+                detail_seen_codes.add(code)
                 signal_text, signal_emoji, signal_tag = self._get_signal_level(result)
                 action_model = self._get_primary_action_model(result)
                 dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
@@ -1607,6 +1704,22 @@ class NotificationService:
                     "---",
                     "",
                 ])
+            compact_non_holding_results = [
+                r for r in non_holding_results
+                if self._normalize_stock_code(getattr(r, "code", "")) not in detail_seen_codes
+            ]
+            if compact_non_holding_results:
+                report_lines.extend([
+                    "## 详细个股附录（非持仓简版）",
+                    "",
+                ])
+                for result in compact_non_holding_results:
+                    signal_text, signal_emoji, _ = self._get_signal_level(result)
+                    report_lines.append(
+                        f"- {signal_emoji} {self._escape_md(result.name)}({result.code})："
+                        f"{signal_text}，评分 {result.sentiment_score}，{result.trend_prediction}。"
+                    )
+                report_lines.extend(["", "---", ""])
         
         # 底部（去除免责声明）
         report_lines.extend([

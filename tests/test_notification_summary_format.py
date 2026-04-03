@@ -77,9 +77,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("## A. 当前账户总览（已执行）", report)
-        self.assertIn("## B. 今日建议动作（未执行）", report)
-        self.assertIn("## C. 目标仓位模拟（计划视图）", report)
+        self.assertIn("## 今日行动摘要", report)
+        self.assertIn("## 当前持仓总览", report)
+        self.assertIn("## 目标仓位模拟（计划视图）", report)
         self.assertIn("- 可用现金: **100,000.00**", report)
         self.assertIn("- 持仓市值: **0.00**", report)
         self.assertIn("- 账户总值: **100,000.00**", report)
@@ -89,7 +89,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("**超长股票名称用于验证表格列宽稳定性与渲染一致性示例股份有限公司(600519)**", report)
         self.assertNotIn("   - 今日动作", report)
 
-        section_a = report.split("## B. 今日建议动作（未执行）")[0]
+        section_a = report.split("## 当前持仓行动清单")[0]
         self.assertNotIn("模拟目标权重", section_a)
 
     @patch("src.notification.get_db")
@@ -99,7 +99,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
 
-        self.assertIn("确定性主动作、目标仓位与模拟调仓金额", report)
+        self.assertIn("今日主动作（确定性/未执行）", report)
         self.assertNotIn("final_decision", report)
         self.assertNotIn("position_action", report)
         self.assertNotIn("target_weight", report)
@@ -116,7 +116,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("逢回调分批买入 \\| 保持纪律 关注成交量变化 · 评分 75 · 震荡上行", report)
+        self.assertIn("量能数据不足（量比/换手率缺失），不做量能结论 · 评分 75 · 震荡上行", report)
         self.assertIn("加仓 · 目标18.00% · 模拟Δ3,200.00", report)
 
         html = markdown_to_html_document(report)
@@ -411,9 +411,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("| 贵州茅台(600519) | 100.00 | 36.00% | 账户快照市值回退 | 是 |", report)
         self.assertIn("| 🟢 **贵州茅台(600519)** | 加仓 · 目标16.00% · 模拟Δ15,000.00 |", report)
         self.assertIn("| 🟢 **贵州茅台(600519)** | 36.00% | 16.00% | 15,000.00 |", report)
-        self.assertIn("## A. 当前账户总览（已执行）", report)
-        self.assertIn("## B. 今日建议动作（未执行）", report)
-        self.assertIn("## C. 目标仓位模拟（计划视图）", report)
+        self.assertIn("## 今日行动摘要", report)
+        self.assertIn("## 当前持仓总览", report)
+        self.assertIn("## 目标仓位模拟（计划视图）", report)
 
     @patch("src.notification.get_db")
     def test_dashboard_section_c_current_weight_uses_same_source_as_section_a(self, mock_get_db) -> None:
@@ -666,13 +666,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             dashboard={"core_conclusion": {"one_sentence": "必须卖出", "time_sensitivity": "今日"}},
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("### 📌 核心结论", report)
-        self.assertIn("**⚪ 持有/观望**", report)
-        self.assertIn("**🧭 主动作（优先执行）**: HOLD | 目标仓位 18.00% | 模拟Δ 3,200.00", report)
-        self.assertIn("**💬 AI补充（非执行）**: AI解读与确定性主动作存在方向冲突，已转为中性说明", report)
-        self.assertIn("> **一句话结论**: AI总结与确定性主动作存在方向冲突，请仅按确定性主动作执行", report)
-        self.assertNotIn("> **一句话结论**: 必须卖出", report)
-        self.assertIn("⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。", report)
+        self.assertIn("## 详细个股附录（非持仓简版）", report)
+        self.assertIn("- ⚪ 贵州茅台(600519)：持有/观望，评分 75，震荡上行。", report)
 
     @patch("src.notification.get_db")
     def test_primary_action_stays_canonical_while_ai_commentary_remains_independent(self, mock_get_db) -> None:
