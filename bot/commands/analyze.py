@@ -76,28 +76,18 @@ class AnalyzeCommand(BotCommand):
         
         try:
             # 调用分析服务
-            from src.services.task_queue import get_task_queue, DuplicateTaskError
+            from src.services.task_service import get_task_service
             from src.enums import ReportType
             
-            task_queue = get_task_queue()
+            service = get_task_service()
             
             # 提交异步分析任务
             normalized_report_type = ReportType.from_str(report_type)
-            try:
-                task = task_queue.submit_task(
-                    stock_code=code,
-                    report_type=normalized_report_type.value,
-                )
-                task_id = task.task_id
-            except DuplicateTaskError as e:
-                # 与 legacy 行为对齐：重复提交仍视为已提交，复用已存在任务 ID
-                task_id = e.existing_task_id
-
-            result = {
-                "success": True,
-                "task_id": task_id,
-                "report_type": normalized_report_type.value,
-            }
+            result = service.submit_analysis(
+                code=code,
+                report_type=normalized_report_type,
+                source_message=message
+            )
             
             if result.get("success"):
                 task_id = result.get("task_id", "")
