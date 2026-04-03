@@ -77,9 +77,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("## A. 当前账户总览（已执行）", report)
-        self.assertIn("## B. 今日建议动作（未执行）", report)
-        self.assertIn("## C. 目标仓位模拟（计划视图）", report)
+        self.assertIn("## 今日行动摘要", report)
+        self.assertIn("## 当前持仓总览", report)
+        self.assertIn("## 目标仓位模拟（计划视图）", report)
         self.assertIn("- 可用现金: **100,000.00**", report)
         self.assertIn("- 持仓市值: **0.00**", report)
         self.assertIn("- 账户总值: **100,000.00**", report)
@@ -89,7 +89,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("**超长股票名称用于验证表格列宽稳定性与渲染一致性示例股份有限公司(600519)**", report)
         self.assertNotIn("   - 今日动作", report)
 
-        section_a = report.split("## B. 今日建议动作（未执行）")[0]
+        section_a = report.split("## 当前持仓行动清单")[0]
         self.assertNotIn("模拟目标权重", section_a)
 
     @patch("src.notification.get_db")
@@ -99,7 +99,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
 
-        self.assertIn("确定性主动作、目标仓位与模拟调仓金额", report)
+        self.assertIn("今日主动作（确定性/未执行）", report)
         self.assertNotIn("final_decision", report)
         self.assertNotIn("position_action", report)
         self.assertNotIn("target_weight", report)
@@ -116,7 +116,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("逢回调分批买入 \\| 保持纪律 关注成交量变化 · 评分 75 · 震荡上行", report)
+        self.assertIn("量能数据不足（量比/换手率缺失），不做量能结论 · 评分 75 · 震荡上行", report)
         self.assertIn("加仓 · 目标18.00% · 模拟Δ3,200.00", report)
 
         html = markdown_to_html_document(report)
@@ -411,9 +411,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("| 贵州茅台(600519) | 100.00 | 36.00% | 账户快照市值回退 | 是 |", report)
         self.assertIn("| 🟢 **贵州茅台(600519)** | 加仓 · 目标16.00% · 模拟Δ15,000.00 |", report)
         self.assertIn("| 🟢 **贵州茅台(600519)** | 36.00% | 16.00% | 15,000.00 |", report)
-        self.assertIn("## A. 当前账户总览（已执行）", report)
-        self.assertIn("## B. 今日建议动作（未执行）", report)
-        self.assertIn("## C. 目标仓位模拟（计划视图）", report)
+        self.assertIn("## 今日行动摘要", report)
+        self.assertIn("## 当前持仓总览", report)
+        self.assertIn("## 目标仓位模拟（计划视图）", report)
 
     @patch("src.notification.get_db")
     def test_dashboard_section_c_current_weight_uses_same_source_as_section_a(self, mock_get_db) -> None:
@@ -466,6 +466,56 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("执行中 27.27% → 模拟目标 30.00% (Δ8,000.00)", wechat)
         self.assertNotIn("当前已执行权重：5.00%", feishu)
         self.assertNotIn("执行中 5.00% → 模拟目标 30.00% (Δ8,000.00)", wechat)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_renders_failed_block_when_all_analyses_fail(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 100000.0,
+            "holdings": [
+                {"code": "600519", "name": "贵州茅台", "quantity": 10, "market_value": 20000.0},
+            ],
+        }
+        service = self._build_service()
+        failed_a = self._build_result(
+            code="600519",
+            name="贵州茅台",
+            success=False,
+            error_message="数据源超时",
+        )
+        failed_b = self._build_result(
+            code="000858",
+            name="五粮液",
+            success=False,
+            error_message="模型返回空结果",
+        )
+
+        report = service.generate_dashboard_report([failed_a, failed_b], report_date="2026-03-30")
+
+        self.assertIn("## 未覆盖 / 分析失败 / 风险提醒", report)
+        self.assertIn("**分析失败（建议重跑）**", report)
+        self.assertIn("- 贵州茅台(600519)：数据源超时", report)
+        self.assertIn("- 五粮液(000858)：模型返回空结果", report)
+        self.assertIn("**未覆盖持仓**", report)
+        self.assertIn("- 贵州茅台(600519)", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_headline_counts_use_successful_results_when_failures_exist(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100000.0, "holdings": []}
+        service = self._build_service()
+        success_buy = self._build_result(code="600519", final_decision="BUY", position_action="ADD", success=True)
+        failed_hold = self._build_result(
+            code="000858",
+            name="五粮液",
+            final_decision="HOLD",
+            position_action="HOLD",
+            success=False,
+            error_message="上游数据缺失",
+        )
+
+        report = service.generate_dashboard_report([success_buy, failed_hold], report_date="2026-03-30")
+
+        self.assertIn("成功分析 **1** 只 | 失败 **1** 只 | 🟢买入:1 🟡观望:0 🔴卖出:0", report)
+        self.assertNotIn("🟡观望:1", report)
 
     @patch("src.notification.datetime")
     @patch("src.notification.get_db")
@@ -666,13 +716,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             dashboard={"core_conclusion": {"one_sentence": "必须卖出", "time_sensitivity": "今日"}},
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("### 📌 核心结论", report)
-        self.assertIn("**⚪ 持有/观望**", report)
-        self.assertIn("**🧭 主动作（优先执行）**: HOLD | 目标仓位 18.00% | 模拟Δ 3,200.00", report)
-        self.assertIn("**💬 AI补充（非执行）**: AI解读与确定性主动作存在方向冲突，已转为中性说明", report)
-        self.assertIn("> **一句话结论**: AI总结与确定性主动作存在方向冲突，请仅按确定性主动作执行", report)
-        self.assertNotIn("> **一句话结论**: 必须卖出", report)
-        self.assertIn("⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。", report)
+        self.assertIn("## 详细个股附录（非持仓简版）", report)
+        self.assertIn("- ⚪ 贵州茅台(600519)：持有/观望，评分 75，震荡上行。", report)
 
     @patch("src.notification.get_db")
     def test_primary_action_stays_canonical_while_ai_commentary_remains_independent(self, mock_get_db) -> None:
