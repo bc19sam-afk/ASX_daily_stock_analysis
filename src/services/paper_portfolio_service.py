@@ -131,7 +131,7 @@ class PaperPortfolioService:
                     if action not in self.SUPPORTED_ACTIONS:
                         action = "HOLD"
 
-                    pos = working_holdings.setdefault(
+                    pos = working_holdings.get(
                         code,
                         {
                             "code": code,
@@ -143,6 +143,7 @@ class PaperPortfolioService:
                             "status": "CLOSED",
                         },
                     )
+                    is_existing_holding = code in working_holdings
                     before_qty = float(pos.get("quantity") or 0.0)
                     before_avg = float(pos.get("avg_cost") or 0.0)
 
@@ -168,7 +169,7 @@ class PaperPortfolioService:
                         continue
 
                     if action == "HOLD":
-                        if price is not None and math.isfinite(price) and price > 0:
+                        if is_existing_holding and price is not None and math.isfinite(price) and price > 0:
                             pos["current_price"] = price
                             pos["market_value"] = round(before_qty * price, 2)
                             pos["status"] = "OPEN" if before_qty > 0 else "CLOSED"
@@ -248,6 +249,10 @@ class PaperPortfolioService:
 
                     delta_qty = round(target_qty - before_qty, 6)
                     if abs(delta_qty) <= 1e-9:
+                        if is_existing_holding and price is not None and math.isfinite(price) and price > 0:
+                            pos["current_price"] = price
+                            pos["market_value"] = round(before_qty * price, 2)
+                            pos["status"] = "OPEN" if before_qty > 0 else "CLOSED"
                         pending_trades.append(
                             dict(
                             simulation_time=sim_time,
@@ -315,6 +320,7 @@ class PaperPortfolioService:
                     pos["current_price"] = price
                     pos["market_value"] = round(after_qty * price, 2)
                     pos["status"] = status
+                    working_holdings[code] = pos
 
                     pending_trades.append(
                         dict(

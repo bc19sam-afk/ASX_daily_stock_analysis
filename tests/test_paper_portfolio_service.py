@@ -306,6 +306,35 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         overview = self.service.init_from_current(force=True)
         self.assertEqual(overview["snapshot_date"], real_date.isoformat())
 
+    def test_noop_with_valid_price_updates_existing_holding_valuation(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            # REDUCE with target above current => clamp to current => delta=0 (no-op), but price should revalue.
+            {"code": "AAA", "position_action": "REDUCE", "analysis_status": "OK", "current_price": 20.0, "target_quantity": 12},
+        ])
+        holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
+        self.assertEqual(float(holding["quantity"]), 10.0)
+        self.assertEqual(float(holding["current_price"]), 20.0)
+        self.assertEqual(float(holding["market_value"]), 200.0)
+        self.assertEqual(float(overview["equity_value"]), 200.0)
+        self.assertEqual(float(overview["total_value"]), 300.0)
+        self.assertFalse(overview["latest_simulated_trades"][0]["executed"])
+
+    def test_skip_only_new_symbols_do_not_persist_zero_quantity_rows(self):
+        self.service.init_from_current()
+        self.service.apply_analysis_results([
+            {"code": "ZZZ", "position_action": "HOLD", "analysis_status": "OK", "current_price": 10.0},
+            {"code": "YYY", "position_action": "OPEN", "analysis_status": "FAILED", "current_price": 10.0, "target_quantity": 2},
+            {"code": "XXX", "position_action": "OPEN", "analysis_status": "OK", "current_price": 10.0, "target_quantity": "nan"},
+        ])
+        with self.db.get_session() as session:
+            zzz = session.query(PaperPortfolioHolding).filter(PaperPortfolioHolding.code == "ZZZ").first()
+            yyy = session.query(PaperPortfolioHolding).filter(PaperPortfolioHolding.code == "YYY").first()
+            xxx = session.query(PaperPortfolioHolding).filter(PaperPortfolioHolding.code == "XXX").first()
+        self.assertIsNone(zzz)
+        self.assertIsNone(yyy)
+        self.assertIsNone(xxx)
+
 
 if __name__ == "__main__":
     unittest.main()
