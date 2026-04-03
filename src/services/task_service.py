@@ -193,10 +193,11 @@ class TaskService:
 
         try:
             # 延迟导入避免循环依赖
-            from src.config import get_config
+            from src.config import get_config, setup_proxy_from_env
             from src.core.pipeline import StockAnalysisPipeline
 
             logger.info(f"[TaskService] 开始分析股票: {code}")
+            setup_proxy_from_env()
 
             # 创建分析管道
             config = get_config()

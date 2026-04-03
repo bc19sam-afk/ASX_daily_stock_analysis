@@ -22,18 +22,12 @@ A股自选股智能分析系统 - 主调度程序
 - 买点偏好：缩量回踩 MA5/MA10 支撑
 """
 import os
-from src.config import setup_env
+from src.config import setup_env, setup_proxy_from_env
 setup_env()
 
 # 代理配置 - 通过 USE_PROXY 环境变量控制，默认关闭
 # GitHub Actions 环境自动跳过代理配置
-if os.getenv("GITHUB_ACTIONS") != "true" and os.getenv("USE_PROXY", "false").lower() == "true":
-    # 本地开发环境，启用代理（可在 .env 中配置 PROXY_HOST 和 PROXY_PORT）
-    proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
-    proxy_port = os.getenv("PROXY_PORT", "10809")
-    proxy_url = f"http://{proxy_host}:{proxy_port}"
-    os.environ["http_proxy"] = proxy_url
-    os.environ["https_proxy"] = proxy_url
+setup_proxy_from_env()
 
 import argparse
 import logging

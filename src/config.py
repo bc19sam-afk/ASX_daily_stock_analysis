@@ -42,6 +42,28 @@ def setup_env(override: bool = False):
     load_dotenv(dotenv_path=env_path, override=override)
 
 
+def setup_proxy_from_env() -> None:
+    """
+    根据环境变量初始化本地代理设置。
+
+    语义保持与历史 main.py 一致：
+    - 仅当 GITHUB_ACTIONS != "true" 且 USE_PROXY=true 时生效
+    - 默认 PROXY_HOST=127.0.0.1, PROXY_PORT=10809
+    - 同时设置 http_proxy / https_proxy
+    """
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        return
+
+    if os.getenv("USE_PROXY", "false").lower() != "true":
+        return
+
+    proxy_host = os.getenv("PROXY_HOST", "127.0.0.1")
+    proxy_port = os.getenv("PROXY_PORT", "10809")
+    proxy_url = f"http://{proxy_host}:{proxy_port}"
+    os.environ["http_proxy"] = proxy_url
+    os.environ["https_proxy"] = proxy_url
+
+
 @dataclass
 class Config:
     """
