@@ -17,10 +17,56 @@ import time
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
 from json_repair import repair_json
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from src.config import get_config
 
 logger = logging.getLogger(__name__)
+
+
+class CoreConclusionSchema(BaseModel):
+    """dashboard.core_conclusion 最小结构约束。"""
+
+    model_config = ConfigDict(extra="allow")
+    one_sentence: str = Field(min_length=1)
+
+
+class DashboardSchema(BaseModel):
+    """dashboard 最小结构约束。"""
+
+    model_config = ConfigDict(extra="allow")
+    core_conclusion: CoreConclusionSchema
+    data_perspective: Dict[str, Any]
+    intelligence: Dict[str, Any]
+    battle_plan: Dict[str, Any]
+
+    @field_validator("data_perspective", "intelligence", "battle_plan")
+    @classmethod
+    def _validate_non_empty_obj(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(value, dict) or not value:
+            raise ValueError("must be a non-empty object")
+        return value
+
+
+class AnalysisOutputSchema(BaseModel):
+    """进入 AnalysisResult 前的结构化 schema gate。"""
+
+    model_config = ConfigDict(extra="allow")
+    stock_name: str = Field(min_length=1)
+    sentiment_score: int = Field(ge=0, le=100)
+    trend_prediction: str = Field(min_length=1)
+    operation_advice: str = Field(min_length=1)
+    confidence_level: str
+    analysis_summary: str = Field(min_length=1)
+    risk_warning: str = Field(min_length=1)
+    dashboard: Optional[DashboardSchema] = None
+
+    @field_validator("confidence_level")
+    @classmethod
+    def _validate_confidence_level(cls, value: str) -> str:
+        if value not in {"高", "中", "低"}:
+            raise ValueError("confidence_level must be one of: 高/中/低")
+        return value
 
 
 # 股票名称映射（常见股票）
@@ -374,6 +420,7 @@ class GeminiAnalyzer:
 ## 输出格式：决策仪表盘 JSON
 
 请严格按照以下 JSON 格式输出，这是一个完整的【决策仪表盘】：
+并且必须只输出合法 JSON，不要输出任何 JSON 之外的解释文字，关键字段不得缺失。
 
 ```json
 {
@@ -1624,6 +1671,142 @@ class GeminiAnalyzer:
 
         return snapshot
 
+    def _validate_analysis_output(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """schema gate：仅允许通过校验的数据进入 AnalysisResult 映射。"""
+        validated = AnalysisOutputSchema.model_validate(data)
+        return validated.model_dump()
+
+    def _extract_json_data(self, response_text: str) -> Dict[str, Any]:
+        """从响应中提取并修复 JSON，再转为 dict。"""
+        cleaned_text = response_text
+        if '```json' in cleaned_text:
+            cleaned_text = cleaned_text.replace('```json', '').replace('```', '')
+        elif '```' in cleaned_text:
+            cleaned_text = cleaned_text.replace('```', '')
+
+        json_start = cleaned_text.find('{')
+        json_end = cleaned_text.rfind('}') + 1
+        if json_start < 0 or json_end <= json_start:
+            raise ValueError("json block not found")
+
+        json_str = cleaned_text[json_start:json_end]
+        json_str = self._fix_json_string(json_str)
+        return json.loads(json_str)
+
+    def _call_single_attempt_repair(self, prompt: str, generation_config: dict) -> str:
+        """补救路径专用：只发起单次请求，不走全量重试/多 provider fallback。"""
+        if self._use_anthropic and self._anthropic_client:
+            message = self._anthropic_client.messages.create(
+                model=self._current_model_name,
+                max_tokens=generation_config.get("max_output_tokens", 2048),
+                system=self.SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=generation_config.get("temperature", 0.1),
+            )
+            if message.content and len(message.content) > 0 and hasattr(message.content[0], "text"):
+                return message.content[0].text
+            raise ValueError("Anthropic repair returned empty response")
+
+        if self._use_openai and self._openai_client:
+            response = self._openai_client.chat.completions.create(
+                model=self._current_model_name,
+                messages=[
+                    {"role": "system", "content": self.SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=generation_config.get("temperature", 0.1),
+                max_tokens=generation_config.get("max_output_tokens", 2048),
+            )
+            if response and response.choices and response.choices[0].message.content:
+                return response.choices[0].message.content
+            raise ValueError("OpenAI repair returned empty response")
+
+        if self._model is not None:
+            from google.genai import types as genai_types
+
+            response = self._model.models.generate_content(
+                model=self._current_model_name,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    system_instruction=self.SYSTEM_PROMPT,
+                    temperature=generation_config.get("temperature", 0.1),
+                    max_output_tokens=generation_config.get("max_output_tokens", 2048),
+                ),
+            )
+            if response and response.text:
+                return response.text
+            raise ValueError("Gemini repair returned empty response")
+
+        raise ValueError("No available model for one-shot repair")
+
+    def _repair_and_revalidate(self, response_text: str) -> Optional[Dict[str, Any]]:
+        """仅一次定向补救：要求模型修复为合法 JSON 并补齐关键字段。"""
+        repair_prompt = f"""请修复下面内容，仅输出一个合法 JSON 对象，不要输出任何额外文字。
+必须包含字段：stock_name, sentiment_score(0-100), trend_prediction, operation_advice, confidence_level(高/中/低), analysis_summary, risk_warning。
+dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core_conclusion.one_sentence, dashboard.data_perspective, dashboard.intelligence, dashboard.battle_plan。
+
+原始内容如下：
+{response_text}
+"""
+        repair_generation_config = {
+            "temperature": 0.1,
+            "top_p": 0.9,
+            "top_k": 20,
+            "max_output_tokens": 2048,
+        }
+        try:
+            repaired_response = self._call_single_attempt_repair(repair_prompt, repair_generation_config)
+            repaired_data = self._extract_json_data(repaired_response)
+            return self._validate_analysis_output(repaired_data)
+        except Exception as e:
+            logger.warning(f"schema 补救重试失败: {e}")
+            return None
+
+    def _build_schema_fallback_result(
+        self,
+        response_text: str,
+        code: str,
+        name: str,
+        reason: str,
+        parsed_data: Optional[Dict[str, Any]] = None,
+    ) -> AnalysisResult:
+        """schema gate 失败后的安全降级结果。"""
+        safe_data = parsed_data or {}
+
+        def _safe_int_0_100(value: Any) -> Optional[int]:
+            try:
+                score = int(value)
+                return score if 0 <= score <= 100 else None
+            except (TypeError, ValueError):
+                return None
+
+        def _safe_text(value: Any) -> Optional[str]:
+            text = str(value).strip() if value is not None else ""
+            return text if text else None
+
+        stock_name = _safe_text(safe_data.get("stock_name")) or name
+        sentiment_score = _safe_int_0_100(safe_data.get("sentiment_score"))
+        trend_prediction = _safe_text(safe_data.get("trend_prediction"))
+        operation_advice = _safe_text(safe_data.get("operation_advice"))
+        analysis_summary = _safe_text(safe_data.get("analysis_summary"))
+        risk_warning = _safe_text(safe_data.get("risk_warning"))
+
+        return AnalysisResult(
+            code=code,
+            name=stock_name,
+            sentiment_score=sentiment_score if sentiment_score is not None else 50,
+            trend_prediction=trend_prediction if trend_prediction is not None else "震荡",
+            operation_advice=operation_advice if operation_advice is not None else "观望",
+            decision_type="hold",
+            confidence_level="低",
+            analysis_summary=analysis_summary if analysis_summary is not None else "结构化输出校验失败，已降级为保守结果。",
+            risk_warning=risk_warning if risk_warning is not None else "结构化输出未通过校验，请谨慎参考。",
+            key_points="schema gate 失败，触发保守降级",
+            raw_response=response_text,
+            success=False,
+            error_message=reason,
+        )
+
     def _parse_response(
         self, 
         response_text: str, 
@@ -1637,111 +1820,107 @@ class GeminiAnalyzer:
         如果解析失败，尝试智能提取或返回默认结果
         """
         try:
-            # 清理响应文本：移除 markdown 代码块标记
-            cleaned_text = response_text
-            if '```json' in cleaned_text:
-                cleaned_text = cleaned_text.replace('```json', '').replace('```', '')
-            elif '```' in cleaned_text:
-                cleaned_text = cleaned_text.replace('```', '')
-            
-            # 尝试找到 JSON 内容
-            json_start = cleaned_text.find('{')
-            json_end = cleaned_text.rfind('}') + 1
-            
-            if json_start >= 0 and json_end > json_start:
-                json_str = cleaned_text[json_start:json_end]
-                
-                # 尝试修复常见的 JSON 问题
-                json_str = self._fix_json_string(json_str)
-                
-                data = json.loads(json_str)
-                
-                # 提取 dashboard 数据
-                dashboard = data.get('dashboard', None)
+            data = self._extract_json_data(response_text)
+            try:
+                data = self._validate_analysis_output(data)
+            except ValidationError as schema_error:
+                logger.warning(f"schema 校验失败，尝试一次定向补救: {schema_error}")
+                repaired_data = self._repair_and_revalidate(response_text)
+                if repaired_data is None:
+                    return self._build_schema_fallback_result(
+                        response_text=response_text,
+                        code=code,
+                        name=name,
+                        reason=f"schema 校验失败: {schema_error}",
+                        parsed_data=data,
+                    )
+                data = repaired_data
 
-                # 优先使用 AI 返回的股票名称（如果原名称无效或包含代码）
-                ai_stock_name = data.get('stock_name')
-                if ai_stock_name and (name.startswith('股票') or name == code or 'Unknown' in name):
-                    name = ai_stock_name
+            # 提取 dashboard 数据
+            dashboard = data.get('dashboard', None)
 
-                # 解析所有字段，使用默认值防止缺失
-                # 解析 decision_type，如果没有则根据 operation_advice 推断
-                decision_type = data.get('decision_type', '')
-                if not decision_type:
-                    op = data.get('operation_advice', '持有')
-                    if op in ['买入', '加仓', '强烈买入']:
-                        decision_type = 'buy'
-                    elif op in ['卖出', '减仓', '强烈卖出']:
-                        decision_type = 'sell'
-                    else:
-                        decision_type = 'hold'
+            # 优先使用 AI 返回的股票名称（如果原名称无效或包含代码）
+            ai_stock_name = data.get('stock_name')
+            if ai_stock_name and (name.startswith('股票') or name == code or 'Unknown' in name):
+                name = ai_stock_name
 
-                # Overlay 因子（原始提取状态允许 UNKNOWN）
-                news_sentiment_raw = self._normalize_enum(
-                    data.get('news_sentiment'),
-                    {"POS", "NEU", "NEG"},
-                    default="UNKNOWN",
-                )
-                event_risk_raw = self._normalize_enum(
-                    data.get('event_risk'),
-                    {"LOW", "MEDIUM", "HIGH"},
-                    default="UNKNOWN",
-                )
-                sector_tone_raw = self._normalize_enum(
-                    data.get('sector_tone'),
-                    {"POS", "NEU", "NEG"},
-                    default="UNKNOWN",
-                )
-                
-                return AnalysisResult(
-                    code=code,
-                    name=name,
-                    # 核心指标
-                    sentiment_score=int(data.get('sentiment_score', 50)),
-                    trend_prediction=data.get('trend_prediction', '震荡'),
-                    operation_advice=data.get('operation_advice', '持有'),
-                    decision_type=decision_type,
-                    confidence_level=data.get('confidence_level', '中'),
-                    news_sentiment=self._fold_unknown(news_sentiment_raw, fallback="NEU"),
-                    event_risk=self._fold_unknown(event_risk_raw, fallback="MEDIUM"),
-                    sector_tone=self._fold_unknown(sector_tone_raw, fallback="NEU"),
-                    news_sentiment_raw=news_sentiment_raw,
-                    event_risk_raw=event_risk_raw,
-                    sector_tone_raw=sector_tone_raw,
-                    # 决策仪表盘
-                    dashboard=dashboard,
-                    # 走势分析
-                    trend_analysis=data.get('trend_analysis', ''),
-                    short_term_outlook=data.get('short_term_outlook', ''),
-                    medium_term_outlook=data.get('medium_term_outlook', ''),
-                    # 技术面
-                    technical_analysis=data.get('technical_analysis', ''),
-                    ma_analysis=data.get('ma_analysis', ''),
-                    volume_analysis=data.get('volume_analysis', ''),
-                    pattern_analysis=data.get('pattern_analysis', ''),
-                    # 基本面
-                    fundamental_analysis=data.get('fundamental_analysis', ''),
-                    sector_position=data.get('sector_position', ''),
-                    company_highlights=data.get('company_highlights', ''),
-                    # 情绪面/消息面
-                    news_summary=data.get('news_summary', ''),
-                    market_sentiment=data.get('market_sentiment', ''),
-                    hot_topics=data.get('hot_topics', ''),
-                    # 综合
-                    analysis_summary=data.get('analysis_summary', '分析完成'),
-                    key_points=data.get('key_points', ''),
-                    risk_warning=data.get('risk_warning', ''),
-                    buy_reason=data.get('buy_reason', ''),
-                    # 元数据
-                    search_performed=data.get('search_performed', False),
-                    data_sources=data.get('data_sources', '技术面数据'),
-                    success=True,
-                )
-            else:
-                # 没有找到 JSON，尝试从纯文本中提取信息
-                logger.warning(f"无法从响应中提取 JSON，使用原始文本分析")
-                return self._parse_text_response(response_text, code, name)
-                
+            # 解析所有字段，使用默认值防止缺失
+            # 解析 decision_type，如果没有则根据 operation_advice 推断
+            decision_type = data.get('decision_type', '')
+            if not decision_type:
+                op = data.get('operation_advice', '持有')
+                if op in ['买入', '加仓', '强烈买入']:
+                    decision_type = 'buy'
+                elif op in ['卖出', '减仓', '强烈卖出']:
+                    decision_type = 'sell'
+                else:
+                    decision_type = 'hold'
+
+            # Overlay 因子（原始提取状态允许 UNKNOWN）
+            news_sentiment_raw = self._normalize_enum(
+                data.get('news_sentiment'),
+                {"POS", "NEU", "NEG"},
+                default="UNKNOWN",
+            )
+            event_risk_raw = self._normalize_enum(
+                data.get('event_risk'),
+                {"LOW", "MEDIUM", "HIGH"},
+                default="UNKNOWN",
+            )
+            sector_tone_raw = self._normalize_enum(
+                data.get('sector_tone'),
+                {"POS", "NEU", "NEG"},
+                default="UNKNOWN",
+            )
+
+            return AnalysisResult(
+                code=code,
+                name=name,
+                # 核心指标
+                sentiment_score=int(data.get('sentiment_score', 50)),
+                trend_prediction=data.get('trend_prediction', '震荡'),
+                operation_advice=data.get('operation_advice', '持有'),
+                decision_type=decision_type,
+                confidence_level=data.get('confidence_level', '中'),
+                news_sentiment=self._fold_unknown(news_sentiment_raw, fallback="NEU"),
+                event_risk=self._fold_unknown(event_risk_raw, fallback="MEDIUM"),
+                sector_tone=self._fold_unknown(sector_tone_raw, fallback="NEU"),
+                news_sentiment_raw=news_sentiment_raw,
+                event_risk_raw=event_risk_raw,
+                sector_tone_raw=sector_tone_raw,
+                # 决策仪表盘
+                dashboard=dashboard,
+                # 走势分析
+                trend_analysis=data.get('trend_analysis', ''),
+                short_term_outlook=data.get('short_term_outlook', ''),
+                medium_term_outlook=data.get('medium_term_outlook', ''),
+                # 技术面
+                technical_analysis=data.get('technical_analysis', ''),
+                ma_analysis=data.get('ma_analysis', ''),
+                volume_analysis=data.get('volume_analysis', ''),
+                pattern_analysis=data.get('pattern_analysis', ''),
+                # 基本面
+                fundamental_analysis=data.get('fundamental_analysis', ''),
+                sector_position=data.get('sector_position', ''),
+                company_highlights=data.get('company_highlights', ''),
+                # 情绪面/消息面
+                news_summary=data.get('news_summary', ''),
+                market_sentiment=data.get('market_sentiment', ''),
+                hot_topics=data.get('hot_topics', ''),
+                # 综合
+                analysis_summary=data.get('analysis_summary', '分析完成'),
+                key_points=data.get('key_points', ''),
+                risk_warning=data.get('risk_warning', ''),
+                buy_reason=data.get('buy_reason', ''),
+                # 元数据
+                search_performed=data.get('search_performed', False),
+                data_sources=data.get('data_sources', '技术面数据'),
+                success=True,
+            )
+        
+        except ValueError as e:
+            logger.warning(f"无法从响应中提取 JSON: {e}，使用原始文本分析")
+            return self._parse_text_response(response_text, code, name)
         except json.JSONDecodeError as e:
             logger.warning(f"JSON 解析失败: {e}，尝试从文本提取")
             return self._parse_text_response(response_text, code, name)
