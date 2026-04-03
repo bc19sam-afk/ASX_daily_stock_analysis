@@ -31,13 +31,13 @@ class AnalyzeRequest(BaseModel):
     
     stock_code: Optional[str] = Field(
         None, 
-        description="单只股票代码", 
+        description="单只股票代码（当前一次只支持一只股票）", 
         example="600519"
     )
     stock_codes: Optional[List[str]] = Field(
         None, 
-        description="多只股票代码（与 stock_code 二选一）",
-        example=["600519", "000858"]
+        description="兼容字段：当前仅支持单元素列表（与 stock_code 二选一）",
+        example=["600519"]
     )
     report_type: str = Field(
         "full",
@@ -62,6 +62,7 @@ class AnalyzeRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "stock_code": "600519",
+                "stock_codes": ["600519"],
                 "report_type": "full",
                 "force_refresh": False,
                 "async_mode": False

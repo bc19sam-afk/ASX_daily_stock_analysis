@@ -107,7 +107,7 @@ docker compose -f docker/docker-compose.yml up -d
 
 ## 已知限制（基于当前代码）
 
-- `POST /api/v1/analysis/analyze` 接受 `stock_codes`，但当前单次请求仅处理该列表中的第一只股票。
+- `POST /api/v1/analysis/analyze` 当前单次请求仅支持一只股票：可使用 `stock_code`，或使用仅含一个元素的 `stock_codes` 兼容传参。若提供多个去重后股票代码，接口会返回 `400 validation_error` 并提示拆分为多次请求。
 - 当 `GITHUB_ACTIONS=true` 时，`main.py` 中 API 服务启动逻辑会按设计不启动。
 - 默认分析模式对账户状态为只读（`ANALYSIS_READ_ONLY=true`），因此常规分析会计算建议，但除非显式关闭该设置，否则不会写入真实账户变更。
 - 图片提取接口只接受一个上传文件（`file`），并带有 MIME 类型限制与 5MB 大小限制。
