@@ -1480,6 +1480,9 @@ class GeminiAnalyzer:
 
     def _is_abnormal_fundamental_value(self, key: str, value: Any) -> bool:
         k = (key or "").strip().lower()
+        if not self._is_guarded_numeric_fundamental_key(k):
+            return False
+
         numeric = self._parse_fundamental_number(value)
         if numeric is None:
             return True
@@ -1499,6 +1502,21 @@ class GeminiAnalyzer:
         if "负债权益比" in k or "debt" in k:
             return numeric < 0 or numeric > 1000
 
+        return False
+
+    def _is_guarded_numeric_fundamental_key(self, key: str) -> bool:
+        if key in {"pe", "市盈率", "pb", "市净率"}:
+            return True
+        if "股息率" in key or "dividend" in key or "yield" in key:
+            return True
+        if "增速" in key or "growth" in key:
+            return True
+        if "payout" in key or "派息率" in key or "分红率" in key:
+            return True
+        if "roe" in key or "净资产收益率" in key:
+            return True
+        if "负债权益比" in key or "debt" in key:
+            return True
         return False
 
     def _apply_fundamental_sanitization_guard(
