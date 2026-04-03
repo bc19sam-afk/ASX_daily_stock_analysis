@@ -51,6 +51,9 @@ def setup_proxy_from_env() -> None:
     - 默认 PROXY_HOST=127.0.0.1, PROXY_PORT=10809
     - 同时设置 http_proxy / https_proxy
     """
+    # 确保 .env 中的 USE_PROXY/PROXY_HOST/PROXY_PORT 已加载
+    setup_env()
+
     if os.getenv("GITHUB_ACTIONS") == "true":
         return
 

@@ -1,7 +1,9 @@
 import logging
 import os
+from pathlib import Path
 
 from src.enums import ReportType
+from src.config import setup_proxy_from_env
 from src.services import task_service
 
 
@@ -52,3 +54,24 @@ def test_task_service_run_analysis_applies_proxy_env_without_main(monkeypatch):
     svc = task_service.TaskService()
     result = svc._run_analysis("BHP.AX", "task_proxy", ReportType.SIMPLE)
     assert result["success"] is False
+
+
+def test_setup_proxy_from_env_loads_values_from_dotenv(monkeypatch, tmp_path: Path):
+    env_file = tmp_path / ".env.proxy.test"
+    env_file.write_text(
+        "USE_PROXY=true\nPROXY_HOST=192.168.1.8\nPROXY_PORT=18888\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("ENV_FILE", str(env_file))
+    monkeypatch.setenv("GITHUB_ACTIONS", "false")
+    monkeypatch.delenv("USE_PROXY", raising=False)
+    monkeypatch.delenv("PROXY_HOST", raising=False)
+    monkeypatch.delenv("PROXY_PORT", raising=False)
+    monkeypatch.delenv("http_proxy", raising=False)
+    monkeypatch.delenv("https_proxy", raising=False)
+
+    setup_proxy_from_env()
+
+    assert os.environ["http_proxy"] == "http://192.168.1.8:18888"
+    assert os.environ["https_proxy"] == "http://192.168.1.8:18888"
