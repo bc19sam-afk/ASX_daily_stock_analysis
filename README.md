@@ -136,7 +136,7 @@ Current outputs on `main`:
 
 ## Known limitations (from current code)
 
-- `POST /api/v1/analysis/analyze` accepts `stock_codes`, but currently processes only the first code in that list in one request.
+- `POST /api/v1/analysis/analyze` currently supports exactly one stock per request: use `stock_code`, or provide `stock_codes` as a single-element compatibility list. If multiple unique codes are provided, the API returns `400 validation_error` and asks clients to split into multiple requests.
 - API service bootstrap in `main.py` intentionally does not start when `GITHUB_ACTIONS=true`.
 - Default analysis mode is read-only for account state (`ANALYSIS_READ_ONLY=true`), so normal analysis computes recommendations without writing real account changes unless explicitly disabled.
 - Image extraction endpoint accepts only one uploaded file (`file`) with MIME type restrictions and a 5MB size limit.

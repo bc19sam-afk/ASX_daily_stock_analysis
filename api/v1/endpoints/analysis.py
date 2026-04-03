@@ -70,7 +70,11 @@ router = APIRouter()
         500: {"description": "分析失败", "model": ErrorResponse},
     },
     summary="触发股票分析",
-    description="启动 AI 智能分析任务，支持同步和异步模式。异步模式下相同股票代码不允许重复提交。"
+    description=(
+        "启动 AI 智能分析任务，支持同步和异步模式。"
+        "当前单次请求只支持一只股票；stock_codes 仅用于兼容单元素列表。"
+        "异步模式下相同股票代码不允许重复提交。"
+    )
 )
 def trigger_analysis(
         request: AnalyzeRequest,
@@ -79,7 +83,7 @@ def trigger_analysis(
     """
     触发股票分析
     
-    启动 AI 智能分析任务，支持单只或多只股票批量分析
+    启动 AI 智能分析任务，当前一次仅支持单只股票分析（stock_codes 仅兼容单元素列表）
     
     流程：
     1. 校验请求参数
@@ -117,7 +121,15 @@ def trigger_analysis(
 
     # 去重
     stock_codes = list(dict.fromkeys(stock_codes))
-    stock_code = stock_codes[0]  # 当前只处理第一个
+    if len(stock_codes) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "validation_error",
+                "message": "当前一次只支持分析一只股票，请拆分为多次请求提交"
+            }
+        )
+    stock_code = stock_codes[0]
 
     # 异步模式：使用任务队列
     if request.async_mode:
