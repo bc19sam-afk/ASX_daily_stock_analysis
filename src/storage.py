@@ -471,6 +471,79 @@ class TradeJournal(Base):
     )
 
 
+class PaperPortfolioState(Base):
+    """模拟盘账户状态（单行）。"""
+
+    __tablename__ = "paper_portfolio_state"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    initialized = Column(Boolean, nullable=False, default=False)
+    seeded_from_snapshot_date = Column(Date)
+    seeded_from_note = Column(String(255))
+    initialized_at = Column(DateTime, default=datetime.now, index=True)
+    last_simulation_time = Column(DateTime)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class PaperPortfolioHolding(Base):
+    """模拟盘当前持仓。"""
+
+    __tablename__ = "paper_portfolio_holdings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(10), nullable=False, unique=True, index=True)
+    name = Column(String(50))
+    quantity = Column(Float, nullable=False, default=0.0)
+    avg_cost = Column(Float, nullable=False, default=0.0)
+    current_price = Column(Float)
+    market_value = Column(Float, nullable=False, default=0.0)
+    weight = Column(Float, nullable=False, default=0.0)
+    status = Column(String(16), nullable=False, default="OPEN")
+    opened_at = Column(DateTime)
+    closed_at = Column(DateTime)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class PaperPortfolioSnapshot(Base):
+    """模拟盘账户快照。"""
+
+    __tablename__ = "paper_portfolio_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    snapshot_date = Column(Date, nullable=False, index=True)
+    cash = Column(Float, nullable=False, default=0.0)
+    equity_value = Column(Float, nullable=False, default=0.0)
+    total_value = Column(Float, nullable=False, default=0.0)
+    note = Column(String(255))
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("snapshot_date", name="uix_paper_portfolio_snapshot_date"),
+    )
+
+
+class PaperPortfolioTrade(Base):
+    """模拟盘执行日志（含跳过原因）。"""
+
+    __tablename__ = "paper_portfolio_trades"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    simulation_time = Column(DateTime, default=datetime.now, index=True)
+    code = Column(String(10), nullable=False, index=True)
+    action = Column(String(16), nullable=False)  # OPEN/ADD/REDUCE/CLOSE/HOLD/SKIP
+    analysis_status = Column(String(16))
+    executed = Column(Boolean, nullable=False, default=False)
+    target_weight = Column(Float)
+    target_quantity = Column(Float)
+    before_quantity = Column(Float, default=0.0)
+    after_quantity = Column(Float, default=0.0)
+    price = Column(Float)
+    cash_before = Column(Float, default=0.0)
+    cash_after = Column(Float, default=0.0)
+    reason = Column(Text)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
@@ -1690,6 +1763,92 @@ class DatabaseManager:
             "equity_value": equity_value,
             "total_value": total_value,
             "holdings": holdings,
+        }
+
+    def get_latest_paper_snapshot_in_session(self, session: Session) -> Optional[PaperPortfolioSnapshot]:
+        """在给定 session 中获取最新模拟盘快照。"""
+        return session.execute(
+            select(PaperPortfolioSnapshot)
+            .order_by(desc(PaperPortfolioSnapshot.snapshot_date), desc(PaperPortfolioSnapshot.created_at))
+            .limit(1)
+        ).scalar_one_or_none()
+
+    def get_paper_portfolio_state(self) -> Optional[PaperPortfolioState]:
+        """获取模拟盘状态。"""
+        with self.get_session() as session:
+            return session.execute(
+                select(PaperPortfolioState).order_by(desc(PaperPortfolioState.id)).limit(1)
+            ).scalar_one_or_none()
+
+    def get_paper_portfolio_overview(self) -> Dict[str, Any]:
+        """获取模拟盘汇总。"""
+        with self.get_session() as session:
+            state = session.execute(
+                select(PaperPortfolioState).order_by(desc(PaperPortfolioState.id)).limit(1)
+            ).scalar_one_or_none()
+            latest = self.get_latest_paper_snapshot_in_session(session)
+            positions = session.execute(
+                select(PaperPortfolioHolding)
+                .where(PaperPortfolioHolding.status == "OPEN")
+                .order_by(desc(PaperPortfolioHolding.market_value))
+            ).scalars().all()
+            trades = session.execute(
+                select(PaperPortfolioTrade)
+                .order_by(desc(PaperPortfolioTrade.simulation_time), desc(PaperPortfolioTrade.id))
+                .limit(20)
+            ).scalars().all()
+
+        cash = round(float(latest.cash or 0.0), 2) if latest else 0.0
+        equity_value = round(sum(float(p.market_value or 0.0) for p in positions), 2)
+        total_value = round(cash + equity_value, 2)
+        holdings: List[Dict[str, Any]] = []
+        for p in positions:
+            market_value = float(p.market_value or 0.0)
+            holdings.append(
+                {
+                    "code": p.code,
+                    "name": p.name,
+                    "quantity": float(p.quantity or 0.0),
+                    "avg_cost": float(p.avg_cost or 0.0),
+                    "current_price": p.current_price,
+                    "market_value": market_value,
+                    "weight": round(market_value / total_value, 6) if total_value > 0 else 0.0,
+                }
+            )
+
+        return {
+            "initialized": bool(state.initialized) if state else False,
+            "snapshot_date": latest.snapshot_date.isoformat() if latest else None,
+            "cash": cash,
+            "equity_value": equity_value,
+            "total_value": total_value,
+            "holdings": holdings,
+            "latest_simulated_trades": [
+                {
+                    "code": t.code,
+                    "action": t.action,
+                    "analysis_status": t.analysis_status,
+                    "executed": bool(t.executed),
+                    "target_weight": t.target_weight,
+                    "target_quantity": t.target_quantity,
+                    "before_quantity": t.before_quantity,
+                    "after_quantity": t.after_quantity,
+                    "price": t.price,
+                    "reason": t.reason,
+                    "simulation_time": t.simulation_time.isoformat() if t.simulation_time else None,
+                }
+                for t in trades
+            ],
+            "last_simulation_time": state.last_simulation_time.isoformat()
+            if state and state.last_simulation_time
+            else None,
+            "seed_source": {
+                "source": "current_real_portfolio_snapshot" if state and state.initialized else None,
+                "snapshot_date": state.seeded_from_snapshot_date.isoformat()
+                if state and state.seeded_from_snapshot_date
+                else None,
+                "note": state.seeded_from_note if state else None,
+            },
         }
 
     def get_analysis_context(
