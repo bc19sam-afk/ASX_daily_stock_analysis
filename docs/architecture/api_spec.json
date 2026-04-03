@@ -83,7 +83,7 @@
           "Analysis"
         ],
         "summary": "触发股票分析",
-        "description": "启动 AI 智能分析任务，支持单只或多只股票批量分析",
+        "description": "启动 AI 智能分析任务，支持同步和异步模式。当前单次请求只支持一只股票；stock_codes 仅用于兼容单元素列表。若同时提交多个股票代码将返回 400 validation_error。",
         "operationId": "triggerAnalysis",
         "requestBody": {
           "required": true,
@@ -611,28 +611,28 @@
         "properties": {
           "stock_code": {
             "type": "string",
-            "description": "单只股票代码",
+            "description": "单只股票代码（当前一次只支持一只股票）",
             "example": "600519"
           },
           "stock_codes": {
             "type": "array",
-            "description": "多只股票代码（与 stock_code 二选一）",
+            "description": "兼容字段：当前仅支持单元素列表（与 stock_code 二选一）",
             "items": {
               "type": "string"
             },
             "example": [
-              "600519",
-              "000858"
+              "600519"
             ]
           },
           "report_type": {
             "type": "string",
             "enum": [
               "simple",
+              "full",
               "detailed"
             ],
-            "default": "detailed",
-            "description": "报告类型"
+            "default": "full",
+            "description": "报告类型（simple/full，兼容 detailed）"
           },
           "force_refresh": {
             "type": "boolean",
@@ -644,6 +644,15 @@
             "default": false,
             "description": "是否使用异步模式"
           }
+        },
+        "example": {
+          "stock_code": "600519",
+          "stock_codes": [
+            "600519"
+          ],
+          "report_type": "full",
+          "force_refresh": false,
+          "async_mode": false
         }
       },
       "AnalysisResult": {
@@ -771,9 +780,9 @@
             "type": "string",
             "enum": [
               "simple",
-              "detailed"
+              "full"
             ],
-            "description": "报告类型"
+            "description": "报告类型（标准化后仅为 simple/full）"
           },
           "created_at": {
             "type": "string",
