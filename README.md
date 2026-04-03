@@ -16,6 +16,7 @@ The current `main` branch is organized into these modules:
 - **Domain services**
   - `src/services/analysis_service.py`: analysis service used by API/task layer.
   - `src/services/task_service.py` + `src/services/task_queue.py`: async task submission/execution for API mode.
+    - API async path uses `AnalysisTaskQueue`; `TaskService` remains only for legacy compatibility.
   - `src/services/history_service.py`, `src/services/backtest_service.py`, `src/services/stock_service.py`, `src/services/system_config_service.py`.
 
 - **Storage & repositories**

@@ -16,6 +16,7 @@ Daily Stock Analysis 是一个基于 Python 的股票分析与报告系统，整
 - **领域服务**
   - `src/services/analysis_service.py`：供 API/任务层使用的分析服务。
   - `src/services/task_service.py` + `src/services/task_queue.py`：API 模式下的异步任务提交/执行。
+    - API 异步路径使用 `AnalysisTaskQueue`；`TaskService` 仅保留为 legacy 兼容层。
   - `src/services/history_service.py`、`src/services/backtest_service.py`、`src/services/stock_service.py`、`src/services/system_config_service.py`。
 
 - **存储与仓储层**
