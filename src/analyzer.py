@@ -238,6 +238,7 @@ class AnalysisResult:
     search_performed: bool = False  # 是否执行了联网搜索
     data_sources: str = ""  # 数据来源说明
     success: bool = True
+    analysis_status: str = "OK"  # OK/DEGRADED/FAILED
     error_message: Optional[str] = None
 
     # ========== 价格数据（分析时快照）==========
@@ -293,6 +294,7 @@ class AnalysisResult:
             'market_snapshot': self.market_snapshot,
             'search_performed': self.search_performed,
             'success': self.success,
+            'analysis_status': self.analysis_status,
             'error_message': self.error_message,
         }
 
@@ -1089,6 +1091,7 @@ class GeminiAnalyzer:
                 analysis_summary='AI 分析功能未启用（未配置 API Key）',
                 risk_warning='请配置 Gemini API Key 后重试',
                 success=False,
+                analysis_status='FAILED',
                 error_message='Gemini API Key 未配置',
             )
         
@@ -1165,6 +1168,7 @@ class GeminiAnalyzer:
                 analysis_summary=f'分析过程出错: {str(e)[:100]}',
                 risk_warning='分析失败，请稍后重试或手动分析',
                 success=False,
+                analysis_status='FAILED',
                 error_message=str(e),
             )
     
@@ -1803,7 +1807,8 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
             risk_warning=risk_warning if risk_warning is not None else "结构化输出未通过校验，请谨慎参考。",
             key_points="schema gate 失败，触发保守降级",
             raw_response=response_text,
-            success=False,
+            success=True,
+            analysis_status='DEGRADED',
             error_message=reason,
         )
 
@@ -1916,6 +1921,7 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
                 search_performed=data.get('search_performed', False),
                 data_sources=data.get('data_sources', '技术面数据'),
                 success=True,
+                analysis_status='OK',
             )
         
         except ValueError as e:
@@ -2001,6 +2007,7 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
             risk_warning='分析结果可能不准确，建议结合其他信息判断',
             raw_response=response_text,
             success=True,
+            analysis_status='DEGRADED',
         )
 
     @staticmethod

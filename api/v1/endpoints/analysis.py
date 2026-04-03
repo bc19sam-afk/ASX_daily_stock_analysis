@@ -455,12 +455,14 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     stock_name=record.name,
                     report_type=getattr(record, 'report_type', None),
                     created_at=record.created_at.isoformat() if record.created_at else None,
+                    analysis_status=getattr(record, 'analysis_status', None) or "OK",
                 ),
                 summary=ReportSummary(
                     sentiment_score=record.sentiment_score,
                     operation_advice=record.operation_advice,
                     trend_prediction=record.trend_prediction,
                     analysis_summary=record.analysis_summary,
+                    analysis_status=getattr(record, 'analysis_status', None) or "OK",
                     alpha_decision=getattr(record, "alpha_decision", None),
                     final_decision=getattr(record, "final_decision", None),
                     watchlist_state=getattr(record, "watchlist_state", None),
@@ -546,11 +548,13 @@ def _build_analysis_report(
         created_at=meta_data.get("created_at", datetime.now().isoformat()),
         current_price=meta_data.get("current_price"),
         change_pct=meta_data.get("change_pct"),
+        analysis_status=meta_data.get("analysis_status") or summary_data.get("analysis_status"),
     )
 
     summary = ReportSummary(
         analysis_summary=summary_data.get("analysis_summary"),
         operation_advice=summary_data.get("operation_advice"),
+        analysis_status=summary_data.get("analysis_status") or meta_data.get("analysis_status"),
         trend_prediction=summary_data.get("trend_prediction"),
         sentiment_score=summary_data.get("sentiment_score"),
         sentiment_label=summary_data.get("sentiment_label"),

@@ -128,10 +128,12 @@ class AnalysisService:
                 "report_type": report_type.value,
                 "current_price": result.current_price,
                 "change_pct": result.change_pct,
+                "analysis_status": getattr(result, "analysis_status", "OK" if getattr(result, "success", True) else "FAILED"),
             },
             "summary": {
                 "analysis_summary": result.analysis_summary,
                 "operation_advice": result.operation_advice,
+                "analysis_status": getattr(result, "analysis_status", "OK" if getattr(result, "success", True) else "FAILED"),
                 "position_action": getattr(result, "position_action", "HOLD"),
                 "trend_prediction": result.trend_prediction,
                 "sentiment_score": result.sentiment_score,
