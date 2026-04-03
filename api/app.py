@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -163,7 +163,14 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
         async def serve_spa(request: Request, full_path: str):
             """SPA 路由回退 - 非 API 路由返回 index.html"""
             if full_path.startswith("api/"):
-                return None
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "error": "not_found",
+                        "message": "API endpoint not found",
+                        "detail": None,
+                    },
+                )
             
             file_path = static_dir / full_path
             if file_path.exists() and file_path.is_file():
