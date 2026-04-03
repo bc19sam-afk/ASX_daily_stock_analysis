@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-异步任务服务层
+异步任务服务层（Legacy Compatibility Layer）
 ===================================
 
 职责：
@@ -10,6 +10,10 @@
 3. 查询任务状态和历史
 
 迁移自 web/services.py 的 AnalysisService 类
+
+Legacy 声明：
+- TaskService is legacy / compatibility only.
+- New API async flows should use AnalysisTaskQueue.
 """
 
 from __future__ import annotations
@@ -25,11 +29,32 @@ from src.storage import get_db
 from bot.models import BotMessage
 
 logger = logging.getLogger(__name__)
+_LEGACY_WARNING_EMITTED = False
+_LEGACY_WARNING_LOCK = threading.Lock()
+
+
+def _warn_legacy_once() -> None:
+    """仅一次提示 TaskService 处于 legacy 兼容层状态。"""
+    global _LEGACY_WARNING_EMITTED
+    if _LEGACY_WARNING_EMITTED:
+        return
+
+    with _LEGACY_WARNING_LOCK:
+        if _LEGACY_WARNING_EMITTED:
+            return
+        logger.warning(
+            "[TaskService] Legacy compatibility layer only. "
+            "New API async flows should use AnalysisTaskQueue."
+        )
+        _LEGACY_WARNING_EMITTED = True
 
 
 class TaskService:
     """
-    异步任务服务
+    异步任务服务（Legacy Compatibility Layer）
+
+    TaskService is legacy / compatibility only.
+    New API async flows should use AnalysisTaskQueue.
 
     负责：
     1. 管理异步分析任务
@@ -86,6 +111,8 @@ class TaskService:
         Returns:
             任务信息字典
         """
+        _warn_legacy_once()
+
         # 确保 report_type 是枚举类型
         if isinstance(report_type, str):
             report_type = ReportType.normalize(report_type)
@@ -167,7 +194,7 @@ class TaskService:
         try:
             # 延迟导入避免循环依赖
             from src.config import get_config
-            from main import StockAnalysisPipeline
+            from src.core.pipeline import StockAnalysisPipeline
 
             logger.info(f"[TaskService] 开始分析股票: {code}")
 
@@ -240,4 +267,5 @@ class TaskService:
 
 def get_task_service() -> TaskService:
     """获取任务服务单例"""
+    _warn_legacy_once()
     return TaskService.get_instance()
