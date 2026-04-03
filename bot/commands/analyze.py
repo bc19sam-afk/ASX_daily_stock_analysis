@@ -76,24 +76,35 @@ class AnalyzeCommand(BotCommand):
         
         try:
             # 调用分析服务
-            from src.services.task_service import get_task_service
+            from src.services.task_queue import get_task_queue, DuplicateTaskError
             from src.enums import ReportType
             
-            service = get_task_service()
+            task_queue = get_task_queue()
             
             # 提交异步分析任务
-            result = service.submit_analysis(
-                code=code,
-                report_type=ReportType.from_str(report_type),
-                source_message=message
-            )
+            normalized_report_type = ReportType.from_str(report_type)
+            try:
+                task = task_queue.submit_task(
+                    stock_code=code,
+                    report_type=normalized_report_type.value,
+                )
+                task_id = task.task_id
+            except DuplicateTaskError as e:
+                # 与 legacy 行为对齐：重复提交仍视为已提交，复用已存在任务 ID
+                task_id = e.existing_task_id
+
+            result = {
+                "success": True,
+                "task_id": task_id,
+                "report_type": normalized_report_type.value,
+            }
             
             if result.get("success"):
                 task_id = result.get("task_id", "")
                 return BotResponse.markdown_response(
                     f"✅ **分析任务已提交**\n\n"
                     f"• 股票代码: `{code}`\n"
-                    f"• 报告类型: {ReportType.from_str(report_type).display_name}\n"
+                    f"• 报告类型: {normalized_report_type.display_name}\n"
                     f"• 任务 ID: `{task_id[:20]}...`\n\n"
                     f"分析完成后将自动推送结果。"
                 )
