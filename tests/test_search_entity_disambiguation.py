@@ -199,6 +199,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="US CBA stock jumps",
                     url="https://example.com/wrong",
                     source="example.com",
+                    published_date="2026-04-02",
                 )
             ],
             provider="p1",
@@ -212,6 +213,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="Commonwealth Bank of Australia advances",
                     url="https://example.com/right",
                     source="example.com",
+                    published_date="2026-04-02",
                 )
             ],
             provider="p2",
@@ -246,6 +248,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="US CBA ticker",
                     url="https://example.com/wrong-dim",
                     source="example.com",
+                    published_date="2026-04-02",
                 )
             ],
             provider="p1",
@@ -259,6 +262,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="Commonwealth Bank of Australia coverage",
                     url="https://example.com/right-dim",
                     source="example.com",
+                    published_date="2026-04-02",
                 )
             ],
             provider="p2",
@@ -286,6 +290,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="Program details released without ticker symbol mention",
                     url="https://example.com/latest-name-only",
                     source="example.com",
+                    published_date="2026-04-02",
                 )
             ],
             provider="p1",
@@ -346,6 +351,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="Commonwealth Bank of Australia remains resilient",
                     url="https://example.com/cached-right",
                     source="example.com",
+                    published_date="2026-04-02",
                 )
             ],
             provider="p1",
@@ -372,6 +378,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="US listing CBA up",
                     url="https://example.com/wrong1",
                     source="example.com",
+                    published_date="2026-04-02",
                 )
             ],
             provider="p1",
@@ -385,6 +392,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
                     snippet="US CBA stock gains",
                     url="https://example.com/wrong2",
                     source="example.com",
+                    published_date="2026-04-02",
                 )
             ],
             provider="p2",
