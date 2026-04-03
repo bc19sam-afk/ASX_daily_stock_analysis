@@ -388,25 +388,19 @@ class StockAnalysisPipeline:
 
             # Step 7.5: 填充分析时的价格信息到 result
             if result:
-                realtime_data = enhanced_context.get('realtime', {})
-                result.realtime_price = realtime_data.get('price')
-                result.change_pct = realtime_data.get('change_pct')
                 self._apply_decision_structure(
                     result=result,
                     enhanced_context=enhanced_context,
                     trend_result=trend_result,
                 )
-                execution_price = self._resolve_execution_price(
+                self._apply_runtime_price_fields(
+                    result=result,
                     enhanced_context=enhanced_context,
                 )
-                result.execution_price_source = self._resolve_execution_price_source(
-                    enhanced_context=enhanced_context,
-                )
-                result.current_price = execution_price
                 self._apply_position_management(
                     result=result,
                     query_id=query_id,
-                    current_price=execution_price,
+                    current_price=result.current_price,
                     persist=not getattr(self.config, "analysis_read_only", True),
                 )
 
@@ -544,10 +538,34 @@ class StockAnalysisPipeline:
         result.final_decision = final_decision
         result.watchlist_state = "ACTIVE"
 
+    def _apply_runtime_price_fields(
+        self,
+        *,
+        result: AnalysisResult,
+        enhanced_context: Dict[str, Any],
+    ) -> None:
+        """Apply runtime signal/execution price fields to analysis result."""
+        realtime_data = enhanced_context.get("realtime", {}) if isinstance(enhanced_context, dict) else {}
+        result.realtime_price = realtime_data.get("price") if isinstance(realtime_data, dict) else None
+        result.change_pct = realtime_data.get("change_pct") if isinstance(realtime_data, dict) else None
+
+        execution_price_policy = str(
+            getattr(self.config, "execution_price_policy", "realtime_if_available")
+        ).strip().lower()
+        result.current_price = self._resolve_execution_price(
+            enhanced_context=enhanced_context,
+            execution_price_policy=execution_price_policy,
+        )
+        result.execution_price_source = self._resolve_execution_price_source(
+            enhanced_context=enhanced_context,
+            execution_price_policy=execution_price_policy,
+        )
+
     @staticmethod
     def _resolve_execution_price(
         *,
         enhanced_context: Dict[str, Any],
+        execution_price_policy: str = "realtime_if_available",
     ) -> Optional[float]:
         """Resolve executable price for position sizing.
 
@@ -555,9 +573,10 @@ class StockAnalysisPipeline:
         1) realtime quote price
         2) today's close from context
         """
+        policy = str(execution_price_policy or "").strip().lower()
         candidates: List[Any] = []
         realtime = enhanced_context.get("realtime") if isinstance(enhanced_context, dict) else None
-        if isinstance(realtime, dict):
+        if policy != "close_only" and isinstance(realtime, dict):
             candidates.append(realtime.get("price"))
         today = enhanced_context.get("today") if isinstance(enhanced_context, dict) else None
         if isinstance(today, dict):
@@ -576,8 +595,13 @@ class StockAnalysisPipeline:
     def _resolve_execution_price_source(
         *,
         enhanced_context: Dict[str, Any],
+        execution_price_policy: str = "realtime_if_available",
     ) -> str:
         """Resolve execution price basis: realtime / latest_close / close_only."""
+        policy = str(execution_price_policy or "").strip().lower()
+        if policy == "close_only":
+            return "close_only"
+
         realtime = enhanced_context.get("realtime") if isinstance(enhanced_context, dict) else None
         if isinstance(realtime, dict):
             try:

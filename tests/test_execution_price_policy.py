@@ -3,8 +3,11 @@
 import os
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
+from src.analyzer import AnalysisResult
 from src.config import Config
+from src.core.pipeline import StockAnalysisPipeline
 from src.core.config_registry import get_field_definition
 
 
@@ -104,3 +107,58 @@ def test_config_registry_has_execution_price_policy_enum_validation():
     field = get_field_definition("EXECUTION_PRICE_POLICY")
     assert field["options"] == ["realtime_if_available", "close_only"]
     assert field["validation"].get("enum") == ["realtime_if_available", "close_only"]
+
+
+def test_runtime_execution_price_policy_close_only_ignores_realtime_price():
+    enhanced_context = {
+        "realtime": {"price": "101.5"},
+        "today": {"close": "99.8"},
+    }
+    price = StockAnalysisPipeline._resolve_execution_price(
+        enhanced_context=enhanced_context,
+        execution_price_policy="close_only",
+    )
+    source = StockAnalysisPipeline._resolve_execution_price_source(
+        enhanced_context=enhanced_context,
+        execution_price_policy="close_only",
+    )
+    assert price == 99.8
+    assert source == "close_only"
+
+
+def test_runtime_execution_price_policy_realtime_if_available_prefers_realtime():
+    enhanced_context = {
+        "realtime": {"price": "101.5"},
+        "today": {"close": "99.8"},
+    }
+    price = StockAnalysisPipeline._resolve_execution_price(
+        enhanced_context=enhanced_context,
+        execution_price_policy="realtime_if_available",
+    )
+    source = StockAnalysisPipeline._resolve_execution_price_source(
+        enhanced_context=enhanced_context,
+        execution_price_policy="realtime_if_available",
+    )
+    assert price == 101.5
+    assert source == "realtime"
+
+
+def test_runtime_signal_price_and_execution_price_are_separated():
+    pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+    pipeline.config = SimpleNamespace(execution_price_policy="close_only")
+    result = AnalysisResult(
+        code="BHP.AX",
+        name="BHP",
+        sentiment_score=60,
+        trend_prediction="震荡",
+        operation_advice="持有",
+    )
+    enhanced_context = {
+        "realtime": {"price": "120.2", "change_pct": "1.2"},
+        "today": {"close": "118.4"},
+    }
+    pipeline._apply_runtime_price_fields(result=result, enhanced_context=enhanced_context)
+
+    assert result.realtime_price == "120.2"
+    assert result.current_price == 118.4
+    assert result.execution_price_source == "close_only"
