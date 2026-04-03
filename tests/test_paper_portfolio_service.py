@@ -162,6 +162,31 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         reasons = [t["reason"] for t in overview["latest_simulated_trades"][:2]]
         self.assertTrue(any("missing target info" in str(r) for r in reasons))
 
+    def test_target_weight_uses_updated_portfolio_value_after_previous_trade(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            # First trade updates total value from 200 to 300 by repricing/executing AAA at 20.
+            {"code": "AAA", "position_action": "REDUCE", "analysis_status": "OK", "current_price": 20.0, "target_quantity": 5},
+            # Second trade must use updated total_value=300, so target qty should be 15 shares.
+            {"code": "BBB", "position_action": "OPEN", "analysis_status": "OK", "current_price": 10.0, "target_weight": 0.5},
+        ])
+        holdings = {h["code"]: h for h in overview["holdings"]}
+        self.assertEqual(holdings["AAA"]["quantity"], 5.0)
+        self.assertEqual(holdings["BBB"]["quantity"], 15.0)
+        self.assertEqual(overview["cash"], 50.0)
+
+    def test_zero_delta_after_clamp_is_logged_as_noop_not_executed(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            # REDUCE but target is above current, so it is clamped to current qty => delta=0.
+            {"code": "AAA", "position_action": "REDUCE", "analysis_status": "OK", "current_price": 10.0, "target_quantity": 15},
+        ])
+        trade = overview["latest_simulated_trades"][0]
+        self.assertFalse(trade["executed"])
+        self.assertIn("no-op", str(trade["reason"]).lower())
+        holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
+        self.assertEqual(holding["quantity"], 10.0)
+
 
 if __name__ == "__main__":
     unittest.main()

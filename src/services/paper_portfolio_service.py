@@ -192,7 +192,12 @@ class PaperPortfolioService:
                         )
                         continue
 
-                    target_qty = self._resolve_target_qty(payload, price, latest)
+                    target_qty = self._resolve_target_qty(
+                        session=session,
+                        payload=payload,
+                        price=price,
+                        cash=cash,
+                    )
                     if action == "CLOSE":
                         target_qty = 0.0
                     if target_qty is None:
@@ -221,6 +226,25 @@ class PaperPortfolioService:
                         target_qty = before_qty
 
                     delta_qty = round(target_qty - before_qty, 6)
+                    if abs(delta_qty) <= 1e-9:
+                        self._log_trade(
+                            session,
+                            simulation_time=sim_time,
+                            code=code,
+                            action=action,
+                            analysis_status=analysis_status,
+                            executed=False,
+                            before_qty=before_qty,
+                            after_qty=before_qty,
+                            price=price,
+                            cash_before=cash,
+                            cash_after=cash,
+                            reason="Skipped: no-op (already at target or clamped to current quantity)",
+                            target_weight=payload.get("target_weight"),
+                            target_quantity=target_qty,
+                        )
+                        continue
+
                     cash_before = cash
                     if delta_qty > 0:
                         required_cash = round(delta_qty * price, 2)
@@ -297,9 +321,11 @@ class PaperPortfolioService:
 
     def _resolve_target_qty(
         self,
+        *,
+        session,
         payload: Mapping[str, Any],
         price: float,
-        latest_snapshot: Optional[PaperPortfolioSnapshot],
+        cash: float,
     ) -> Optional[float]:
         target_quantity = payload.get("target_quantity")
         if target_quantity is not None:
@@ -317,10 +343,19 @@ class PaperPortfolioService:
             return None
         if tw < 0:
             return None
-        total_value = float(latest_snapshot.total_value or 0.0) if latest_snapshot else 0.0
+        total_value = self._compute_total_value_in_session(session=session, cash=cash)
         if total_value <= 0 or price <= 0:
             return 0.0
         return round((total_value * tw) / price, 6)
+
+    @staticmethod
+    def _compute_total_value_in_session(*, session, cash: float) -> float:
+        session.flush()
+        open_positions = session.execute(
+            select(PaperPortfolioHolding).where(PaperPortfolioHolding.status == "OPEN")
+        ).scalars().all()
+        equity_value = round(sum(float(p.market_value or 0.0) for p in open_positions), 2)
+        return round(float(cash) + equity_value, 2)
 
     @staticmethod
     def _extract_price(payload: Mapping[str, Any]) -> Optional[float]:
