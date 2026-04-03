@@ -4362,9 +4362,9 @@ class NotificationBuilder:
             "",
             (
                 f"🕒 基准：技术面={daily_anchor}；新闻截至 {now_str}；"
-                f"执行参考价=实时 {basis_counts['realtime']}/{max(total_count, 1)}，"
-                f"latest close {basis_counts['latest_close']}/{max(total_count, 1)}，"
-                f"close-only {basis_counts['close_only']}/{max(total_count, 1)}。"
+                f"执行参考价=实时 {basis_counts['realtime']}/{total_count}，"
+                f"latest close {basis_counts['latest_close']}/{total_count}，"
+                f"close-only {basis_counts['close_only']}/{total_count}。"
             ),
             "",
         ]

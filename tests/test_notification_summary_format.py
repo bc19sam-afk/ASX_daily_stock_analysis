@@ -390,6 +390,21 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("价格基准：实时价格", summary)
 
     @patch("src.notification.datetime")
+    def test_build_stock_summary_uses_zero_denominator_when_all_results_failed(self, mock_datetime) -> None:
+        mock_datetime.now.return_value = real_datetime(2026, 3, 30, 9, 30, 45)
+        failed = self._build_result(
+            code="000858",
+            name="五粮液",
+            success=False,
+            error_message="连接超时",
+        )
+
+        summary = NotificationBuilder.build_stock_summary([failed])
+
+        self.assertIn("执行参考价=实时 0/0，latest close 0/0，close-only 0/0", summary)
+        self.assertNotIn("0/1", summary)
+
+    @patch("src.notification.datetime")
     @patch("src.notification.get_db")
     def test_dashboard_report_snapshot_regression(self, mock_get_db, mock_datetime) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {

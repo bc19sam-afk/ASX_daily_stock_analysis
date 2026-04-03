@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from api.app import create_app
 from api.v1.endpoints import analysis as analysis_endpoint
 from api.v1.schemas.analysis import AnalysisResultResponse
+from src.storage import DatabaseManager
 
 
 def _build_client() -> TestClient:
@@ -63,3 +64,36 @@ def test_analyze_allows_single_stock_codes_and_enters_existing_path(monkeypatch)
     assert response.status_code == 200
     assert captured["stock_code"] == "600519"
     assert captured["request_stock_codes"] == ["600519"]
+
+
+def test_get_analysis_status_db_fallback_does_not_default_analysis_status_to_ok(monkeypatch):
+    class _TaskQueueStub:
+        @staticmethod
+        def get_task(_task_id):
+            return None
+
+    class _RecordStub:
+        code = "600519"
+        name = "贵州茅台"
+        report_type = "full"
+        created_at = None
+        sentiment_score = 60
+        operation_advice = "持有"
+        trend_prediction = "震荡"
+        analysis_summary = "回调观察"
+
+    class _DBStub:
+        @staticmethod
+        def get_analysis_history(query_id, limit=1):
+            assert query_id == "task_x"
+            assert limit == 1
+            return [_RecordStub()]
+
+    monkeypatch.setattr(analysis_endpoint, "get_task_queue", lambda: _TaskQueueStub())
+    monkeypatch.setattr(DatabaseManager, "get_instance", lambda: _DBStub())
+
+    status = analysis_endpoint.get_analysis_status("task_x")
+    report = status.result.report
+
+    assert report["meta"]["analysis_status"] is None
+    assert report["summary"]["analysis_status"] is None
