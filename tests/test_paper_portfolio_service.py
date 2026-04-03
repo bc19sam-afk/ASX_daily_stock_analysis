@@ -254,6 +254,29 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         self.assertTrue(all(not t["executed"] for t in latest_four))
         self.assertTrue(all("missing/invalid target info" in str(t["reason"]).lower() for t in latest_four))
 
+    def test_hold_reprices_then_target_weight_uses_updated_working_value(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            {"code": "AAA", "position_action": "HOLD", "analysis_status": "OK", "current_price": 20.0},
+            {"code": "AAA", "position_action": "REDUCE", "analysis_status": "OK", "current_price": 20.0, "target_weight": 0.5},
+        ])
+        holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
+        # HOLD reprices AAA to market_value=200, so total=300 and 50% target => qty 7.5 at price 20.
+        self.assertAlmostEqual(float(holding["quantity"]), 7.5, places=6)
+
+    def test_repeated_symbol_actions_apply_on_latest_quantity_price_and_market_value(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            {"code": "BBB", "position_action": "OPEN", "analysis_status": "OK", "current_price": 10.0, "target_quantity": 2},
+            {"code": "BBB", "position_action": "ADD", "analysis_status": "OK", "current_price": 12.0, "target_quantity": 5},
+        ])
+        holdings = {h["code"]: h for h in overview["holdings"]}
+        self.assertEqual(float(holdings["BBB"]["quantity"]), 5.0)
+        self.assertEqual(float(holdings["BBB"]["current_price"]), 12.0)
+        self.assertEqual(float(holdings["BBB"]["market_value"]), 60.0)
+        # cash: 100 - (2*10) - (3*12) = 44
+        self.assertEqual(float(overview["cash"]), 44.0)
+
 
 if __name__ == "__main__":
     unittest.main()

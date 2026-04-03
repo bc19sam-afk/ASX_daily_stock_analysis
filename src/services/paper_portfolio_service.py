@@ -117,6 +117,8 @@ class PaperPortfolioService:
 
                 latest = self.db.get_latest_paper_snapshot_in_session(session)
                 cash = float(latest.cash or 0.0) if latest else 0.0
+                working_holdings = self._load_working_holdings_in_session(session)
+                pending_trades: list[dict[str, Any]] = []
 
                 for raw in results:
                     payload = raw if isinstance(raw, Mapping) else raw.to_dict()
@@ -129,17 +131,25 @@ class PaperPortfolioService:
                     if action not in self.SUPPORTED_ACTIONS:
                         action = "HOLD"
 
-                    session.flush()
-                    position = session.execute(
-                        select(PaperPortfolioHolding).where(PaperPortfolioHolding.code == code).limit(1)
-                    ).scalar_one_or_none()
-                    before_qty = float(position.quantity or 0.0) if position else 0.0
-                    before_avg = float(position.avg_cost or 0.0) if position else 0.0
+                    pos = working_holdings.setdefault(
+                        code,
+                        {
+                            "code": code,
+                            "name": payload.get("name") or code,
+                            "quantity": 0.0,
+                            "avg_cost": 0.0,
+                            "current_price": None,
+                            "market_value": 0.0,
+                            "status": "CLOSED",
+                        },
+                    )
+                    before_qty = float(pos.get("quantity") or 0.0)
+                    before_avg = float(pos.get("avg_cost") or 0.0)
 
                     price = self._extract_price(payload)
                     if analysis_status != "OK":
-                        self._log_trade(
-                            session,
+                        pending_trades.append(
+                            dict(
                             simulation_time=sim_time,
                             code=code,
                             action=action,
@@ -153,12 +163,17 @@ class PaperPortfolioService:
                             reason=f"Skipped: analysis_status={analysis_status}",
                             target_weight=payload.get("target_weight"),
                             target_quantity=payload.get("target_quantity"),
+                            )
                         )
                         continue
 
                     if action == "HOLD":
-                        self._log_trade(
-                            session,
+                        if price is not None and math.isfinite(price) and price > 0:
+                            pos["current_price"] = price
+                            pos["market_value"] = round(before_qty * price, 2)
+                            pos["status"] = "OPEN" if before_qty > 0 else "CLOSED"
+                        pending_trades.append(
+                            dict(
                             simulation_time=sim_time,
                             code=code,
                             action=action,
@@ -172,12 +187,13 @@ class PaperPortfolioService:
                             reason="Skipped: HOLD action",
                             target_weight=payload.get("target_weight"),
                             target_quantity=payload.get("target_quantity"),
+                            )
                         )
                         continue
 
                     if price is None or (not math.isfinite(price)) or price <= 0:
-                        self._log_trade(
-                            session,
+                        pending_trades.append(
+                            dict(
                             simulation_time=sim_time,
                             code=code,
                             action=action,
@@ -191,21 +207,22 @@ class PaperPortfolioService:
                             reason="Skipped: invalid current price",
                             target_weight=payload.get("target_weight"),
                             target_quantity=payload.get("target_quantity"),
+                            )
                         )
                         continue
 
                     target_qty = self._resolve_target_qty(
-                        session=session,
+                        working_holdings=working_holdings,
+                        cash=cash,
                         payload=payload,
                         code=code,
                         price=price,
-                        cash=cash,
                     )
                     if action == "CLOSE":
                         target_qty = 0.0
                     if target_qty is None:
-                        self._log_trade(
-                            session,
+                        pending_trades.append(
+                            dict(
                             simulation_time=sim_time,
                             code=code,
                             action=action,
@@ -219,6 +236,7 @@ class PaperPortfolioService:
                             reason="Skipped: missing/invalid target info",
                             target_weight=payload.get("target_weight"),
                             target_quantity=payload.get("target_quantity"),
+                            )
                         )
                         continue
 
@@ -230,8 +248,8 @@ class PaperPortfolioService:
 
                     delta_qty = round(target_qty - before_qty, 6)
                     if abs(delta_qty) <= 1e-9:
-                        self._log_trade(
-                            session,
+                        pending_trades.append(
+                            dict(
                             simulation_time=sim_time,
                             code=code,
                             action=action,
@@ -245,6 +263,7 @@ class PaperPortfolioService:
                             reason="Skipped: no-op (already at target or clamped to current quantity)",
                             target_weight=payload.get("target_weight"),
                             target_quantity=target_qty,
+                            )
                         )
                         continue
 
@@ -252,8 +271,8 @@ class PaperPortfolioService:
                     if delta_qty > 0:
                         required_cash = round(delta_qty * price, 2)
                         if required_cash > cash_before:
-                            self._log_trade(
-                                session,
+                            pending_trades.append(
+                                dict(
                                 simulation_time=sim_time,
                                 code=code,
                                 action=action,
@@ -270,6 +289,7 @@ class PaperPortfolioService:
                                 ),
                                 target_weight=payload.get("target_weight"),
                                 target_quantity=target_qty,
+                                )
                             )
                             continue
                         cash -= required_cash
@@ -289,18 +309,15 @@ class PaperPortfolioService:
                         avg_cost = 0.0
                         status = "CLOSED"
 
-                    self._upsert_holding(
-                        session,
-                        code=code,
-                        name=payload.get("name") or code,
-                        quantity=after_qty,
-                        avg_cost=avg_cost,
-                        current_price=price,
-                        status=status,
-                    )
+                    pos["name"] = payload.get("name") or pos.get("name") or code
+                    pos["quantity"] = after_qty
+                    pos["avg_cost"] = avg_cost
+                    pos["current_price"] = price
+                    pos["market_value"] = round(after_qty * price, 2)
+                    pos["status"] = status
 
-                    self._log_trade(
-                        session,
+                    pending_trades.append(
+                        dict(
                         simulation_time=sim_time,
                         code=code,
                         action=action,
@@ -314,8 +331,30 @@ class PaperPortfolioService:
                         reason="Applied",
                         target_weight=payload.get("target_weight"),
                         target_quantity=target_qty,
+                        )
                     )
 
+                for item in working_holdings.values():
+                    current_price = item.get("current_price")
+                    try:
+                        current_price_val = float(current_price) if current_price is not None else 0.0
+                    except (TypeError, ValueError):
+                        current_price_val = 0.0
+                    if not math.isfinite(current_price_val):
+                        current_price_val = 0.0
+                    if current_price is None:
+                        current_price = 0.0
+                    self._upsert_holding(
+                        session,
+                        code=item["code"],
+                        name=item.get("name") or item["code"],
+                        quantity=float(item.get("quantity") or 0.0),
+                        avg_cost=float(item.get("avg_cost") or 0.0),
+                        current_price=float(current_price_val),
+                        status=item.get("status") or ("OPEN" if float(item.get("quantity") or 0.0) > 0 else "CLOSED"),
+                    )
+                for trade_kwargs in pending_trades:
+                    self._log_trade(session, **trade_kwargs)
                 self._refresh_holdings_weights_and_snapshot(session=session, cash=cash, snapshot_date=sim_time.date())
                 state.last_simulation_time = sim_time
                 session.commit()
@@ -325,11 +364,11 @@ class PaperPortfolioService:
     def _resolve_target_qty(
         self,
         *,
-        session,
+        working_holdings: Dict[str, Dict[str, Any]],
+        cash: float,
         payload: Mapping[str, Any],
         code: str,
         price: float,
-        cash: float,
     ) -> Optional[float]:
         target_quantity = payload.get("target_quantity")
         if target_quantity is not None:
@@ -353,7 +392,7 @@ class PaperPortfolioService:
         if tw < 0:
             return None
         total_value = self._compute_total_value_in_session(
-            session=session,
+            working_holdings=working_holdings,
             cash=cash,
             repriced_code=code,
             repriced_price=price,
@@ -365,24 +404,39 @@ class PaperPortfolioService:
     @staticmethod
     def _compute_total_value_in_session(
         *,
-        session,
+        working_holdings: Dict[str, Dict[str, Any]],
         cash: float,
         repriced_code: Optional[str] = None,
         repriced_price: Optional[float] = None,
     ) -> float:
-        session.flush()
-        open_positions = session.execute(
-            select(PaperPortfolioHolding).where(PaperPortfolioHolding.status == "OPEN")
-        ).scalars().all()
         equity_value = 0.0
-        for p in open_positions:
-            qty = float(p.quantity or 0.0)
-            if repriced_code and repriced_price is not None and p.code == repriced_code:
+        for p in working_holdings.values():
+            status = str(p.get("status") or "CLOSED").upper()
+            qty = float(p.get("quantity") or 0.0)
+            if status != "OPEN" or qty <= 0:
+                continue
+            if repriced_code and repriced_price is not None and p.get("code") == repriced_code:
                 equity_value += round(qty * float(repriced_price), 2)
             else:
-                equity_value += float(p.market_value or 0.0)
+                equity_value += float(p.get("market_value") or 0.0)
         equity_value = round(equity_value, 2)
         return round(float(cash) + equity_value, 2)
+
+    @staticmethod
+    def _load_working_holdings_in_session(session) -> Dict[str, Dict[str, Any]]:
+        rows = session.execute(select(PaperPortfolioHolding)).scalars().all()
+        data: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            data[row.code] = {
+                "code": row.code,
+                "name": row.name or row.code,
+                "quantity": float(row.quantity or 0.0),
+                "avg_cost": float(row.avg_cost or 0.0),
+                "current_price": float(row.current_price) if row.current_price is not None else None,
+                "market_value": float(row.market_value or 0.0),
+                "status": row.status or ("OPEN" if float(row.quantity or 0.0) > 0 else "CLOSED"),
+            }
+        return data
 
     @staticmethod
     def _extract_price(payload: Mapping[str, Any]) -> Optional[float]:
