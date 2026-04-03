@@ -129,6 +129,7 @@ class PaperPortfolioService:
                     if action not in self.SUPPORTED_ACTIONS:
                         action = "HOLD"
 
+                    session.flush()
                     position = session.execute(
                         select(PaperPortfolioHolding).where(PaperPortfolioHolding.code == code).limit(1)
                     ).scalar_one_or_none()
@@ -196,6 +197,7 @@ class PaperPortfolioService:
                     target_qty = self._resolve_target_qty(
                         session=session,
                         payload=payload,
+                        code=code,
                         price=price,
                         cash=cash,
                     )
@@ -325,6 +327,7 @@ class PaperPortfolioService:
         *,
         session,
         payload: Mapping[str, Any],
+        code: str,
         price: float,
         cash: float,
     ) -> Optional[float]:
@@ -344,18 +347,36 @@ class PaperPortfolioService:
             return None
         if tw < 0:
             return None
-        total_value = self._compute_total_value_in_session(session=session, cash=cash)
+        total_value = self._compute_total_value_in_session(
+            session=session,
+            cash=cash,
+            repriced_code=code,
+            repriced_price=price,
+        )
         if total_value <= 0 or price <= 0:
             return 0.0
         return round((total_value * tw) / price, 6)
 
     @staticmethod
-    def _compute_total_value_in_session(*, session, cash: float) -> float:
+    def _compute_total_value_in_session(
+        *,
+        session,
+        cash: float,
+        repriced_code: Optional[str] = None,
+        repriced_price: Optional[float] = None,
+    ) -> float:
         session.flush()
         open_positions = session.execute(
             select(PaperPortfolioHolding).where(PaperPortfolioHolding.status == "OPEN")
         ).scalars().all()
-        equity_value = round(sum(float(p.market_value or 0.0) for p in open_positions), 2)
+        equity_value = 0.0
+        for p in open_positions:
+            qty = float(p.quantity or 0.0)
+            if repriced_code and repriced_price is not None and p.code == repriced_code:
+                equity_value += round(qty * float(repriced_price), 2)
+            else:
+                equity_value += float(p.market_value or 0.0)
+        equity_value = round(equity_value, 2)
         return round(float(cash) + equity_value, 2)
 
     @staticmethod

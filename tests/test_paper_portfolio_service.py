@@ -220,6 +220,27 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         self.assertTrue(all(not t["executed"] for t in latest_two))
         self.assertTrue(all("invalid current price" in str(t["reason"]).lower() for t in latest_two))
 
+    def test_existing_holding_target_weight_uses_repriced_current_symbol(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            # AAA is existing holding. Reprice from 10 -> 20, then target_weight 0.5 should land near 5 shares.
+            {"code": "AAA", "position_action": "REDUCE", "analysis_status": "OK", "current_price": 20.0, "target_weight": 0.5},
+        ])
+        holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
+        # total value for target calc should be cash(100)+repriced AAA(200)=300; 50% => 150 => qty 7.5 at 20.
+        self.assertAlmostEqual(float(holding["quantity"]), 7.5, places=6)
+
+    def test_duplicate_symbol_in_same_batch_uses_latest_quantity(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            {"code": "BBB", "position_action": "OPEN", "analysis_status": "OK", "current_price": 10.0, "target_quantity": 2},
+            {"code": "BBB", "position_action": "ADD", "analysis_status": "OK", "current_price": 10.0, "target_quantity": 5},
+        ])
+        holdings = {h["code"]: h for h in overview["holdings"]}
+        self.assertEqual(float(holdings["BBB"]["quantity"]), 5.0)
+        # cash: 100 - (2*10) - (3*10) = 50
+        self.assertEqual(float(overview["cash"]), 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()
