@@ -82,9 +82,10 @@ class AnalyzeCommand(BotCommand):
             service = get_task_service()
             
             # 提交异步分析任务
+            normalized_report_type = ReportType.from_str(report_type)
             result = service.submit_analysis(
                 code=code,
-                report_type=ReportType.from_str(report_type),
+                report_type=normalized_report_type,
                 source_message=message
             )
             
@@ -93,7 +94,7 @@ class AnalyzeCommand(BotCommand):
                 return BotResponse.markdown_response(
                     f"✅ **分析任务已提交**\n\n"
                     f"• 股票代码: `{code}`\n"
-                    f"• 报告类型: {ReportType.from_str(report_type).display_name}\n"
+                    f"• 报告类型: {normalized_report_type.display_name}\n"
                     f"• 任务 ID: `{task_id[:20]}...`\n\n"
                     f"分析完成后将自动推送结果。"
                 )
