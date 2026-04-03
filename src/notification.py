@@ -1275,8 +1275,11 @@ class NotificationService:
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
 
-        # 统计信息 - 使用主决策（优先 final_decision）
-        decision_counts = self._count_primary_decisions(results)
+        successful_results_for_summary = [r for r in sorted_results if bool(getattr(r, "success", True))]
+        failed_results_for_summary = [r for r in sorted_results if not bool(getattr(r, "success", True))]
+
+        # 统计信息（仅统计成功分析，避免与后续可见区块口径不一致）
+        decision_counts = self._count_primary_decisions(successful_results_for_summary)
         buy_count = decision_counts['BUY']
         sell_count = decision_counts['SELL']
         hold_count = decision_counts['HOLD']
@@ -1284,7 +1287,11 @@ class NotificationService:
         report_lines = [
             f"# 🎯 {report_date} 决策仪表盘",
             "",
-            f"> 共分析 **{len(results)}** 只股票 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
+            (
+                f"> 成功分析 **{len(successful_results_for_summary)}** 只 | "
+                f"失败 **{len(failed_results_for_summary)}** 只 | "
+                f"🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}"
+            ),
             "",
         ]
         report_lines.extend(self._build_data_baseline_lines(results, generated_at))
@@ -1384,6 +1391,7 @@ class NotificationService:
                 "",
             ])
 
+        has_risk_or_failure_block = bool(uncovered_holdings or failed_results or has_mixed_price_basis)
         if successful_results:
             report_lines.extend([
                 "## 当前持仓行动清单",
@@ -1395,8 +1403,9 @@ class NotificationService:
                 report_lines.extend(self._build_recommended_actions_table(actionable_holding_results))
             else:
                 report_lines.append("- 当前持仓无明确调仓动作。")
+            report_lines.append("")
+        if has_risk_or_failure_block:
             report_lines.extend([
-                "",
                 "## 未覆盖 / 分析失败 / 风险提醒",
                 "",
             ])
@@ -1417,6 +1426,7 @@ class NotificationService:
                     "- 本次包含实时价格与非实时价格混用，执行前请二次确认价格基准。",
                     "",
                 ])
+        if successful_results:
             report_lines.extend([
                 "## 非持仓观察名单",
                 "",

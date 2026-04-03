@@ -467,6 +467,56 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertNotIn("当前已执行权重：5.00%", feishu)
         self.assertNotIn("执行中 5.00% → 模拟目标 30.00% (Δ8,000.00)", wechat)
 
+    @patch("src.notification.get_db")
+    def test_dashboard_renders_failed_block_when_all_analyses_fail(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 100000.0,
+            "holdings": [
+                {"code": "600519", "name": "贵州茅台", "quantity": 10, "market_value": 20000.0},
+            ],
+        }
+        service = self._build_service()
+        failed_a = self._build_result(
+            code="600519",
+            name="贵州茅台",
+            success=False,
+            error_message="数据源超时",
+        )
+        failed_b = self._build_result(
+            code="000858",
+            name="五粮液",
+            success=False,
+            error_message="模型返回空结果",
+        )
+
+        report = service.generate_dashboard_report([failed_a, failed_b], report_date="2026-03-30")
+
+        self.assertIn("## 未覆盖 / 分析失败 / 风险提醒", report)
+        self.assertIn("**分析失败（建议重跑）**", report)
+        self.assertIn("- 贵州茅台(600519)：数据源超时", report)
+        self.assertIn("- 五粮液(000858)：模型返回空结果", report)
+        self.assertIn("**未覆盖持仓**", report)
+        self.assertIn("- 贵州茅台(600519)", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_headline_counts_use_successful_results_when_failures_exist(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100000.0, "holdings": []}
+        service = self._build_service()
+        success_buy = self._build_result(code="600519", final_decision="BUY", position_action="ADD", success=True)
+        failed_hold = self._build_result(
+            code="000858",
+            name="五粮液",
+            final_decision="HOLD",
+            position_action="HOLD",
+            success=False,
+            error_message="上游数据缺失",
+        )
+
+        report = service.generate_dashboard_report([success_buy, failed_hold], report_date="2026-03-30")
+
+        self.assertIn("成功分析 **1** 只 | 失败 **1** 只 | 🟢买入:1 🟡观望:0 🔴卖出:0", report)
+        self.assertNotIn("🟡观望:1", report)
+
     @patch("src.notification.datetime")
     @patch("src.notification.get_db")
     def test_wechat_report_snapshot_regression(self, mock_get_db, mock_datetime) -> None:
