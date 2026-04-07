@@ -153,7 +153,7 @@ jobs:
           REPORT_TYPE: ${{ vars.REPORT_TYPE || secrets.REPORT_TYPE || 'detailed' }}
           SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'false' }}
           MARKET_REVIEW_ENABLED: ${{ vars.MARKET_REVIEW_ENABLED || secrets.MARKET_REVIEW_ENABLED || 'true' }}
-          MARKET_REVIEW_PUSH_ENABLED: ${{ vars.MARKET_REVIEW_PUSH_ENABLED || secrets.MARKET_REVIEW_PUSH_ENABLED || 'true' }}
+          MARKET_REVIEW_PUSH_ENABLED: ${{ vars.MARKET_REVIEW_PUSH_ENABLED || secrets.MARKET_REVIEW_PUSH_ENABLED || '' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '30' }}
           
           # ==========================================
@@ -203,12 +203,15 @@ jobs:
           
           # 执行分析
           if [ "$MODE" = "market-only" ]; then
-            MARKET_REVIEW_PUSH_ENABLED=true python main.py --market-review
+            # 默认开启 market-only 单独推送；若外部显式配置了 true/false，则优先尊重外部配置
+            export MARKET_REVIEW_PUSH_ENABLED="${MARKET_REVIEW_PUSH_ENABLED:-true}"
+            python main.py --market-review
           elif [ "$MODE" = "stocks-only" ]; then
             python main.py --no-market-review
           else
-            # full 模式：默认避免重复 standalone 大盘推送（保留市场分析生成）
-            MARKET_REVIEW_PUSH_ENABLED=false python main.py
+            # full 模式：默认避免重复 standalone 大盘推送；若外部显式配置，则优先外部配置
+            export MARKET_REVIEW_PUSH_ENABLED="${MARKET_REVIEW_PUSH_ENABLED:-false}"
+            python main.py
           fi
       
       - name: 保存数据库缓存（回测历史）

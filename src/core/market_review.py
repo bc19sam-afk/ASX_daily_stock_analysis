@@ -25,6 +25,15 @@ from src.config import get_config
 logger = logging.getLogger(__name__)
 
 
+def _now_in_market_tz(market_tz: str) -> datetime:
+    """Get current time in market timezone with graceful fallback."""
+    try:
+        return datetime.now(ZoneInfo(market_tz))
+    except Exception as exc:
+        logger.warning("无效市场时区 %s，已回退到系统本地时间: %s", market_tz, exc)
+        return datetime.now()
+
+
 def run_market_review(
     notifier: NotificationService,
     analyzer: Optional[GeminiAnalyzer] = None,
@@ -61,7 +70,7 @@ def run_market_review(
             allow_standalone_push = getattr(config, "market_review_push_enabled", True)
             # 保存报告到文件
             market_tz = getattr(config, "market_timezone", "Australia/Sydney")
-            date_str = datetime.now(ZoneInfo(market_tz)).strftime('%Y%m%d')
+            date_str = _now_in_market_tz(market_tz).strftime('%Y%m%d')
             report_filename = f"market_review_{date_str}.md"
             filepath = notifier.save_report_to_file(
                 f"# 🎯 大盘复盘\n\n{review_report}", 
