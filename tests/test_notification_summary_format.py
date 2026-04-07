@@ -995,6 +995,18 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("HOLD | 目标仓位 13.00% | 模拟Δ 0.00 | 目标数量 保持当前持仓（不执行）", text)
         self.assertNotIn("目标数量 13 股", text)
 
+    def test_sizing_brief_uses_high_concentration_wording_for_large_targets(self) -> None:
+        service = self._build_service()
+        self.assertIn("较高仓位", service._format_sizing_brief(0.40, "ADD"))
+        self.assertIn("高仓位", service._format_sizing_brief(0.60, "ADD"))
+        self.assertIn("极高仓位", service._format_sizing_brief(1.00, "ADD"))
+
+    def test_sizing_brief_preserves_tiny_non_zero_targets(self) -> None:
+        service = self._build_service()
+        text = service._format_sizing_brief(0.004, "OPEN")
+        self.assertIn("试探仓位", text)
+        self.assertIn("0.4%", text)
+
     def test_daily_report_preserves_non_volume_signals_in_mixed_technical_analysis_when_snapshot_metrics_missing(self) -> None:
         service = self._build_service()
         service._report_summary_only = False

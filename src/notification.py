@@ -564,17 +564,33 @@ class NotificationService:
     def _format_sizing_brief(target_weight: float, action: str = "") -> str:
         weight = float(target_weight or 0.0)
         action_text = str(action or "").strip().upper()
+
+        def _format_percent(value: float) -> str:
+            if value <= 0:
+                return "0%"
+            if value < 0.01:
+                return f"{value * 100:.1f}%"
+            return f"{value:.0%}"
+
         if weight <= 0:
             if action_text in {"CLOSE", "REDUCE"}:
                 return "目标仓位 0%（清空）"
             if action_text == "HOLD":
                 return "目标仓位 0%（观察）"
             return "目标仓位 0%"
+        if weight < 0.01:
+            return f"试探仓位（约 {_format_percent(weight)}）"
         if weight < 0.05:
-            return f"轻仓试探（约 {weight:.0%}）"
+            return f"轻仓试探（约 {_format_percent(weight)}）"
         if weight < 0.15:
-            return f"中低仓位（约 {weight:.0%}）"
-        return f"中等仓位（约 {weight:.0%}）"
+            return f"中低仓位（约 {_format_percent(weight)}）"
+        if weight < 0.30:
+            return f"中等仓位（约 {_format_percent(weight)}）"
+        if weight < 0.50:
+            return f"较高仓位（约 {_format_percent(weight)}，集中度偏高）"
+        if weight < 0.80:
+            return f"高仓位（约 {_format_percent(weight)}，集中度高）"
+        return f"极高仓位（约 {_format_percent(weight)}，单一标的暴露高）"
 
     def _build_data_baseline_lines(
         self,
