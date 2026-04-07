@@ -742,6 +742,20 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("减仓 · 中低仓位（约 5%）", report)
 
     @patch("src.notification.get_db")
+    def test_hold_with_zero_target_weight_uses_observation_wording_instead_of_liquidation(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        result = self._build_result(
+            final_decision="HOLD",
+            position_action="HOLD",
+            target_weight=0.0,
+            delta_amount=0.0,
+        )
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        self.assertIn("持有观察 · 目标仓位 0%（观察）", report)
+        self.assertNotIn("持有观察 · 目标仓位 0%（清空）", report)
+
+    @patch("src.notification.get_db")
     def test_ai_narrative_is_labeled_secondary_and_conflict_is_explicit(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
         service = self._build_service()

@@ -60,6 +60,7 @@ class PortfolioSummaryDeterministicGuardTestCase(unittest.TestCase):
 
         summary = analyzer.generate_portfolio_summary(results)
         self.assertIn("计划调仓净额：0.00（以观察为主）", summary)
+        self.assertIn("一句话解读：以观察为主。", summary)
 
     def test_portfolio_summary_net_flat_with_offsetting_actions_is_active_rebalance(self) -> None:
         analyzer = GeminiAnalyzer.__new__(GeminiAnalyzer)
@@ -70,6 +71,8 @@ class PortfolioSummaryDeterministicGuardTestCase(unittest.TestCase):
 
         summary = analyzer.generate_portfolio_summary(results)
         self.assertIn("计划调仓净额：0.00（有换仓/再平衡动作，整体仓位中性）", summary)
+        self.assertIn("一句话解读：有换仓/再平衡动作，整体仓位中性。", summary)
+        self.assertNotIn("组合存在明确调仓方向", summary)
 
 
 if __name__ == "__main__":

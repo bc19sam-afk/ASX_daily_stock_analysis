@@ -561,10 +561,15 @@ class NotificationService:
         return f"{name} ({code_display})"
 
     @staticmethod
-    def _format_sizing_brief(target_weight: float) -> str:
+    def _format_sizing_brief(target_weight: float, action: str = "") -> str:
         weight = float(target_weight or 0.0)
+        action_text = str(action or "").strip().upper()
         if weight <= 0:
-            return "目标仓位 0%（清空）"
+            if action_text in {"CLOSE", "REDUCE"}:
+                return "目标仓位 0%（清空）"
+            if action_text == "HOLD":
+                return "目标仓位 0%（观察）"
+            return "目标仓位 0%"
         if weight < 0.05:
             return f"轻仓试探（约 {weight:.0%}）"
         if weight < 0.15:
@@ -1019,7 +1024,7 @@ class NotificationService:
             )
             action_cell = self._to_markdown_table_cell(
                 f"{self._format_position_action_label(action_model['position_action'])} · "
-                f"{self._format_sizing_brief(action_model['target_weight'])}"
+                f"{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])}"
             )
             ai_view_text = (
                 f"{self._get_conflict_safe_ai_commentary(r)} · "
@@ -1603,7 +1608,7 @@ class NotificationService:
                     f"- {one_sentence}",
                     "",
                     "### 主动作",
-                    f"- {self._format_position_action_label(action_model['position_action'])}（{self._format_sizing_brief(action_model['target_weight'])}）",
+                    f"- {self._format_position_action_label(action_model['position_action'])}（{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])}）",
                     "",
                     "### 关键理由",
                     f"- {result.buy_reason or result.analysis_summary or '暂无'}",
@@ -1916,7 +1921,8 @@ class NotificationService:
                 action_model = self._get_primary_action_model(r)
                 lines.append(
                     f"{signal_emoji} **{stock_name}({r.code})**: "
-                    f"{self._format_position_action_label(action_model['position_action'])} · {self._format_sizing_brief(action_model['target_weight'])} "
+                    f"{self._format_position_action_label(action_model['position_action'])} · "
+                    f"{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])} "
                     f"(AI补充: {self._get_conflict_safe_ai_commentary(r)} / 评分{r.sentiment_score})"
                 )
             lines.extend([

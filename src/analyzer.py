@@ -2090,13 +2090,16 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
         has_meaningful_turnover = total_turnover > 0.0
         if total_delta > 0:
             net_delta_label = "整体偏加仓"
+            caution_label = "组合存在加仓方向"
         elif total_delta < 0:
             net_delta_label = "整体偏减仓"
+            caution_label = "组合存在减仓方向"
         elif has_execution_actions or has_meaningful_turnover:
             net_delta_label = "有换仓/再平衡动作，整体仓位中性"
+            caution_label = "有换仓/再平衡动作，整体仓位中性"
         else:
             net_delta_label = "以观察为主"
-        caution_label = "组合整体偏谨慎" if action_counts["HOLD"] >= max(action_counts["OPEN"] + action_counts["ADD"], action_counts["REDUCE"] + action_counts["CLOSE"]) else "组合存在明确调仓方向"
+            caution_label = "以观察为主"
 
         return "\n".join([
             "### 组合动作总览（今日建议）",
