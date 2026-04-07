@@ -1512,8 +1512,21 @@ class StockAnalysisPipeline:
                 portfolio_summary = self.analyzer.generate_portfolio_summary(results)
                 if portfolio_summary:
                     market_tz = getattr(self.config, "market_timezone", "Australia/Sydney")
-                    today_str = _now_in_timezone_safe(market_tz).date().isoformat()
-                    portfolio_prefix = "## 🎯 组合决策总结（报告日 " + today_str + "）\n\n" + portfolio_summary + "\n\n---\n\n"
+                    report_day = _now_in_timezone_safe(market_tz).date().isoformat()
+                    snapshot_dates = sorted(
+                        {
+                            str((getattr(r, "market_snapshot", None) or {}).get("date")).strip()
+                            for r in results
+                            if str((getattr(r, "market_snapshot", None) or {}).get("date", "")).strip()
+                        }
+                    )
+                    if len(snapshot_dates) == 1:
+                        date_label = f"技术基准日 {snapshot_dates[0]}｜报告日 {report_day}"
+                    elif snapshot_dates:
+                        date_label = f"技术基准日 {snapshot_dates[0]}~{snapshot_dates[-1]}｜报告日 {report_day}"
+                    else:
+                        date_label = f"报告日 {report_day}"
+                    portfolio_prefix = "## 🎯 组合决策总结（" + date_label + "）\n\n" + portfolio_summary + "\n\n---\n\n"
                     logger.info("组合决策总结生成成功")
             except Exception as e:
                 logger.warning(f"组合决策总结生成失败（已跳过）: {e}")

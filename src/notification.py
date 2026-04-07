@@ -530,13 +530,46 @@ class NotificationService:
     def _format_position_action_label(action: str) -> str:
         action_text = str(action or "").strip().upper()
         return {
-            "OPEN": "建仓",
+            "OPEN": "建议新开仓",
             "ADD": "加仓",
-            "HOLD": "持有",
+            "HOLD": "持有观察",
             "TRIM": "减仓",
             "REDUCE": "减仓",
             "CLOSE": "清仓",
         }.get(action_text, action_text or "持有")
+
+    @staticmethod
+    def _format_stock_display_name(raw_name: Any, raw_code: Any) -> str:
+        """Normalize noisy source names to a user-facing display title."""
+        code = str(raw_code or "").strip().upper()
+        if not code:
+            code = "N/A"
+        code_display = code
+
+        name = str(raw_name or "").strip()
+        if not name or name.startswith("股票"):
+            name = code
+
+        # Remove common source noise tokens.
+        name = re.sub(r"\b(FPO|STAPLED|ORDINARY|ORD|UNITS?|UNIT)\b", " ", name, flags=re.IGNORECASE)
+        name = re.sub(r"\s+", " ", name).strip(" -_/")
+        # Remove duplicated trailing ticker token.
+        if code and name.upper().endswith(f" {code}"):
+            name = name[: -(len(code) + 1)].strip()
+        if not name:
+            name = code
+        return f"{name} ({code_display})"
+
+    @staticmethod
+    def _format_sizing_brief(target_weight: float) -> str:
+        weight = float(target_weight or 0.0)
+        if weight <= 0:
+            return "目标仓位 0%（清空）"
+        if weight < 0.05:
+            return f"轻仓试探（约 {weight:.0%}）"
+        if weight < 0.15:
+            return f"中低仓位（约 {weight:.0%}）"
+        return f"中等仓位（约 {weight:.0%}）"
 
     def _build_data_baseline_lines(
         self,
@@ -577,11 +610,11 @@ class NotificationService:
             title,
             "",
             f"- 报告生成时间：**{generated_at.strftime('%Y-%m-%d %H:%M:%S %Z')}**。",
-            f"- 技术面判断：基于 **{daily_anchor}**。",
-            f"- 新闻更新：截至 **{news_cutoff}**。",
+            f"- 技术基准日说明：本次技术判断基于 **{daily_anchor}**。",
+            f"- 新闻信息更新至：**{news_cutoff}**。",
             (
-                f"- 执行参考价格：**{realtime_count}/{total_count}** 只使用实时价格；"
-                f"**{latest_close_count}/{total_count}** 只使用最新收盘；"
+                f"- 价格口径披露：**{realtime_count}/{total_count}** 只使用实时价格，"
+                f"**{latest_close_count}/{total_count}** 只使用最新收盘，"
                 f"**{close_only_count}/{total_count}** 只按收盘口径。"
             ),
         ]
@@ -980,12 +1013,13 @@ class NotificationService:
         for r in results:
             action_model = self._get_primary_action_model(r)
             _, signal_emoji, _ = self._get_signal_level(r)
+            display_name = self._format_stock_display_name(r.name, r.code)
             stock_cell = self._to_markdown_table_cell(
-                f"{signal_emoji} **{self._escape_md(r.name)}({r.code})**"
+                f"{signal_emoji} **{self._escape_md(display_name)}**"
             )
             action_cell = self._to_markdown_table_cell(
-                f"{self._format_position_action_label(action_model['position_action'])} · 目标{action_model['target_weight']:.2%} · "
-                f"模拟Δ{action_model['delta_amount']:,.2f}"
+                f"{self._format_position_action_label(action_model['position_action'])} · "
+                f"{self._format_sizing_brief(action_model['target_weight'])}"
             )
             ai_view_text = (
                 f"{self._get_conflict_safe_ai_commentary(r)} · "
@@ -1090,8 +1124,9 @@ class NotificationService:
 
         for r in results:
             _, signal_emoji, _ = self._get_signal_level(r)
+            display_name = self._format_stock_display_name(r.name, r.code)
             stock_cell = self._to_markdown_table_cell(
-                f"{signal_emoji} **{self._escape_md(r.name)}({r.code})**"
+                f"{signal_emoji} **{self._escape_md(display_name)}**"
             )
             lines.append(
                 "| "
@@ -1392,7 +1427,7 @@ class NotificationService:
             for result in actionable_holding_results:
                 action_model = self._get_primary_action_model(result)
                 report_lines.append(
-                    f"- {self._escape_md(result.name)}({result.code})："
+                    f"- {self._escape_md(self._format_stock_display_name(result.name, result.code))}："
                     f"{self._format_position_action_label(action_model['position_action'])}（建议仓位 {action_model['target_weight']:.2%}）"
                 )
             report_lines.append("")
@@ -1518,39 +1553,12 @@ class NotificationService:
                 action_model = self._get_primary_action_model(result)
                 dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
                 
-                # 股票名称（优先使用 dashboard 或 result 中的名称，转义 *ST 等特殊字符）
-                raw_name = result.name if result.name and not result.name.startswith('股票') else f'股票{result.code}'
-                stock_name = self._escape_md(raw_name)
+                stock_name = self._escape_md(self._format_stock_display_name(result.name, result.code))
                 
                 report_lines.extend([
-                    f"## {signal_emoji} {stock_name} ({result.code})",
+                    f"## {signal_emoji} {stock_name}",
                     "",
                     f"**价格基准**：{self._get_price_basis_label(result)}",
-                    "",
-                ])
-
-                # 先给出可读优先的四段式摘要（不删后续细节）
-                core = dashboard.get('core_conclusion', {}) if dashboard else {}
-                one_sentence = self._get_conflict_safe_core_conclusion(
-                    result,
-                    core.get('one_sentence', result.analysis_summary),
-                )
-                time_sense = core.get('time_sensitivity', '本周内')
-                report_lines.extend([
-                    "### 结论",
-                    f"- {signal_emoji} **{signal_text}** | {result.trend_prediction}",
-                    f"- 一句话：{one_sentence}",
-                    "",
-                    "### 理由",
-                    f"- AI补充：{self._get_conflict_safe_ai_commentary(result)}",
-                    f"- 关键理由：{result.buy_reason or result.analysis_summary or 'N/A'}",
-                    "",
-                    "### 动作",
-                    f"- 主动作：{self._format_primary_action_text(result)}",
-                    f"- 确定性仓位建议：{self._format_deterministic_sizing_text(result)}",
-                    "",
-                    "### 风险",
-                    f"- 时效性：{time_sense}",
                     "",
                 ])
                 
@@ -1567,13 +1575,6 @@ class NotificationService:
                     # 业绩预期
                     if intel.get('earnings_outlook'):
                         report_lines.append(f"**📊 业绩预期**: {intel['earnings_outlook']}")
-                    # 风险警报（醒目显示）
-                    risk_alerts = intel.get('risk_alerts', [])
-                    if risk_alerts:
-                        report_lines.append("")
-                        report_lines.append("**🚨 风险警报**:")
-                        for alert in risk_alerts:
-                            report_lines.append(f"- {alert}")
                     # 利好催化
                     catalysts = intel.get('positive_catalysts', [])
                     if catalysts:
@@ -1597,54 +1598,57 @@ class NotificationService:
                 pos_advice = core.get('position_advice', {})
                 
                 report_lines.extend([
-                    "### 📌 核心结论",
+                    "### 核心结论",
+                    f"- {signal_emoji} **{signal_text}** | {result.trend_prediction}",
+                    f"- {one_sentence}",
                     "",
-                    f"**{signal_emoji} {signal_text}** | {result.trend_prediction}",
+                    "### 主动作",
+                    f"- {self._format_position_action_label(action_model['position_action'])}（{self._format_sizing_brief(action_model['target_weight'])}）",
                     "",
-                    f"**🧭 主动作（优先执行）**: {self._format_primary_action_text(result)}",
+                    "### 关键理由",
+                    f"- {result.buy_reason or result.analysis_summary or '暂无'}",
+                    f"- AI补充（非执行）：{self._get_conflict_safe_ai_commentary(result)}",
                     "",
-                    f"> **一句话结论**: {one_sentence}",
-                    "",
-                    f"**💬 AI补充（非执行）**: {self._get_conflict_safe_ai_commentary(result)}",
-                    "",
-                    f"⏰ **时效性**: {time_sense}",
-                    "",
+                    "### 风险",
+                    f"- 时效性：{time_sense}",
                 ])
+                risk_alerts = intel.get('risk_alerts', []) if intel else []
+                canonical_risk = ""
+                for risk_item in risk_alerts:
+                    risk_text = (
+                        str(risk_item.get("message") or risk_item.get("title") or "").strip()
+                        if isinstance(risk_item, dict) else str(risk_item or "").strip()
+                    )
+                    if risk_text:
+                        canonical_risk = risk_text
+                        break
+                if canonical_risk:
+                    report_lines.append(f"- ⚠️ {canonical_risk}")
+                elif result.risk_warning:
+                    report_lines.append(f"- ⚠️ {result.risk_warning}")
+                report_lines.append("")
                 if action_model['ai_conflict']:
                     report_lines.extend([
-                        "⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。",
+                        "- ⚠️ AI解读与确定性动作不一致，请以主动作为准。",
                         "",
                     ])
-                # 持仓分类建议
+                # 持仓分类建议（仅在确有差异时双分支展示）
                 if pos_advice:
-                    deterministic_sizing_text = self._to_markdown_table_cell(
-                        self._format_deterministic_sizing_text(result)
-                    )
-                    no_position_text = deterministic_sizing_text
-                    has_position_text = deterministic_sizing_text
-                    report_lines.extend([
-                        "| 持仓情况 | 操作建议 |",
-                        "|---------|---------|",
-                        f"| 🆕 **空仓者** | {no_position_text} |",
-                        f"| 💼 **持仓者** | {has_position_text} |",
-                        "",
-                    ])
-                    ai_no_position_text = pos_advice.get('no_position')
-                    ai_has_position_text = pos_advice.get('has_position')
-                    if ai_no_position_text or ai_has_position_text:
-                        report_lines.extend([
-                            "**💬 AI仓位解读（次要评论，非执行指令）**",
-                            "",
-                        ])
-                        if ai_no_position_text:
-                            report_lines.append(
-                                f"- 🆕 空仓者: {self._sanitize_ai_share_count_commentary(ai_no_position_text)}"
-                            )
-                        if ai_has_position_text:
-                            report_lines.append(
-                                f"- 💼 持仓者: {self._sanitize_ai_share_count_commentary(ai_has_position_text)}"
-                            )
-                        report_lines.append("")
+                    is_holding = code in holding_codes
+                    no_position_text = self._sanitize_ai_share_count_commentary(pos_advice.get('no_position'))
+                    has_position_text = self._sanitize_ai_share_count_commentary(pos_advice.get('has_position'))
+                    report_lines.append("### 持仓指引")
+                    if no_position_text and has_position_text and no_position_text != has_position_text:
+                        if is_holding:
+                            report_lines.append(f"- 持仓者怎么做：{has_position_text}")
+                            report_lines.append(f"- 空仓者参考：{no_position_text}")
+                        else:
+                            report_lines.append(f"- 空仓者怎么做：{no_position_text}")
+                            report_lines.append(f"- 持仓者参考：{has_position_text}")
+                    else:
+                        primary = has_position_text if is_holding else no_position_text
+                        report_lines.append(f"- {'持仓者' if is_holding else '空仓者'}怎么做：{primary or self._format_deterministic_sizing_text(result)}")
+                    report_lines.append("")
 
                 self._append_market_snapshot(report_lines, result)
                 
@@ -1657,7 +1661,7 @@ class NotificationService:
                     chip_data = data_persp.get('chip_structure', {})
                     
                     report_lines.extend([
-                        "### 📊 技术/数据附录（紧凑）",
+                        "### 证据附录（技术/数据）",
                         "",
                     ])
                     # 趋势状态
@@ -1710,7 +1714,7 @@ class NotificationService:
                 battle = dashboard.get('battle_plan', {}) if dashboard else {}
                 if battle:
                     report_lines.extend([
-                        "### 🎯 执行附录（参考）",
+                        "### 参考位 / 执行参考",
                         "",
                     ])
                     # 狙击点位
@@ -1827,11 +1831,12 @@ class NotificationService:
                     ref_text = " | ".join(ref_points) if ref_points else "暂无明确参考位"
 
                     report_lines.extend([
-                        f"### {signal_emoji} {self._escape_md(result.name)}({result.code})",
-                        f"- 结论：{signal_text} | 评分 {result.sentiment_score} | {result.trend_prediction}",
+                        f"### {signal_emoji} {self._escape_md(self._format_stock_display_name(result.name, result.code))}",
+                        f"- 核心结论：{signal_text} | 评分 {result.sentiment_score} | {result.trend_prediction}",
+                        f"- 主动作：{self._format_position_action_label(self._get_primary_action_model(result)['position_action'])}",
                         f"- 关键理由：{reason_text}",
                         f"- 风险：{risk_text}",
-                        f"- 观察/参考位：{ref_text}",
+                        f"- 参考位：{ref_text}",
                         "",
                     ])
                 report_lines.extend(["", "---", ""])
