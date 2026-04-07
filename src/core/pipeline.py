@@ -37,6 +37,15 @@ from bot.models import BotMessage
 logger = logging.getLogger(__name__)
 
 
+def _now_in_timezone_safe(timezone_name: str) -> datetime:
+    """Return timezone-aware now with graceful fallback to local time."""
+    try:
+        return datetime.now(ZoneInfo(timezone_name))
+    except Exception as exc:
+        logger.warning("无效市场时区 %s，已回退到系统本地时间: %s", timezone_name, exc)
+        return datetime.now()
+
+
 class StockAnalysisPipeline:
     """
     股票分析主流程调度器
@@ -1503,7 +1512,7 @@ class StockAnalysisPipeline:
                 portfolio_summary = self.analyzer.generate_portfolio_summary(results)
                 if portfolio_summary:
                     market_tz = getattr(self.config, "market_timezone", "Australia/Sydney")
-                    today_str = datetime.now(ZoneInfo(market_tz)).date().isoformat()
+                    today_str = _now_in_timezone_safe(market_tz).date().isoformat()
                     portfolio_prefix = "## 🎯 组合决策总结 " + today_str + "\n\n" + portfolio_summary + "\n\n---\n\n"
                     logger.info("组合决策总结生成成功")
             except Exception as e:
