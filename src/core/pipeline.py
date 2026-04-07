@@ -1513,7 +1513,7 @@ class StockAnalysisPipeline:
                 if portfolio_summary:
                     market_tz = getattr(self.config, "market_timezone", "Australia/Sydney")
                     today_str = _now_in_timezone_safe(market_tz).date().isoformat()
-                    portfolio_prefix = "## 🎯 组合决策总结 " + today_str + "\n\n" + portfolio_summary + "\n\n---\n\n"
+                    portfolio_prefix = "## 🎯 组合决策总结（报告日 " + today_str + "）\n\n" + portfolio_summary + "\n\n---\n\n"
                     logger.info("组合决策总结生成成功")
             except Exception as e:
                 logger.warning(f"组合决策总结生成失败（已跳过）: {e}")

@@ -336,6 +336,21 @@ def run_full_analysis(
                     else:
                         logger.warning("合并推送失败")
 
+        # full 模式兜底：避免“个股结果为空 + 大盘已生成 + standalone 默认关闭”导致静默无通知
+        if (
+            not merge_notification
+            and not args.no_notify
+            and not results
+            and market_report
+            and not getattr(config, "market_review_push_enabled", True)
+        ):
+            fallback_content = f"🎯 大盘复盘\n\n{market_report}"
+            if pipeline.notifier.is_available():
+                if pipeline.notifier.send(fallback_content, email_send_to_all=True):
+                    logger.info("兜底推送成功：本次无个股结果，已发送大盘复盘")
+                else:
+                    logger.warning("兜底推送失败：本次无个股结果，且 standalone 关闭")
+
         # 输出摘要
         if results:
             logger.info("\n===== 分析结果摘要 =====")
