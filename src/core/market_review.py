@@ -13,6 +13,7 @@ A股自选股智能分析系统 - 大盘复盘模块
 import logging
 from datetime import datetime
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from src.notification import NotificationService
 from src.market_analyzer import MarketAnalyzer
@@ -30,7 +31,6 @@ def run_market_review(
     search_service: Optional[SearchService] = None,
     send_notification: bool = True,
     merge_notification: bool = False,
-    force_standalone_push: bool = False,
 ) -> Optional[str]:
     """
     执行大盘复盘分析
@@ -58,12 +58,10 @@ def run_market_review(
         
         if review_report:
             config = get_config()
-            allow_standalone_push = (
-                force_standalone_push
-                or getattr(config, "market_review_push_enabled", True)
-            )
+            allow_standalone_push = getattr(config, "market_review_push_enabled", True)
             # 保存报告到文件
-            date_str = datetime.now().strftime('%Y%m%d')
+            market_tz = getattr(config, "market_timezone", "Australia/Sydney")
+            date_str = datetime.now(ZoneInfo(market_tz)).strftime('%Y%m%d')
             report_filename = f"market_review_{date_str}.md"
             filepath = notifier.save_report_to_file(
                 f"# 🎯 大盘复盘\n\n{review_report}", 

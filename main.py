@@ -602,7 +602,6 @@ def main() -> int:
                 analyzer=analyzer,
                 search_service=search_service,
                 send_notification=not args.no_notify,
-                force_standalone_push=True,
             )
             return 0
 
