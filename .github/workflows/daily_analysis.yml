@@ -154,6 +154,7 @@ jobs:
           SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'false' }}
           MARKET_REVIEW_ENABLED: ${{ vars.MARKET_REVIEW_ENABLED || secrets.MARKET_REVIEW_ENABLED || 'true' }}
           MARKET_REVIEW_PUSH_ENABLED: ${{ vars.MARKET_REVIEW_PUSH_ENABLED || secrets.MARKET_REVIEW_PUSH_ENABLED || '' }}
+          MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED: ${{ vars.MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED || secrets.MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED || '' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '30' }}
           
           # ==========================================
@@ -209,8 +210,16 @@ jobs:
           elif [ "$MODE" = "stocks-only" ]; then
             python main.py --no-market-review
           else
-            # full 模式：默认避免重复 standalone 大盘推送；若外部显式配置，则优先外部配置
-            export MARKET_REVIEW_PUSH_ENABLED="${MARKET_REVIEW_PUSH_ENABLED:-false}"
+            # full 模式：
+            # 1) 若未显式配置 MARKET_REVIEW_PUSH_ENABLED，则默认 false（避免重复）
+            # 2) 仅在该“隐式默认 false”场景下，默认启用空结果兜底推送，避免静默
+            # 3) 若用户显式配置 MARKET_REVIEW_PUSH_ENABLED（true/false），则默认不启用兜底，尊重用户语义
+            if [ -z "${MARKET_REVIEW_PUSH_ENABLED+x}" ] || [ -z "${MARKET_REVIEW_PUSH_ENABLED}" ]; then
+              export MARKET_REVIEW_PUSH_ENABLED=false
+              export MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED="${MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED:-true}"
+            else
+              export MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED="${MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED:-false}"
+            fi
             python main.py
           fi
       

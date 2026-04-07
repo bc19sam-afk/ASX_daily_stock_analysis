@@ -228,6 +228,7 @@ class Config:
     schedule_run_immediately: bool = True     # 启动时是否立即执行一次
     market_review_enabled: bool = True        # 是否启用大盘复盘
     market_review_push_enabled: bool = True   # 是否推送大盘复盘（关闭后仅保存/参与合并）
+    market_review_empty_results_fallback_enabled: bool = False  # full 模式无个股结果时是否允许大盘兜底推送
     market_timezone: str = "Australia/Sydney" # 市场时区（用于交易日/收盘判断）
     market_calendar: str = "ASX"              # 市场日历（ASX/NYSE）
     require_market_closed: bool = False         # 是否要求市场已收盘（默认关闭，适配盘前任务）
@@ -495,6 +496,7 @@ class Config:
             schedule_run_immediately=os.getenv('SCHEDULE_RUN_IMMEDIATELY', 'true').lower() == 'true',
             market_review_enabled=os.getenv('MARKET_REVIEW_ENABLED', 'true').lower() == 'true',
             market_review_push_enabled=os.getenv('MARKET_REVIEW_PUSH_ENABLED', 'true').lower() == 'true',
+            market_review_empty_results_fallback_enabled=os.getenv('MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED', 'false').lower() == 'true',
             market_timezone=os.getenv('MARKET_TIMEZONE', 'Australia/Sydney'),
             market_calendar=os.getenv('MARKET_CALENDAR', 'ASX'),
             require_market_closed=os.getenv('REQUIRE_MARKET_CLOSED', 'false').lower() == 'true',

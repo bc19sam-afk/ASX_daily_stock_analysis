@@ -1803,9 +1803,19 @@ class NotificationService:
                     sniper = battle.get('sniper_points', {}) if battle else {}
                     risk_alerts = intel.get('risk_alerts', []) if intel else []
                     reason_text = result.buy_reason or result.analysis_summary or "N/A"
+                    normalized_risk_alerts = []
+                    for item in risk_alerts:
+                        if item is None:
+                            continue
+                        if isinstance(item, dict):
+                            text = str(item.get("message") or item.get("title") or "").strip()
+                        else:
+                            text = str(item).strip()
+                        if text:
+                            normalized_risk_alerts.append(text)
                     risk_text = (
-                        "；".join(risk_alerts[:2])
-                        if risk_alerts else (result.risk_warning or "暂无新增高优先级风险")
+                        "；".join(normalized_risk_alerts[:2])
+                        if normalized_risk_alerts else (result.risk_warning or "暂无新增高优先级风险")
                     )
                     ref_points = []
                     if sniper.get('ideal_buy'):

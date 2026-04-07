@@ -343,6 +343,7 @@ def run_full_analysis(
             and not results
             and market_report
             and not getattr(config, "market_review_push_enabled", True)
+            and getattr(config, "market_review_empty_results_fallback_enabled", False)
         ):
             fallback_content = f"🎯 大盘复盘\n\n{market_report}"
             if pipeline.notifier.is_available():
