@@ -17,8 +17,9 @@ import time
 import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, datetime
 from typing import List, Dict, Any, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from src.config import get_config, Config
 from src.storage import get_db
@@ -34,6 +35,15 @@ from bot.models import BotMessage
 
 
 logger = logging.getLogger(__name__)
+
+
+def _now_in_timezone_safe(timezone_name: str) -> datetime:
+    """Return timezone-aware now with graceful fallback to local time."""
+    try:
+        return datetime.now(ZoneInfo(timezone_name))
+    except Exception as exc:
+        logger.warning("无效市场时区 %s，已回退到系统本地时间: %s", timezone_name, exc)
+        return datetime.now()
 
 
 class StockAnalysisPipeline:
@@ -1501,8 +1511,9 @@ class StockAnalysisPipeline:
                 logger.info("生成组合决策总结...")
                 portfolio_summary = self.analyzer.generate_portfolio_summary(results)
                 if portfolio_summary:
-                    today_str = results[0].market_snapshot.get('date', '') if results and results[0].market_snapshot else ''
-                    portfolio_prefix = "## 🎯 组合决策总结 " + today_str + "\n\n" + portfolio_summary + "\n\n---\n\n"
+                    market_tz = getattr(self.config, "market_timezone", "Australia/Sydney")
+                    today_str = _now_in_timezone_safe(market_tz).date().isoformat()
+                    portfolio_prefix = "## 🎯 组合决策总结（报告日 " + today_str + "）\n\n" + portfolio_summary + "\n\n---\n\n"
                     logger.info("组合决策总结生成成功")
             except Exception as e:
                 logger.warning(f"组合决策总结生成失败（已跳过）: {e}")

@@ -25,6 +25,7 @@ import re
 import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
+from zoneinfo import ZoneInfo
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
@@ -210,6 +211,7 @@ class NotificationService:
         检测所有已配置的渠道，推送时会向所有渠道发送
         """
         config = get_config()
+        self._report_timezone = getattr(config, "market_timezone", "Australia/Sydney")
         self._source_message = source_message
         self._context_channels: List[str] = []
         
@@ -292,6 +294,13 @@ class NotificationService:
             channel_names = [ChannelDetector.get_channel_name(ch) for ch in self._available_channels]
             channel_names.extend(self._context_channels)
             logger.info(f"已配置 {len(channel_names)} 个通知渠道：{', '.join(channel_names)}")
+
+    def _now_in_report_tz(self) -> datetime:
+        """Return timezone-aware now using configured report/market timezone."""
+        try:
+            return datetime.now(ZoneInfo(self._report_timezone))
+        except Exception:
+            return datetime.now()
     
     def _detect_all_channels(self) -> List[NotificationChannel]:
         """
@@ -567,6 +576,7 @@ class NotificationService:
         lines = [
             title,
             "",
+            f"- 报告生成时间：**{generated_at.strftime('%Y-%m-%d %H:%M:%S %Z')}**。",
             f"- 技术面判断：基于 **{daily_anchor}**。",
             f"- 新闻更新：截至 **{news_cutoff}**。",
             (
@@ -604,8 +614,8 @@ class NotificationService:
             Markdown 格式的日报内容
         """
         if report_date is None:
-            report_date = datetime.now().strftime('%Y-%m-%d')
-        generated_at = datetime.now()
+            report_date = self._now_in_report_tz().strftime('%Y-%m-%d')
+        generated_at = self._now_in_report_tz()
 
         # 标题
         report_lines = [
@@ -1304,8 +1314,8 @@ class NotificationService:
             Markdown 格式的决策仪表盘日报
         """
         if report_date is None:
-            report_date = datetime.now().strftime('%Y-%m-%d')
-        generated_at = datetime.now()
+            report_date = self._now_in_report_tz().strftime('%Y-%m-%d')
+        generated_at = self._now_in_report_tz()
 
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -1518,6 +1528,31 @@ class NotificationService:
                     f"**价格基准**：{self._get_price_basis_label(result)}",
                     "",
                 ])
+
+                # 先给出可读优先的四段式摘要（不删后续细节）
+                core = dashboard.get('core_conclusion', {}) if dashboard else {}
+                one_sentence = self._get_conflict_safe_core_conclusion(
+                    result,
+                    core.get('one_sentence', result.analysis_summary),
+                )
+                time_sense = core.get('time_sensitivity', '本周内')
+                report_lines.extend([
+                    "### 结论",
+                    f"- {signal_emoji} **{signal_text}** | {result.trend_prediction}",
+                    f"- 一句话：{one_sentence}",
+                    "",
+                    "### 理由",
+                    f"- AI补充：{self._get_conflict_safe_ai_commentary(result)}",
+                    f"- 关键理由：{result.buy_reason or result.analysis_summary or 'N/A'}",
+                    "",
+                    "### 动作",
+                    f"- 主动作：{self._format_primary_action_text(result)}",
+                    f"- 确定性仓位建议：{self._format_deterministic_sizing_text(result)}",
+                    "",
+                    "### 风险",
+                    f"- 时效性：{time_sense}",
+                    "",
+                ])
                 
                 # ========== 舆情与基本面概览（放在最前面）==========
                 intel = dashboard.get('intelligence', {}) if dashboard else {}
@@ -1622,7 +1657,7 @@ class NotificationService:
                     chip_data = data_persp.get('chip_structure', {})
                     
                     report_lines.extend([
-                        "### 📊 数据透视",
+                        "### 📊 技术/数据附录（紧凑）",
                         "",
                     ])
                     # 趋势状态
@@ -1675,7 +1710,7 @@ class NotificationService:
                 battle = dashboard.get('battle_plan', {}) if dashboard else {}
                 if battle:
                     report_lines.extend([
-                        "### 🎯 作战计划",
+                        "### 🎯 执行附录（参考）",
                         "",
                     ])
                     # 狙击点位
@@ -1749,21 +1784,56 @@ class NotificationService:
                     "---",
                     "",
                 ])
-            compact_non_holding_results = [
+            observation_non_holding_results = [
                 r for r in non_holding_results
                 if self._normalize_stock_code(getattr(r, "code", "")) not in detail_seen_codes
             ]
-            if compact_non_holding_results:
+            if observation_non_holding_results:
                 report_lines.extend([
-                    "## 详细个股附录（非持仓简版）",
+                    "## 详细个股附录（非持仓观察版）",
+                    "",
+                    "> 规则：非持仓且今日无明确动作的标的进入观察版，保留结论/理由/风险/参考位，不再只显示一行摘要。",
                     "",
                 ])
-                for result in compact_non_holding_results:
+                for result in observation_non_holding_results:
                     signal_text, signal_emoji, _ = self._get_signal_level(result)
-                    report_lines.append(
-                        f"- {signal_emoji} {self._escape_md(result.name)}({result.code})："
-                        f"{signal_text}，评分 {result.sentiment_score}，{result.trend_prediction}。"
+                    dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
+                    intel = dashboard.get('intelligence', {}) if dashboard else {}
+                    battle = dashboard.get('battle_plan', {}) if dashboard else {}
+                    sniper = battle.get('sniper_points', {}) if battle else {}
+                    risk_alerts = intel.get('risk_alerts', []) if intel else []
+                    reason_text = result.buy_reason or result.analysis_summary or "N/A"
+                    normalized_risk_alerts = []
+                    for item in risk_alerts:
+                        if item is None:
+                            continue
+                        if isinstance(item, dict):
+                            text = str(item.get("message") or item.get("title") or "").strip()
+                        else:
+                            text = str(item).strip()
+                        if text:
+                            normalized_risk_alerts.append(text)
+                    risk_text = (
+                        "；".join(normalized_risk_alerts[:2])
+                        if normalized_risk_alerts else (result.risk_warning or "暂无新增高优先级风险")
                     )
+                    ref_points = []
+                    if sniper.get('ideal_buy'):
+                        ref_points.append(f"参考买入位 {self._clean_sniper_value(sniper.get('ideal_buy'))}")
+                    if sniper.get('stop_loss'):
+                        ref_points.append(f"风险提示位 {self._clean_sniper_value(sniper.get('stop_loss'))}")
+                    if sniper.get('take_profit'):
+                        ref_points.append(f"参考目标位 {self._clean_sniper_value(sniper.get('take_profit'))}")
+                    ref_text = " | ".join(ref_points) if ref_points else "暂无明确参考位"
+
+                    report_lines.extend([
+                        f"### {signal_emoji} {self._escape_md(result.name)}({result.code})",
+                        f"- 结论：{signal_text} | 评分 {result.sentiment_score} | {result.trend_prediction}",
+                        f"- 关键理由：{reason_text}",
+                        f"- 风险：{risk_text}",
+                        f"- 观察/参考位：{ref_text}",
+                        "",
+                    ])
                 report_lines.extend(["", "---", ""])
         
         # 底部（去除免责声明）
@@ -1786,7 +1856,7 @@ class NotificationService:
         Returns:
             精简版决策仪表盘
         """
-        generated_at = datetime.now()
+        generated_at = self._now_in_report_tz()
         report_date = generated_at.strftime('%Y-%m-%d')
         
         # 按评分排序
@@ -1993,7 +2063,7 @@ class NotificationService:
         Returns:
             精简版 Markdown 内容
         """
-        generated_at = datetime.now()
+        generated_at = self._now_in_report_tz()
         report_date = generated_at.strftime('%Y-%m-%d')
 
         # 按评分排序
@@ -2072,7 +2142,7 @@ class NotificationService:
         Returns:
             Markdown 格式的单股报告
         """
-        generated_at = datetime.now()
+        generated_at = self._now_in_report_tz()
         report_date = generated_at.strftime('%Y-%m-%d %H:%M')
         signal_text, signal_emoji, _ = self._get_signal_level(result)
         dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}

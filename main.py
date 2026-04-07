@@ -270,6 +270,13 @@ def run_full_analysis(
             and not getattr(args, 'no_market_review', False)
             and not config.single_stock_notify
         )
+        if config.market_review_enabled and not getattr(args, 'no_market_review', False):
+            if merge_notification:
+                logger.info("通知策略：合并推送（个股+大盘复盘）")
+            elif getattr(config, 'market_review_push_enabled', True):
+                logger.info("通知策略：个股报告 + 大盘复盘独立推送")
+            else:
+                logger.info("通知策略：仅个股报告推送（大盘复盘仅保存，不单独推送）")
 
         # 创建调度器
         save_context_snapshot = None
@@ -328,6 +335,22 @@ def run_full_analysis(
                         logger.info("已合并推送（个股+大盘复盘）")
                     else:
                         logger.warning("合并推送失败")
+
+        # full 模式兜底：避免“个股结果为空 + 大盘已生成 + standalone 默认关闭”导致静默无通知
+        if (
+            not merge_notification
+            and not args.no_notify
+            and not results
+            and market_report
+            and not getattr(config, "market_review_push_enabled", True)
+            and getattr(config, "market_review_empty_results_fallback_enabled", False)
+        ):
+            fallback_content = f"🎯 大盘复盘\n\n{market_report}"
+            if pipeline.notifier.is_available():
+                if pipeline.notifier.send(fallback_content, email_send_to_all=True):
+                    logger.info("兜底推送成功：本次无个股结果，已发送大盘复盘")
+                else:
+                    logger.warning("兜底推送失败：本次无个股结果，且 standalone 关闭")
 
         # 输出摘要
         if results:
@@ -594,7 +617,7 @@ def main() -> int:
                 notifier=notifier,
                 analyzer=analyzer,
                 search_service=search_service,
-                send_notification=not args.no_notify
+                send_notification=not args.no_notify,
             )
             return 0
 
