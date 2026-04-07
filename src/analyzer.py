@@ -2083,7 +2083,19 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
             total_turnover += abs(delta_amount)
 
         avg_target_weight = target_weight_sum / len(ordered_results) if ordered_results else 0.0
-        net_delta_label = "整体偏加仓" if total_delta > 0 else "整体偏减仓" if total_delta < 0 else "以观察为主"
+        execution_action_count = (
+            action_counts["OPEN"] + action_counts["ADD"] + action_counts["REDUCE"] + action_counts["CLOSE"]
+        )
+        has_execution_actions = execution_action_count > 0
+        has_meaningful_turnover = total_turnover > 0.0
+        if total_delta > 0:
+            net_delta_label = "整体偏加仓"
+        elif total_delta < 0:
+            net_delta_label = "整体偏减仓"
+        elif has_execution_actions or has_meaningful_turnover:
+            net_delta_label = "有换仓/再平衡动作，整体仓位中性"
+        else:
+            net_delta_label = "以观察为主"
         caution_label = "组合整体偏谨慎" if action_counts["HOLD"] >= max(action_counts["OPEN"] + action_counts["ADD"], action_counts["REDUCE"] + action_counts["CLOSE"]) else "组合存在明确调仓方向"
 
         return "\n".join([
