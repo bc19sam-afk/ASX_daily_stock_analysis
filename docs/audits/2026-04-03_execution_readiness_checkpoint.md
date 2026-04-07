@@ -83,36 +83,32 @@ This is **not** the final audit report.
 
 一句话总结：这轮已把系统从“更会写报告”推进到“更可信、可约束、可验证”，但下一步应基于真实输出证据做精确收口，而非继续泛化改造。
 
-### Post-checkpoint update (2026-04-07)
+### Post-checkpoint update (2026-04-07, latest)
 
-This is a follow-up update appended after the original checkpoint, not a rewrite of the 2026-04-03 historical record.
+This is a follow-up update to the original 2026-04-03 checkpoint, not a rewrite of the historical record.
 
-#### Monday runtime observation confirmed
+#### What is now confirmed
 
-- The 2026-04-06 live report quality was materially better than the pre-change version.
-- The main remaining issues have shifted away from core execution-readiness concerns and are now mostly in report presentation/readability.
+* PR #76 has already been merged and closed. The earlier report-behavior fixes are no longer pending in that PR.
+* The remaining work has shifted further away from execution-readiness concerns and toward report presentation/readability polish.
+* The dedicated readability PR (#77) is now the main place where those user-facing report changes are being refined. PR #77 is currently open, mergeable, and under active review.
 
-#### Completed after the checkpoint
+#### What was completed after the checkpoint
 
-- Portfolio summary header timezone-fallback issue fixed.
-- Full-mode silent-notification path fixed.
-- Fallback behavior separated from explicit standalone-push disable semantics.
-- Non-holding observation appendix kept in the richer format (not reverted to one-line compact).
-- `risk_alerts` normalization / type-safety fix landed.
-- Related tests updated to the newer report contract.
+* Portfolio summary / report wording was further humanized to reduce engine/debug-style text.
+* Homepage date semantics were clarified with explicit “技术基准日 / 报告日” labeling.
+* Stock display names were normalized toward a cleaner user-facing format.
+* Per-stock sections were tightened to reduce duplicated layers and noisy branch rendering.
+* Additional follow-up fixes were made for presentation semantics, including summary-date filtering and sizing-brief wording/test coverage.
+* The latest Codex review on PR #77 did not find any major issues.
 
-#### What remains after today
+#### What remains at this point
 
-Remaining work is now mostly presentation/readability polish rather than core execution-readiness closure:
+* At this stage, the main remaining items are no longer core execution-readiness blockers.
+* The primary follow-up is housekeeping / release hygiene for the presentation-layer work, especially changelog/documentation alignment if the team wants that recorded alongside the readability update. The latest automated review on PR #77 still calls out `docs/CHANGELOG.md` as the remaining must-do item in that PR’s review flow.
 
-- Homepage portfolio summary is still too implementation-shaped and not human-readable enough.
-- Homepage date wording can still look stitched together unless phrased more clearly.
-- Stock titles still contain raw data-source style naming in too many places.
-- Some per-stock pages still have awkward “空仓者 / 持仓者” split rendering.
-- Repeated conflict warnings / repeated AI wording still make some pages noisy.
+#### Suggested interpretation of the checkpoint now
 
-#### Suggested next step
-
-- Keep PR72 as the historical checkpoint record.
-- Handle further report readability polish in a separate presentation-layer PR.
-- Do not mix that new work into this docs-only checkpoint PR.
+* PR72 should remain the historical checkpoint record for the pre-Monday and early post-Monday convergence assessment.
+* The latest evidence suggests that the center of gravity has moved from “can this report be trusted enough at runtime?” toward “how polished and reader-friendly is the final report output?”
+* Further work should continue in the separate presentation-layer PR rather than being mixed back into this docs-only checkpoint PR.
