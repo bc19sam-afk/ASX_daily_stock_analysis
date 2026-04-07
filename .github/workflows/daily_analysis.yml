@@ -11,7 +11,7 @@ on:
       mode:
         description: '运行模式'
         required: true
-        default: 'stocks-only'
+        default: 'full'
         type: choice
         options:
           - full          # 完整分析（股票+大盘）
@@ -153,6 +153,7 @@ jobs:
           REPORT_TYPE: ${{ vars.REPORT_TYPE || secrets.REPORT_TYPE || 'detailed' }}
           SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'false' }}
           MARKET_REVIEW_ENABLED: ${{ vars.MARKET_REVIEW_ENABLED || secrets.MARKET_REVIEW_ENABLED || 'true' }}
+          MARKET_REVIEW_PUSH_ENABLED: ${{ vars.MARKET_REVIEW_PUSH_ENABLED || secrets.MARKET_REVIEW_PUSH_ENABLED || 'false' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '30' }}
           
           # ==========================================

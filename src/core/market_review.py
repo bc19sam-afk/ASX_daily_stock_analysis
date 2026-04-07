@@ -18,6 +18,7 @@ from src.notification import NotificationService
 from src.market_analyzer import MarketAnalyzer
 from src.search_service import SearchService
 from src.analyzer import GeminiAnalyzer
+from src.config import get_config
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,8 @@ def run_market_review(
         review_report = market_analyzer.run_daily_review()
         
         if review_report:
+            config = get_config()
+            allow_standalone_push = getattr(config, "market_review_push_enabled", True)
             # 保存报告到文件
             date_str = datetime.now().strftime('%Y%m%d')
             report_filename = f"market_review_{date_str}.md"
@@ -67,7 +70,7 @@ def run_market_review(
             # 推送通知（合并模式下跳过，由 main 层统一发送）
             if merge_notification and send_notification:
                 logger.info("合并推送模式：跳过大盘复盘单独推送，将在个股+大盘复盘后统一发送")
-            elif send_notification and notifier.is_available():
+            elif send_notification and notifier.is_available() and allow_standalone_push:
                 # 添加标题
                 report_content = f"🎯 大盘复盘\n\n{review_report}"
 
@@ -76,6 +79,8 @@ def run_market_review(
                     logger.info("大盘复盘推送成功")
                 else:
                     logger.warning("大盘复盘推送失败")
+            elif send_notification and not allow_standalone_push:
+                logger.info("已禁用大盘复盘单独推送（MARKET_REVIEW_PUSH_ENABLED=false）")
             elif not send_notification:
                 logger.info("已跳过推送通知 (--no-notify)")
             
