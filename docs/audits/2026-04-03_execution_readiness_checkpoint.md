@@ -91,7 +91,7 @@ This is a follow-up update to the original 2026-04-03 checkpoint, not a rewrite 
 
 * PR #76 has already been merged and closed. The earlier report-behavior fixes are no longer pending in that PR.
 * The remaining work has shifted further away from execution-readiness concerns and toward report presentation/readability polish.
-* The dedicated readability PR (#77) is now the main place where those user-facing report changes are being refined. PR #77 is currently open, mergeable, and under active review.
+* The dedicated readability PR (#77) was the main place where those user-facing report changes were refined, and PR #77 has since been merged/closed.
 
 #### What was completed after the checkpoint
 
@@ -105,10 +105,16 @@ This is a follow-up update to the original 2026-04-03 checkpoint, not a rewrite 
 #### What remains at this point
 
 * At this stage, the main remaining items are no longer core execution-readiness blockers.
-* The primary follow-up is housekeeping / release hygiene for the presentation-layer work, especially changelog/documentation alignment if the team wants that recorded alongside the readability update. The latest automated review on PR #77 still calls out `docs/CHANGELOG.md` as the remaining must-do item in that PR’s review flow.
+* The primary follow-up is housekeeping / release hygiene for the presentation-layer work, especially changelog/documentation alignment if the team wants that recorded alongside the readability update. During PR #77 review flow, the automated review called out `docs/CHANGELOG.md` as the remaining must-do item.
 
 #### Suggested interpretation of the checkpoint now
 
 * PR72 should remain the historical checkpoint record for the pre-Monday and early post-Monday convergence assessment.
 * The latest evidence suggests that the center of gravity has moved from “can this report be trusted enough at runtime?” toward “how polished and reader-friendly is the final report output?”
 * Further work should continue in the separate presentation-layer PR rather than being mixed back into this docs-only checkpoint PR.
+
+#### Final status sync (2026-04-07, later update)
+
+* PR #77 has since been merged/closed; the earlier presentation/readability polish was handled in that separate presentation-layer PR.
+* PR72 should remain the historical checkpoint record, not an ongoing rolling audit thread.
+* Remaining follow-up items are now primarily changelog/documentation hygiene, release-note style follow-up, and minor post-merge housekeeping rather than core execution-readiness blockers.
