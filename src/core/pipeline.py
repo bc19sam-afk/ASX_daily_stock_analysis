@@ -1513,11 +1513,25 @@ class StockAnalysisPipeline:
                 if portfolio_summary:
                     market_tz = getattr(self.config, "market_timezone", "Australia/Sydney")
                     report_day = _now_in_timezone_safe(market_tz).date().isoformat()
+                    invalid_snapshot_tokens = {"", "none", "null", "n/a", "unknown"}
+
+                    def _normalize_snapshot_date(value: Any) -> Optional[str]:
+                        raw = str(value or "").strip()
+                        if raw.lower() in invalid_snapshot_tokens:
+                            return None
+                        try:
+                            return datetime.fromisoformat(raw.replace("Z", "+00:00")).date().isoformat()
+                        except Exception:
+                            return None
+
                     snapshot_dates = sorted(
                         {
-                            str((getattr(r, "market_snapshot", None) or {}).get("date")).strip()
+                            normalized_date
                             for r in results
-                            if str((getattr(r, "market_snapshot", None) or {}).get("date", "")).strip()
+                            for normalized_date in [
+                                _normalize_snapshot_date((getattr(r, "market_snapshot", None) or {}).get("date"))
+                            ]
+                            if normalized_date
                         }
                     )
                     if len(snapshot_dates) == 1:
