@@ -270,6 +270,13 @@ def run_full_analysis(
             and not getattr(args, 'no_market_review', False)
             and not config.single_stock_notify
         )
+        if config.market_review_enabled and not getattr(args, 'no_market_review', False):
+            if merge_notification:
+                logger.info("通知策略：合并推送（个股+大盘复盘）")
+            elif getattr(config, 'market_review_push_enabled', True):
+                logger.info("通知策略：个股报告 + 大盘复盘独立推送")
+            else:
+                logger.info("通知策略：仅个股报告推送（大盘复盘仅保存，不单独推送）")
 
         # 创建调度器
         save_context_snapshot = None
@@ -594,7 +601,8 @@ def main() -> int:
                 notifier=notifier,
                 analyzer=analyzer,
                 search_service=search_service,
-                send_notification=not args.no_notify
+                send_notification=not args.no_notify,
+                force_standalone_push=True,
             )
             return 0
 

@@ -29,7 +29,8 @@ def run_market_review(
     analyzer: Optional[GeminiAnalyzer] = None,
     search_service: Optional[SearchService] = None,
     send_notification: bool = True,
-    merge_notification: bool = False
+    merge_notification: bool = False,
+    force_standalone_push: bool = False,
 ) -> Optional[str]:
     """
     执行大盘复盘分析
@@ -57,7 +58,10 @@ def run_market_review(
         
         if review_report:
             config = get_config()
-            allow_standalone_push = getattr(config, "market_review_push_enabled", True)
+            allow_standalone_push = (
+                force_standalone_push
+                or getattr(config, "market_review_push_enabled", True)
+            )
             # 保存报告到文件
             date_str = datetime.now().strftime('%Y%m%d')
             report_filename = f"market_review_{date_str}.md"

@@ -153,7 +153,7 @@ jobs:
           REPORT_TYPE: ${{ vars.REPORT_TYPE || secrets.REPORT_TYPE || 'detailed' }}
           SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'false' }}
           MARKET_REVIEW_ENABLED: ${{ vars.MARKET_REVIEW_ENABLED || secrets.MARKET_REVIEW_ENABLED || 'true' }}
-          MARKET_REVIEW_PUSH_ENABLED: ${{ vars.MARKET_REVIEW_PUSH_ENABLED || secrets.MARKET_REVIEW_PUSH_ENABLED || 'false' }}
+          MARKET_REVIEW_PUSH_ENABLED: ${{ vars.MARKET_REVIEW_PUSH_ENABLED || secrets.MARKET_REVIEW_PUSH_ENABLED || 'true' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '30' }}
           
           # ==========================================
@@ -203,12 +203,12 @@ jobs:
           
           # 执行分析
           if [ "$MODE" = "market-only" ]; then
-            python main.py --market-review
+            MARKET_REVIEW_PUSH_ENABLED=true python main.py --market-review
           elif [ "$MODE" = "stocks-only" ]; then
             python main.py --no-market-review
           else
-            # 恢复默认运行模式：同时生成【股票分析】与【大盘复盘】
-            python main.py
+            # full 模式：默认避免重复 standalone 大盘推送（保留市场分析生成）
+            MARKET_REVIEW_PUSH_ENABLED=false python main.py
           fi
       
       - name: 保存数据库缓存（回测历史）

@@ -17,8 +17,9 @@ import time
 import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, datetime
 from typing import List, Dict, Any, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 from src.config import get_config, Config
 from src.storage import get_db
@@ -1501,7 +1502,8 @@ class StockAnalysisPipeline:
                 logger.info("生成组合决策总结...")
                 portfolio_summary = self.analyzer.generate_portfolio_summary(results)
                 if portfolio_summary:
-                    today_str = date.today().isoformat()
+                    market_tz = getattr(self.config, "market_timezone", "Australia/Sydney")
+                    today_str = datetime.now(ZoneInfo(market_tz)).date().isoformat()
                     portfolio_prefix = "## 🎯 组合决策总结 " + today_str + "\n\n" + portfolio_summary + "\n\n---\n\n"
                     logger.info("组合决策总结生成成功")
             except Exception as e:

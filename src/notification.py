@@ -25,6 +25,7 @@ import re
 import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
+from zoneinfo import ZoneInfo
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
@@ -210,6 +211,7 @@ class NotificationService:
         检测所有已配置的渠道，推送时会向所有渠道发送
         """
         config = get_config()
+        self._report_timezone = getattr(config, "market_timezone", "Australia/Sydney")
         self._source_message = source_message
         self._context_channels: List[str] = []
         
@@ -292,6 +294,13 @@ class NotificationService:
             channel_names = [ChannelDetector.get_channel_name(ch) for ch in self._available_channels]
             channel_names.extend(self._context_channels)
             logger.info(f"已配置 {len(channel_names)} 个通知渠道：{', '.join(channel_names)}")
+
+    def _now_in_report_tz(self) -> datetime:
+        """Return timezone-aware now using configured report/market timezone."""
+        try:
+            return datetime.now(ZoneInfo(self._report_timezone))
+        except Exception:
+            return datetime.now()
     
     def _detect_all_channels(self) -> List[NotificationChannel]:
         """
@@ -567,7 +576,7 @@ class NotificationService:
         lines = [
             title,
             "",
-            f"- 报告生成时间：**{generated_at.strftime('%Y-%m-%d %H:%M:%S')}**。",
+            f"- 报告生成时间：**{generated_at.strftime('%Y-%m-%d %H:%M:%S %Z')}**。",
             f"- 技术面判断：基于 **{daily_anchor}**。",
             f"- 新闻更新：截至 **{news_cutoff}**。",
             (
@@ -605,8 +614,8 @@ class NotificationService:
             Markdown 格式的日报内容
         """
         if report_date is None:
-            report_date = datetime.now().strftime('%Y-%m-%d')
-        generated_at = datetime.now()
+            report_date = self._now_in_report_tz().strftime('%Y-%m-%d')
+        generated_at = self._now_in_report_tz()
 
         # 标题
         report_lines = [
@@ -1305,8 +1314,8 @@ class NotificationService:
             Markdown 格式的决策仪表盘日报
         """
         if report_date is None:
-            report_date = datetime.now().strftime('%Y-%m-%d')
-        generated_at = datetime.now()
+            report_date = self._now_in_report_tz().strftime('%Y-%m-%d')
+        generated_at = self._now_in_report_tz()
 
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -1519,48 +1528,257 @@ class NotificationService:
                     f"**价格基准**：{self._get_price_basis_label(result)}",
                     "",
                 ])
-                
-                # ========== 4段式详情：结论 + 理由 + 动作 + 风险 ==========
+
+                # 先给出可读优先的四段式摘要（不删后续细节）
                 core = dashboard.get('core_conclusion', {}) if dashboard else {}
                 one_sentence = self._get_conflict_safe_core_conclusion(
                     result,
                     core.get('one_sentence', result.analysis_summary),
                 )
                 time_sense = core.get('time_sensitivity', '本周内')
+                report_lines.extend([
+                    "### 结论",
+                    f"- {signal_emoji} **{signal_text}** | {result.trend_prediction}",
+                    f"- 一句话：{one_sentence}",
+                    "",
+                    "### 理由",
+                    f"- AI补充：{self._get_conflict_safe_ai_commentary(result)}",
+                    f"- 关键理由：{result.buy_reason or result.analysis_summary or 'N/A'}",
+                    "",
+                    "### 动作",
+                    f"- 主动作：{self._format_primary_action_text(result)}",
+                    f"- 确定性仓位建议：{self._format_deterministic_sizing_text(result)}",
+                    "",
+                    "### 风险",
+                    f"- 时效性：{time_sense}",
+                    "",
+                ])
+                
+                # ========== 舆情与基本面概览（放在最前面）==========
                 intel = dashboard.get('intelligence', {}) if dashboard else {}
-                risk_alerts = intel.get('risk_alerts', []) if intel else []
+                if intel:
+                    report_lines.extend([
+                        "### 📰 重要信息速览",
+                        "",
+                    ])
+                    # 舆情情绪总结
+                    if intel.get('sentiment_summary'):
+                        report_lines.append(f"**💭 舆情情绪**: {intel['sentiment_summary']}")
+                    # 业绩预期
+                    if intel.get('earnings_outlook'):
+                        report_lines.append(f"**📊 业绩预期**: {intel['earnings_outlook']}")
+                    # 风险警报（醒目显示）
+                    risk_alerts = intel.get('risk_alerts', [])
+                    if risk_alerts:
+                        report_lines.append("")
+                        report_lines.append("**🚨 风险警报**:")
+                        for alert in risk_alerts:
+                            report_lines.append(f"- {alert}")
+                    # 利好催化
+                    catalysts = intel.get('positive_catalysts', [])
+                    if catalysts:
+                        report_lines.append("")
+                        report_lines.append("**✨ 利好催化**:")
+                        for cat in catalysts:
+                            report_lines.append(f"- {cat}")
+                    # 最新消息
+                    if intel.get('latest_news'):
+                        report_lines.append("")
+                        report_lines.append(f"**📢 最新动态**: {intel['latest_news']}")
+                    report_lines.append("")
+                
+                # ========== 核心结论 ==========
+                core = dashboard.get('core_conclusion', {}) if dashboard else {}
+                one_sentence = self._get_conflict_safe_core_conclusion(
+                    result,
+                    core.get('one_sentence', result.analysis_summary),
+                )
+                time_sense = core.get('time_sensitivity', '本周内')
+                pos_advice = core.get('position_advice', {})
                 
                 report_lines.extend([
-                    "### 1) 结论",
+                    "### 📌 核心结论",
                     "",
                     f"**{signal_emoji} {signal_text}** | {result.trend_prediction}",
                     "",
+                    f"**🧭 主动作（优先执行）**: {self._format_primary_action_text(result)}",
+                    "",
                     f"> **一句话结论**: {one_sentence}",
                     "",
-                    "### 2) 理由",
+                    f"**💬 AI补充（非执行）**: {self._get_conflict_safe_ai_commentary(result)}",
                     "",
-                    f"- AI补充：{self._get_conflict_safe_ai_commentary(result)}",
-                    f"- 关键理由：{result.buy_reason or result.analysis_summary or 'N/A'}",
-                    f"- 时效性：{time_sense}",
-                    "",
-                    "### 3) 动作",
-                    "",
-                    f"- 主动作（优先执行）：{self._format_primary_action_text(result)}",
-                    f"- 确定性仓位建议：{self._format_deterministic_sizing_text(result)}",
-                    "",
-                    "### 4) 风险",
+                    f"⏰ **时效性**: {time_sense}",
                     "",
                 ])
                 if action_model['ai_conflict']:
-                    report_lines.append("- ⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。")
-                if risk_alerts:
-                    for alert in risk_alerts[:3]:
-                        report_lines.append(f"- {alert}")
-                elif result.risk_warning:
-                    report_lines.append(f"- {result.risk_warning}")
-                else:
-                    report_lines.append("- 暂无新增高优先级风险。")
-                report_lines.append("")
+                    report_lines.extend([
+                        "⚠️ AI解读与确定性动作不一致；请以“确定性动作(主指令)”为准。",
+                        "",
+                    ])
+                # 持仓分类建议
+                if pos_advice:
+                    deterministic_sizing_text = self._to_markdown_table_cell(
+                        self._format_deterministic_sizing_text(result)
+                    )
+                    no_position_text = deterministic_sizing_text
+                    has_position_text = deterministic_sizing_text
+                    report_lines.extend([
+                        "| 持仓情况 | 操作建议 |",
+                        "|---------|---------|",
+                        f"| 🆕 **空仓者** | {no_position_text} |",
+                        f"| 💼 **持仓者** | {has_position_text} |",
+                        "",
+                    ])
+                    ai_no_position_text = pos_advice.get('no_position')
+                    ai_has_position_text = pos_advice.get('has_position')
+                    if ai_no_position_text or ai_has_position_text:
+                        report_lines.extend([
+                            "**💬 AI仓位解读（次要评论，非执行指令）**",
+                            "",
+                        ])
+                        if ai_no_position_text:
+                            report_lines.append(
+                                f"- 🆕 空仓者: {self._sanitize_ai_share_count_commentary(ai_no_position_text)}"
+                            )
+                        if ai_has_position_text:
+                            report_lines.append(
+                                f"- 💼 持仓者: {self._sanitize_ai_share_count_commentary(ai_has_position_text)}"
+                            )
+                        report_lines.append("")
+
+                self._append_market_snapshot(report_lines, result)
+                
+                # ========== 数据透视 ==========
+                data_persp = dashboard.get('data_perspective', {}) if dashboard else {}
+                if data_persp:
+                    trend_data = data_persp.get('trend_status', {})
+                    price_data = data_persp.get('price_position', {})
+                    vol_data = data_persp.get('volume_analysis', {})
+                    chip_data = data_persp.get('chip_structure', {})
+                    
+                    report_lines.extend([
+                        "### 📊 技术/数据附录（紧凑）",
+                        "",
+                    ])
+                    # 趋势状态
+                    if trend_data:
+                        is_bullish = "✅ 是" if trend_data.get('is_bullish', False) else "❌ 否"
+                        report_lines.extend([
+                            f"**均线排列**: {trend_data.get('ma_alignment', 'N/A')} | 多头排列: {is_bullish} | 趋势强度: {trend_data.get('trend_score', 'N/A')}/100",
+                            "",
+                        ])
+                    # 价格位置
+                    if price_data:
+                        bias_status = price_data.get('bias_status', 'N/A')
+                        bias_emoji = "✅" if bias_status == "安全" else ("⚠️" if bias_status == "警戒" else "🚨")
+                        report_lines.extend([
+                            "| 价格指标 | 数值 |",
+                            "|---------|------|",
+                            f"| 当前价 | {price_data.get('current_price', 'N/A')} |",
+                            f"| MA5 | {price_data.get('ma5', 'N/A')} |",
+                            f"| MA10 | {price_data.get('ma10', 'N/A')} |",
+                            f"| MA20 | {price_data.get('ma20', 'N/A')} |",
+                            f"| 乖离率(MA5) | {price_data.get('bias_ma5', 'N/A')}% {bias_emoji}{bias_status} |",
+                            f"| 支撑位 | {price_data.get('support_level', 'N/A')} |",
+                            f"| 压力位 | {price_data.get('resistance_level', 'N/A')} |",
+                            "",
+                        ])
+                    # 量能分析
+                    if vol_data:
+                        volume_meaning = self._guard_volume_commentary(result, vol_data.get('volume_meaning', ''))
+                        if volume_meaning == "量能数据不足（量比/换手率缺失），不做量能结论":
+                            report_lines.extend([
+                                f"**量能**: {volume_meaning}",
+                                "",
+                            ])
+                        else:
+                            report_lines.extend([
+                                f"**量能**: 量比 {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | 换手率 {vol_data.get('turnover_rate', 'N/A')}%",
+                                f"💡 *{volume_meaning}*",
+                                "",
+                            ])
+                    # 筹码结构
+                    if chip_data:
+                        chip_health = chip_data.get('chip_health', 'N/A')
+                        chip_emoji = "✅" if chip_health == "健康" else ("⚠️" if chip_health == "一般" else "🚨")
+                        report_lines.extend([
+                            f"**筹码**: 获利比例 {chip_data.get('profit_ratio', 'N/A')} | 平均成本 {chip_data.get('avg_cost', 'N/A')} | 集中度 {chip_data.get('concentration', 'N/A')} {chip_emoji}{chip_health}",
+                            "",
+                        ])
+                
+                # ========== 作战计划 ==========
+                battle = dashboard.get('battle_plan', {}) if dashboard else {}
+                if battle:
+                    report_lines.extend([
+                        "### 🎯 执行附录（参考）",
+                        "",
+                    ])
+                    # 狙击点位
+                    sniper = battle.get('sniper_points', {})
+                    if sniper:
+                        report_lines.extend([
+                            "**📍 AI参考点位（非系统执行指令）**",
+                            "",
+                            "| 点位类型 | 价格 |",
+                            "|---------|------|",
+                            f"| 🎯 参考买入位（AI估计） | {self._clean_sniper_value(sniper.get('ideal_buy', 'N/A'))} |",
+                            f"| 🔵 观察买入位（AI估计） | {self._clean_sniper_value(sniper.get('secondary_buy', 'N/A'))} |",
+                            f"| 🛑 风险提示位（AI估计） | {self._clean_sniper_value(sniper.get('stop_loss', 'N/A'))} |",
+                            f"| 🎊 参考目标位（AI估计） | {self._clean_sniper_value(sniper.get('take_profit', 'N/A'))} |",
+                            "",
+                        ])
+                    # 仓位策略
+                    position = battle.get('position_strategy', {})
+                    if position:
+                        report_lines.extend([
+                            f"**💰 AI仓位评论（次要评论，非执行指令）**: {position.get('suggested_position', 'N/A')}",
+                            f"- 建仓策略: {position.get('entry_plan', 'N/A')}",
+                            f"- 风控策略: {position.get('risk_control', 'N/A')}",
+                            "",
+                        ])
+                    # 检查清单
+                    checklist = battle.get('action_checklist', []) if battle else []
+                    if checklist:
+                        report_lines.extend([
+                            "**✅ 检查清单**",
+                            "",
+                        ])
+                        for item in checklist:
+                            report_lines.append(f"- {item}")
+                        report_lines.append("")
+                
+                # 如果没有 dashboard，显示传统格式
+                if not dashboard:
+                    # 操作理由
+                    if result.buy_reason:
+                        report_lines.extend([
+                            f"**💡 操作理由**: {result.buy_reason}",
+                            "",
+                        ])
+                    # 风险提示
+                    if result.risk_warning:
+                        report_lines.extend([
+                            f"**⚠️ 风险提示**: {result.risk_warning}",
+                            "",
+                        ])
+                    # 技术面分析
+                    if result.ma_analysis or result.volume_analysis:
+                        report_lines.extend([
+                            "### 📊 技术面",
+                            "",
+                        ])
+                        if result.ma_analysis:
+                            report_lines.append(f"**均线**: {result.ma_analysis}")
+                        if result.volume_analysis:
+                            report_lines.append(f"**量能**: {self._guard_volume_commentary(result, result.volume_analysis)}")
+                        report_lines.append("")
+                    # 消息面
+                    if result.news_summary:
+                        report_lines.extend([
+                            "### 📰 消息面",
+                            f"{result.news_summary}",
+                            "",
+                        ])
                 
                 report_lines.extend([
                     "---",
@@ -1603,7 +1821,7 @@ class NotificationService:
         Returns:
             精简版决策仪表盘
         """
-        generated_at = datetime.now()
+        generated_at = self._now_in_report_tz()
         report_date = generated_at.strftime('%Y-%m-%d')
         
         # 按评分排序
@@ -1810,7 +2028,7 @@ class NotificationService:
         Returns:
             精简版 Markdown 内容
         """
-        generated_at = datetime.now()
+        generated_at = self._now_in_report_tz()
         report_date = generated_at.strftime('%Y-%m-%d')
 
         # 按评分排序
@@ -1889,7 +2107,7 @@ class NotificationService:
         Returns:
             Markdown 格式的单股报告
         """
-        generated_at = datetime.now()
+        generated_at = self._now_in_report_tz()
         report_date = generated_at.strftime('%Y-%m-%d %H:%M')
         signal_text, signal_emoji, _ = self._get_signal_level(result)
         dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
