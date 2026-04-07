@@ -82,3 +82,37 @@ This is **not** the final audit report.
 3. 持续维持项目定位：这是“人工复核后的决策辅助系统”，不是“可直接自动执行的交易系统”。
 
 一句话总结：这轮已把系统从“更会写报告”推进到“更可信、可约束、可验证”，但下一步应基于真实输出证据做精确收口，而非继续泛化改造。
+
+### Post-checkpoint update (2026-04-07)
+
+This is a follow-up update appended after the original checkpoint, not a rewrite of the 2026-04-03 historical record.
+
+#### Monday runtime observation confirmed
+
+- The 2026-04-06 live report quality was materially better than the pre-change version.
+- The main remaining issues have shifted away from core execution-readiness concerns and are now mostly in report presentation/readability.
+
+#### Completed after the checkpoint
+
+- Portfolio summary header timezone-fallback issue fixed.
+- Full-mode silent-notification path fixed.
+- Fallback behavior separated from explicit standalone-push disable semantics.
+- Non-holding observation appendix kept in the richer format (not reverted to one-line compact).
+- `risk_alerts` normalization / type-safety fix landed.
+- Related tests updated to the newer report contract.
+
+#### What remains after today
+
+Remaining work is now mostly presentation/readability polish rather than core execution-readiness closure:
+
+- Homepage portfolio summary is still too implementation-shaped and not human-readable enough.
+- Homepage date wording can still look stitched together unless phrased more clearly.
+- Stock titles still contain raw data-source style naming in too many places.
+- Some per-stock pages still have awkward “空仓者 / 持仓者” split rendering.
+- Repeated conflict warnings / repeated AI wording still make some pages noisy.
+
+#### Suggested next step
+
+- Keep PR72 as the historical checkpoint record.
+- Handle further report readability polish in a separate presentation-layer PR.
+- Do not mix that new work into this docs-only checkpoint PR.
