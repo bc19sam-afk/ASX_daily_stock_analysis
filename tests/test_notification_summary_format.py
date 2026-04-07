@@ -86,7 +86,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("| 标的 | 今日主动作（确定性/未执行） | AI补充（仅参考） |", report)
         self.assertIn("| 标的 | 当前已执行权重 | 模拟目标权重 | 模拟调仓金额 |", report)
         self.assertIn("| 标的 | 今日主动作（确定性/未执行） | AI补充（仅参考） |", report)
-        self.assertIn("**超长股票名称用于验证表格列宽稳定性与渲染一致性示例股份有限公司(600519)**", report)
+        self.assertIn("**超长股票名称用于验证表格列宽稳定性与渲染一致性示例股份有限公司 (600519)**", report)
         self.assertNotIn("   - 今日动作", report)
 
         section_a = report.split("## 当前持仓行动清单")[0]
@@ -117,7 +117,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
         self.assertIn("量能数据不足（量比/换手率缺失），不做量能结论 · 评分 75 · 震荡上行", report)
-        self.assertIn("加仓 · 目标18.00% · 模拟Δ3,200.00", report)
+        self.assertIn("加仓 · 中等仓位（约 18%）", report)
 
         html = markdown_to_html_document(report)
         self.assertIn("<table>", html)
@@ -136,12 +136,12 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         feishu = format_feishu_markdown(report)
         expected_action_line = (
-            "• 标的：🟢 **贵州茅台(600519)** | "
-            "今日主动作（确定性/未执行）：加仓 · 目标18.00% · 模拟Δ3,200.00 | "
+            "• 标的：🟢 **贵州茅台 (600519)** | "
+            "今日主动作（确定性/未执行）：加仓 · 中等仓位（约 18%） | "
             "AI补充（仅参考）：区间交易 | 高抛低吸 · 评分 75 · 震荡上行"
         )
         expected_sim_line = (
-            "• 标的：🟢 **贵州茅台(600519)** | "
+            "• 标的：🟢 **贵州茅台 (600519)** | "
             "当前已执行权重：0.00% | "
             "模拟目标权重：18.00% | "
             "模拟调仓金额：3,200.00"
@@ -223,7 +223,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("持仓市值: 0.00", wechat)
         self.assertIn("总资产: 120,000.00", wechat)
         self.assertIn("**B) 今日建议动作（未执行）**", wechat)
-        self.assertIn("加仓 · 目标18.00% · 模拟Δ3,200.00", wechat)
+        self.assertIn("加仓 · 中等仓位（约 18%）", wechat)
         self.assertIn("**C) 目标仓位（模拟，不代表已成交）**", wechat)
         self.assertIn("执行中 0.00% → 模拟目标 18.00% (Δ3,200.00)", wechat)
 
@@ -292,7 +292,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([analyzed_result], report_date="2026-03-30")
 
         self.assertIn("| BHP(BHP.AX) | 100.00 | 50.00% |", report)
-        self.assertIn("| 🟢 **BHP(BHP.AX)** | 50.00% | 40.00% | 5,000.00 |", report)
+        self.assertIn("| 🟢 **BHP (BHP.AX)** | 50.00% | 40.00% | 5,000.00 |", report)
         self.assertIn("未纳入今日分析的持仓权重：**16.67%**", report)
 
     @patch("src.notification.datetime")
@@ -312,9 +312,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_daily_report([result], report_date="2026-03-30")
         self.assertIn("## 🕒 数据时间基准", report)
-        self.assertIn("技术面判断：基于 **2026-03-29 日线（收盘口径）**。", report)
-        self.assertIn("新闻更新：截至 **2026-03-30 09:30**。", report)
-        self.assertIn("执行参考价格：**1/1** 只使用实时价格；**0/1** 只使用最新收盘；**0/1** 只按收盘口径。", report)
+        self.assertIn("技术基准日说明：本次技术判断基于 **2026-03-29 日线（收盘口径）**。", report)
+        self.assertIn("新闻信息更新至：**2026-03-30 09:30**。", report)
+        self.assertIn("价格口径披露：**1/1** 只使用实时价格，**0/1** 只使用最新收盘，**0/1** 只按收盘口径。", report)
         self.assertIn("旧日线信号 + 新实时价格”混用（实时 1 只，非实时 0 只）", report)
         self.assertIn("**价格基准**：实时价格", report)
 
@@ -328,7 +328,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             self._build_result(code="BBB", market_snapshot={"date": "2026-03-28"}),
         ]
         report = service.generate_daily_report(results, report_date="2026-03-30")
-        self.assertIn("技术面判断：基于 **多只股票日线日期不一致（混合日期）**。", report)
+        self.assertIn("技术基准日说明：本次技术判断基于 **多只股票日线日期不一致（混合日期）**。", report)
         self.assertIn("日期说明：本次技术面涉及多个日线日期（2026-03-28, 2026-03-29）。", report)
 
     @patch("src.notification.datetime")
@@ -342,7 +342,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             market_snapshot={"date": "2026-03-29", "price": "N/A"},
         )
         report = service.generate_daily_report([result], report_date="2026-03-30")
-        self.assertIn("执行参考价格：**1/1** 只使用实时价格；**0/1** 只使用最新收盘；**0/1** 只按收盘口径。", report)
+        self.assertIn("价格口径披露：**1/1** 只使用实时价格，**0/1** 只使用最新收盘，**0/1** 只按收盘口径。", report)
 
     @patch("src.notification.datetime")
     def test_data_baseline_uses_explicit_price_source_instead_of_inferring_realtime(self, mock_datetime) -> None:
@@ -355,7 +355,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             market_snapshot={"date": "2026-03-29", "price": "N/A", "close": "12.34"},
         )
         report = service.generate_daily_report([result], report_date="2026-03-30")
-        self.assertIn("执行参考价格：**0/1** 只使用实时价格；**1/1** 只使用最新收盘；**0/1** 只按收盘口径。", report)
+        self.assertIn("价格口径披露：**0/1** 只使用实时价格，**1/1** 只使用最新收盘，**0/1** 只按收盘口径。", report)
         self.assertIn("**价格基准**：最新收盘", report)
 
     def test_single_stock_report_labels_sniper_points_as_ai_reference_only(self) -> None:
@@ -422,10 +422,10 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report(self._build_regression_results(), report_date="2026-03-30")
 
         self.assertIn("# 🎯 2026-03-30 决策仪表盘", report)
-        self.assertIn("执行参考价格：**0/2** 只使用实时价格；**0/2** 只使用最新收盘；**2/2** 只按收盘口径。", report)
+        self.assertIn("价格口径披露：**0/2** 只使用实时价格，**0/2** 只使用最新收盘，**2/2** 只按收盘口径。", report)
         self.assertIn("| 贵州茅台(600519) | 100.00 | 36.00% | 账户快照市值回退 | 是 |", report)
-        self.assertIn("| 🟢 **贵州茅台(600519)** | 加仓 · 目标16.00% · 模拟Δ15,000.00 |", report)
-        self.assertIn("| 🟢 **贵州茅台(600519)** | 36.00% | 16.00% | 15,000.00 |", report)
+        self.assertIn("| 🟢 **贵州茅台 (600519)** | 加仓 · 中等仓位（约 16%） |", report)
+        self.assertIn("| 🟢 **贵州茅台 (600519)** | 36.00% | 16.00% | 15,000.00 |", report)
         self.assertIn("## 今日行动摘要", report)
         self.assertIn("## 当前持仓总览", report)
         self.assertIn("## 目标仓位模拟（计划视图）", report)
@@ -451,8 +451,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
         self.assertIn("| 贵州茅台(600519) | 10.00 | 27.27% |", report)
-        self.assertIn("| 🟢 **贵州茅台(600519)** | 27.27% | 30.00% | 8,000.00 |", report)
-        self.assertNotIn("| 🟢 **贵州茅台(600519)** | 5.00% | 30.00% | 8,000.00 |", report)
+        self.assertIn("| 🟢 **贵州茅台 (600519)** | 27.27% | 30.00% | 8,000.00 |", report)
+        self.assertNotIn("| 🟢 **贵州茅台 (600519)** | 5.00% | 30.00% | 8,000.00 |", report)
 
     @patch("src.notification.get_db")
     def test_section_c_current_weight_source_is_consistent_across_dashboard_feishu_wechat(self, mock_get_db) -> None:
@@ -476,7 +476,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         feishu = format_feishu_markdown(dashboard)
         wechat = service.generate_wechat_dashboard([result])
 
-        self.assertIn("| 🟢 **贵州茅台(600519)** | 27.27% | 30.00% | 8,000.00 |", dashboard)
+        self.assertIn("| 🟢 **贵州茅台 (600519)** | 27.27% | 30.00% | 8,000.00 |", dashboard)
         self.assertIn("当前已执行权重：27.27% | 模拟目标权重：30.00% | 模拟调仓金额：8,000.00", feishu)
         self.assertIn("执行中 27.27% → 模拟目标 30.00% (Δ8,000.00)", wechat)
         self.assertNotIn("当前已执行权重：5.00%", feishu)
@@ -548,7 +548,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([ok_result, failed_result], report_date="2026-03-30")
         self.assertIn("## 非持仓观察名单", report)
-        self.assertIn("贵州茅台(600519)", report)
+        self.assertIn("贵州茅台 (600519)", report)
         non_holding_section = report.split("## 非持仓观察名单", 1)[1]
         self.assertNotIn("五粮液(000858)", non_holding_section)
         self.assertIn("五粮液(000858)：Connection error", report)
@@ -582,9 +582,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_wechat_dashboard(self._build_regression_results())
         self.assertIn("## 🎯 2026-03-30 决策仪表盘", report)
-        self.assertIn("执行参考价格：**0/2** 只使用实时价格；**0/2** 只使用最新收盘；**2/2** 只按收盘口径。", report)
-        self.assertIn("🟢 **贵州茅台(600519)**: 加仓 · 目标16.00% · 模拟Δ15,000.00 (AI补充: 区间交易 / 评分78)", report)
-        self.assertIn("⚪ **五粮液(000858)**: 持有 · 目标8.00% · 模拟Δ0.00 (AI补充: 持有观察 / 评分52)", report)
+        self.assertIn("价格口径披露：**0/2** 只使用实时价格，**0/2** 只使用最新收盘，**2/2** 只按收盘口径。", report)
+        self.assertIn("🟢 **贵州茅台(600519)**: 加仓 · 中等仓位（约 16%） (AI补充: 区间交易 / 评分78)", report)
+        self.assertIn("⚪ **五粮液(000858)**: 持有观察 · 中低仓位（约 8%） (AI补充: 持有观察 / 评分52)", report)
 
     @patch("src.notification.datetime")
     @patch("src.notification.get_db")
@@ -604,8 +604,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         feishu = format_feishu_markdown(dashboard)
         self.assertIn("**🎯 2026-03-30 决策仪表盘**", feishu)
-        self.assertIn("• 标的：🟢 **贵州茅台(600519)** | 今日主动作（确定性/未执行）：加仓 · 目标16.00% · 模拟Δ15,000.00 |", feishu)
-        self.assertIn("• 标的：🟢 **贵州茅台(600519)** | 当前已执行权重：36.00% | 模拟目标权重：16.00% | 模拟调仓金额：15,000.00", feishu)
+        self.assertIn("• 标的：🟢 **贵州茅台 (600519)** | 今日主动作（确定性/未执行）：加仓 · 中等仓位（约 16%） |", feishu)
+        self.assertIn("• 标的：🟢 **贵州茅台 (600519)** | 当前已执行权重：36.00% | 模拟目标权重：16.00% | 模拟调仓金额：15,000.00", feishu)
 
     @patch("src.notification.get_db")
     def test_dashboard_overview_uses_executed_quantities_cash_and_report_time_prices(self, mock_get_db) -> None:
@@ -725,7 +725,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report(results, report_date="2026-03-30")
         self.assertIn("🟢买入:1", report)
         self.assertIn("🔴卖出:1", report)
-        self.assertIn("| 🔴 **贵州茅台(600519)** | 清仓 · 目标0.00% · 模拟Δ-12,000.00 |", report)
+        self.assertIn("| 🔴 **贵州茅台 (600519)** | 清仓 · 目标仓位 0%（清空） |", report)
 
     @patch("src.notification.get_db")
     def test_recommended_actions_and_summary_counts_are_consistent(self, mock_get_db) -> None:
@@ -739,7 +739,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
         self.assertIn("🔴卖出:1", report)
-        self.assertIn("减仓 · 目标5.00% · 模拟Δ-2,000.00", report)
+        self.assertIn("减仓 · 中低仓位（约 5%）", report)
 
     @patch("src.notification.get_db")
     def test_ai_narrative_is_labeled_secondary_and_conflict_is_explicit(self, mock_get_db) -> None:
@@ -769,11 +769,11 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
         self.assertIn("## 详细个股附录（非持仓观察版）", report)
         self.assertIn("非持仓且今日无明确动作的标的进入观察版", report)
-        self.assertIn("### ⚪ 贵州茅台(600519)", report)
-        self.assertIn("- 结论：持有/观望 | 评分 75 | 震荡上行", report)
+        self.assertIn("### ⚪ 贵州茅台 (600519)", report)
+        self.assertIn("- 核心结论：持有/观望 | 评分 75 | 震荡上行", report)
         self.assertIn("- 关键理由：N/A", report)
         self.assertIn("- 风险：暂无新增高优先级风险", report)
-        self.assertIn("- 观察/参考位：暂无明确参考位", report)
+        self.assertIn("- 参考位：暂无明确参考位", report)
 
     @patch("src.notification.get_db")
     def test_observation_appendix_normalizes_non_string_risk_alerts(self, mock_get_db) -> None:
@@ -811,9 +811,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         ]
         report = service.generate_dashboard_report(results, report_date="2026-03-30")
 
-        self.assertIn("| 🟢 **贵州茅台(AAA)** | 建仓 · 目标18.00% · 模拟Δ3,200.00 | 可轻仓跟踪 · 评分 75 · 震荡上行 |", report)
-        self.assertIn("| ⚪ **贵州茅台(BBB)** | 持有 · 目标18.00% · 模拟Δ3,200.00 | AI解读与确定性主动作存在方向冲突，已转为中性说明 · 评分 75 · 震荡上行 ⚠️(已抑制冲突态AI操作措辞) |", report)
-        self.assertIn("| 🔴 **贵州茅台(CCC)** | 清仓 · 目标18.00% · 模拟Δ3,200.00 | 继续拿住 · 评分 75 · 震荡上行 |", report)
+        self.assertIn("| 🟢 **贵州茅台 (AAA)** | 建议新开仓 · 中等仓位（约 18%） | 可轻仓跟踪 · 评分 75 · 震荡上行 |", report)
+        self.assertIn("| ⚪ **贵州茅台 (BBB)** | 持有观察 · 中等仓位（约 18%） | AI解读与确定性主动作存在方向冲突，已转为中性说明 · 评分 75 · 震荡上行 ⚠️(已抑制冲突态AI操作措辞) |", report)
+        self.assertIn("| 🔴 **贵州茅台 (CCC)** | 清仓 · 中等仓位（约 18%） | 继续拿住 · 评分 75 · 震荡上行 |", report)
 
     @patch("src.notification.get_db")
     def test_position_advice_fallback_escapes_pipe_for_markdown_table_and_feishu(self, mock_get_db) -> None:
@@ -837,13 +837,11 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("| 🆕 **空仓者** | ADD \\| 目标仓位 18.00% \\| 模拟Δ 3,200.00 \\| 目标数量 N/A（确定性引擎未提供） |", report)
-        self.assertIn("| 💼 **持仓者** | ADD \\| 目标仓位 18.00% \\| 模拟Δ 3,200.00 \\| 目标数量 N/A（确定性引擎未提供） |", report)
-        self.assertIn("**💬 AI仓位解读（次要评论，非执行指令）**", report)
-        self.assertIn("- 💼 持仓者: 继续持有等待确认", report)
+        self.assertIn("### 持仓指引", report)
+        self.assertIn("- 空仓者怎么做：ADD | 目标仓位 18.00% | 模拟Δ 3,200.00 | 目标数量 N/A（确定性引擎未提供）", report)
 
         feishu = format_feishu_markdown(report)
-        self.assertIn("空仓者", feishu)
+        self.assertIn("空仓者怎么做", feishu)
         self.assertIn("ADD | 目标仓位 18.00% | 模拟Δ 3,200.00 | 目标数量 N/A（确定性引擎未提供）", feishu)
 
     @patch("src.notification.get_db")
@@ -867,11 +865,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         setattr(result, "target_quantity", 321.5)
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("目标数量 322 股", report)
-        self.assertIn("ADD \\| 目标仓位 20.00% \\| 模拟Δ 6,000.00 \\| 目标数量 322 股", report)
-        self.assertIn("- 🆕 空仓者: AI仓位建议（非执行）", report)
-        self.assertIn("- 💼 持仓者: 再加仓500股", report)
-        self.assertIn("AI仓位解读（次要评论，非执行指令）", report)
+        self.assertIn("### 持仓指引", report)
+        self.assertIn("- 空仓者怎么做：AI仓位建议（非执行）", report)
+        self.assertIn("- 持仓者参考：再加仓500股", report)
 
     @patch("src.notification.get_db")
     def test_per_stock_ai_sizing_commentary_is_labeled_non_binding_when_target_quantity_missing(self, mock_get_db) -> None:
@@ -888,10 +884,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("目标数量 N/A（确定性引擎未提供）", report)
-        self.assertIn("AI仓位解读（次要评论，非执行指令）", report)
+        self.assertIn("### 持仓指引", report)
         self.assertNotIn("| 🆕 **空仓者** | 建议买入1000股 |", report)
-        self.assertIn("- 🆕 空仓者: AI仓位建议（非执行）", report)
+        self.assertIn("- 空仓者怎么做：AI仓位建议（非执行）", report)
 
     def test_wechat_dashboard_redacts_ai_share_count_guidance(self) -> None:
         service = self._build_service()
@@ -968,7 +963,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         setattr(result, "target_quantity", 0)
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("CLOSE \\| 目标仓位 0.00% \\| 模拟Δ -3,200.00 \\| 目标数量 0 股", report)
+        self.assertIn("- 空仓者怎么做：CLOSE | 目标仓位 0.00% | 模拟Δ -3,200.00 | 目标数量 0 股", report)
         self.assertNotIn("目标数量 N/A（确定性引擎未提供）", report)
 
     def test_suppressed_hold_with_legacy_fractional_target_quantity_shows_no_execution_text(self) -> None:
