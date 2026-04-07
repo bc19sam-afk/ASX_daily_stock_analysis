@@ -1784,18 +1784,18 @@ class NotificationService:
                     "---",
                     "",
                 ])
-            compact_non_holding_results = [
+            observation_non_holding_results = [
                 r for r in non_holding_results
                 if self._normalize_stock_code(getattr(r, "code", "")) not in detail_seen_codes
             ]
-            if compact_non_holding_results:
+            if observation_non_holding_results:
                 report_lines.extend([
                     "## 详细个股附录（非持仓观察版）",
                     "",
                     "> 规则：非持仓且今日无明确动作的标的进入观察版，保留结论/理由/风险/参考位，不再只显示一行摘要。",
                     "",
                 ])
-                for result in compact_non_holding_results:
+                for result in observation_non_holding_results:
                     signal_text, signal_emoji, _ = self._get_signal_level(result)
                     dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
                     intel = dashboard.get('intelligence', {}) if dashboard else {}

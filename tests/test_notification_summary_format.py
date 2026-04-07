@@ -767,8 +767,13 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             dashboard={"core_conclusion": {"one_sentence": "必须卖出", "time_sensitivity": "今日"}},
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("## 详细个股附录（非持仓简版）", report)
-        self.assertIn("- ⚪ 贵州茅台(600519)：持有/观望，评分 75，震荡上行。", report)
+        self.assertIn("## 详细个股附录（非持仓观察版）", report)
+        self.assertIn("非持仓且今日无明确动作的标的进入观察版", report)
+        self.assertIn("### ⚪ 贵州茅台(600519)", report)
+        self.assertIn("- 结论：持有/观望 | 评分 75 | 震荡上行", report)
+        self.assertIn("- 关键理由：N/A", report)
+        self.assertIn("- 风险：暂无新增高优先级风险", report)
+        self.assertIn("- 观察/参考位：暂无明确参考位", report)
 
     @patch("src.notification.get_db")
     def test_primary_action_stays_canonical_while_ai_commentary_remains_independent(self, mock_get_db) -> None:
