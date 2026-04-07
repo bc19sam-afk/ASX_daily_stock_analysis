@@ -2083,22 +2083,33 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
             total_turnover += abs(delta_amount)
 
         avg_target_weight = target_weight_sum / len(ordered_results) if ordered_results else 0.0
-        net_delta_label = "净加仓" if total_delta > 0 else "净减仓" if total_delta < 0 else "净零变动"
+        execution_action_count = (
+            action_counts["OPEN"] + action_counts["ADD"] + action_counts["REDUCE"] + action_counts["CLOSE"]
+        )
+        has_execution_actions = execution_action_count > 0
+        has_meaningful_turnover = total_turnover > 0.0
+        if total_delta > 0:
+            net_delta_label = "整体偏加仓"
+            caution_label = "组合存在加仓方向"
+        elif total_delta < 0:
+            net_delta_label = "整体偏减仓"
+            caution_label = "组合存在减仓方向"
+        elif has_execution_actions or has_meaningful_turnover:
+            net_delta_label = "有换仓/再平衡动作，整体仓位中性"
+            caution_label = "有换仓/再平衡动作，整体仓位中性"
+        else:
+            net_delta_label = "以观察为主"
+            caution_label = "以观察为主"
 
         return "\n".join([
-            "> 仅基于确定性动作模型汇总（final_decision / position_action / target_weight / delta_amount）。",
+            "### 组合动作总览（今日建议）",
+            f"- 建议新开仓：{action_counts['OPEN']} | 加仓：{action_counts['ADD']} | 持有观察：{action_counts['HOLD']} | 减仓：{action_counts['REDUCE']} | 清仓：{action_counts['CLOSE']}",
             "",
-            "### 1) 组合动作统计（确定性）",
-            f"- final_decision：BUY {final_counts['BUY']} / HOLD {final_counts['HOLD']} / SELL {final_counts['SELL']}",
-            f"- position_action：OPEN {action_counts['OPEN']} / ADD {action_counts['ADD']} / HOLD {action_counts['HOLD']} / REDUCE {action_counts['REDUCE']} / CLOSE {action_counts['CLOSE']}",
-            "",
-            "### 2) 组合仓位与调仓强度（模拟）",
+            "### 组合仓位与调仓强度（计划口径）",
             f"- 平均目标仓位（逐标的平均）：{avg_target_weight:.2%}",
-            f"- 调仓净额：{total_delta:,.2f}（{net_delta_label}）",
-            f"- 调仓总额（绝对值）：{total_turnover:,.2f}",
-            "",
-            "### 3) 执行口径说明",
-            "- 本段不输出个股买卖命名，个股动作请以下方确定性动作表为准。",
+            f"- 计划调仓净额：{total_delta:,.2f}（{net_delta_label}）",
+            f"- 计划调仓总额（绝对值）：{total_turnover:,.2f}",
+            f"- 一句话解读：{caution_label}。",
         ])
 
 # 便捷函数

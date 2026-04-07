@@ -44,14 +44,35 @@ class PortfolioSummaryDeterministicGuardTestCase(unittest.TestCase):
 
         summary = analyzer.generate_portfolio_summary(results)
 
-        self.assertIn("仅基于确定性动作模型汇总", summary)
-        self.assertIn("BUY 0 / HOLD 1 / SELL 1", summary)
-        self.assertIn("REDUCE 1", summary)
-        self.assertIn("调仓净额：-2,000.00", summary)
-        self.assertIn("不输出个股买卖命名", summary)
+        self.assertIn("组合动作总览（今日建议）", summary)
+        self.assertIn("建议新开仓：0 | 加仓：0 | 持有观察：1 | 减仓：1 | 清仓：0", summary)
+        self.assertIn("计划调仓净额：-2,000.00（整体偏减仓）", summary)
         self.assertNotIn("样例A", summary)
         self.assertNotIn("AAA", summary)
         self.assertNotIn("强烈建议优先买入", summary)
+
+    def test_portfolio_summary_net_flat_with_no_actions_is_observation_only(self) -> None:
+        analyzer = GeminiAnalyzer.__new__(GeminiAnalyzer)
+        results = [
+            self._build_result(code="AAA", position_action="HOLD", delta_amount=0.0),
+            self._build_result(code="BBB", position_action="HOLD", delta_amount=0.0),
+        ]
+
+        summary = analyzer.generate_portfolio_summary(results)
+        self.assertIn("计划调仓净额：0.00（以观察为主）", summary)
+        self.assertIn("一句话解读：以观察为主。", summary)
+
+    def test_portfolio_summary_net_flat_with_offsetting_actions_is_active_rebalance(self) -> None:
+        analyzer = GeminiAnalyzer.__new__(GeminiAnalyzer)
+        results = [
+            self._build_result(code="AAA", position_action="ADD", delta_amount=2000.0, final_decision="BUY"),
+            self._build_result(code="BBB", position_action="REDUCE", delta_amount=-2000.0, final_decision="SELL"),
+        ]
+
+        summary = analyzer.generate_portfolio_summary(results)
+        self.assertIn("计划调仓净额：0.00（有换仓/再平衡动作，整体仓位中性）", summary)
+        self.assertIn("一句话解读：有换仓/再平衡动作，整体仓位中性。", summary)
+        self.assertNotIn("组合存在明确调仓方向", summary)
 
 
 if __name__ == "__main__":
