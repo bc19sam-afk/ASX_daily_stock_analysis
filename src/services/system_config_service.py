@@ -136,10 +136,7 @@ class SystemConfigService:
             raise ConfigConflictError(current_version=self._manager.get_config_version())
         updated_keys, skipped_masked_keys, new_version = update_result
 
-        warnings: List[str] = Config.build_reload_scope_warnings(
-            updated_keys=updated_keys,
-            reload_now=reload_now,
-        )
+        warnings: List[str] = []
         reload_triggered = False
         if reload_now:
             try:
@@ -152,7 +149,12 @@ class SystemConfigService:
                 logger.error("Configuration reload failed: %s", exc, exc_info=True)
                 warnings.append("Configuration updated but reload failed")
 
-        warnings.extend(Config.build_reload_scope_warnings(updated_keys, reload_now=reload_now))
+        warnings.extend(
+            Config.build_reload_scope_warnings(
+                updated_keys,
+                reload_now=reload_triggered,
+            )
+        )
 
         return {
             "success": True,

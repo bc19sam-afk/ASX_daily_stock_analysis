@@ -121,6 +121,20 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             )
         )
 
+    def test_update_reload_failure_does_not_claim_in_process_reload(self) -> None:
+        with mock.patch("src.services.system_config_service.Config.get_instance", side_effect=RuntimeError("boom")):
+            response = self.service.update(
+                config_version=self.manager.get_config_version(),
+                items=[{"key": "STOCK_LIST", "value": "BHP.AX,CBA.AX"}],
+                reload_now=True,
+            )
+
+        warning_text = "\n".join(response["warnings"])
+        self.assertFalse(response["reload_triggered"])
+        self.assertIn("Configuration updated but reload failed", warning_text)
+        self.assertIn("current process keeps old values", warning_text)
+        self.assertNotIn("reloaded in-process", warning_text)
+
     def test_update_reports_process_start_keys_as_restart_bound(self) -> None:
         response = self.service.update(
             config_version=self.manager.get_config_version(),
