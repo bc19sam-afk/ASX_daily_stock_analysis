@@ -1,9 +1,12 @@
 name: 每日股票分析
 
 on:
-  # 定时触发 - 每天墨尔本时间 07:15 
+  # 定时触发（GitHub Actions cron 使用 UTC）
+  # 为了让 Melbourne/Sydney 本地时间全年都在工作日 07:20 触发，
+  # 这里同时监听夏令时和冬令时对应的 UTC 时间，再在 workflow 内按本地时间做一次门禁。
   schedule:
-    - cron: '15 20 * * 0-4'     # 周一到周五，UTC 20:15 = 墨尔本时间 07:15 
+    - cron: '20 20 * * 0-4'     # AEDT 对应：次日 07:20
+    - cron: '20 21 * * 0-4'     # AEST 对应：次日 07:20
   
   # 手动触发
   workflow_dispatch:
@@ -30,13 +33,40 @@ jobs:
     timeout-minutes: 60
     
     steps:
+      - name: 本地时间门禁（Melbourne 07:20）
+        id: schedule_gate
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "manual dispatch: skipping local-time gate"
+            exit 0
+          fi
+
+          local_time=$(TZ='Australia/Melbourne' date '+%H:%M')
+          local_weekday=$(TZ='Australia/Melbourne' date '+%u')
+          local_stamp=$(TZ='Australia/Melbourne' date '+%Y-%m-%d %H:%M:%S %Z')
+
+          echo "Melbourne local time: $local_stamp"
+
+          if [ "$local_time" = "07:20" ] && [ "$local_weekday" -ge 1 ] && [ "$local_weekday" -le 5 ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "matched Melbourne weekday 07:20 gate"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "skip: not the Melbourne weekday 07:20 execution window"
+          fi
+
       - name: 随机延迟（避免固定时间访问）
+        if: steps.schedule_gate.outputs.should_run == 'true'
         run: sleep $((RANDOM % 60))  # 随机延迟0-60秒启动
       
       - name: 检出代码
+        if: steps.schedule_gate.outputs.should_run == 'true'
         uses: actions/checkout@v4
       
       - name: 恢复数据库缓存（回测历史）
+        if: steps.schedule_gate.outputs.should_run == 'true'
         uses: actions/cache@v4
         with:
           path: data/stock_analysis.db
@@ -45,25 +75,30 @@ jobs:
             stock-db-${{ runner.os }}-${{ github.ref_name }}-
       
       - name: 设置 Python 环境
+        if: steps.schedule_gate.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
       
       - name: 安装依赖
+        if: steps.schedule_gate.outputs.should_run == 'true'
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
       
       - name: 创建必要目录
+        if: steps.schedule_gate.outputs.should_run == 'true'
         run: |
           mkdir -p data logs reports
 
       - name: 迁移数据库结构（analysis_history 新增决策字段）
+        if: steps.schedule_gate.outputs.should_run == 'true'
         run: |
           python scripts/migrate_analysis_history_decision_columns.py --db ./data/stock_analysis.db
       
       - name: 执行股票分析
+        if: steps.schedule_gate.outputs.should_run == 'true'
         env:
           # ==========================================
           # AI 配置
@@ -225,14 +260,14 @@ jobs:
       
       - name: 保存数据库缓存（回测历史）
         uses: actions/cache/save@v4
-        if: always()
+        if: always() && steps.schedule_gate.outputs.should_run == 'true'
         with:
           path: data/stock_analysis.db
           key: stock-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
       
       - name: 上传分析报告
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.schedule_gate.outputs.should_run == 'true'
         with:
           name: analysis-reports-${{ github.run_number }}
           path: |
@@ -241,7 +276,7 @@ jobs:
           retention-days: 30
       
       - name: 显示运行结果
-        if: always()
+        if: always() && steps.schedule_gate.outputs.should_run == 'true'
         run: |
           echo ""
           echo "=========================================="
