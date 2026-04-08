@@ -107,7 +107,7 @@ def test_config_registry_has_execution_price_policy_enum_validation():
     field = get_field_definition("EXECUTION_PRICE_POLICY")
     assert field["options"] == ["realtime_if_available", "close_only"]
     assert field["validation"].get("enum") == ["realtime_if_available", "close_only"]
-    assert field["reload_scope"] == "runtime_refreshable"
+    assert field["reload_scope"] == "process_start"
 
 
 def test_config_classify_reload_scope_splits_runtime_and_process_start_keys():
@@ -115,8 +115,8 @@ def test_config_classify_reload_scope_splits_runtime_and_process_start_keys():
         ["STOCK_LIST", "EXECUTION_PRICE_POLICY", "LOG_LEVEL", "SCHEDULE_TIME"]
     )
 
-    assert runtime_refreshable == ["EXECUTION_PRICE_POLICY", "STOCK_LIST"]
-    assert process_start == ["LOG_LEVEL", "SCHEDULE_TIME"]
+    assert runtime_refreshable == ["STOCK_LIST"]
+    assert process_start == ["EXECUTION_PRICE_POLICY", "LOG_LEVEL", "SCHEDULE_TIME"]
 
 
 def test_config_classify_reload_scope_separates_runtime_and_process_start_keys():
@@ -124,12 +124,8 @@ def test_config_classify_reload_scope_separates_runtime_and_process_start_keys()
         ["stock_list", "EXECUTION_PRICE_POLICY", "LOG_LEVEL", "ENABLE_CHIP_DISTRIBUTION"]
     )
 
-    assert runtime_refreshable == [
-        "ENABLE_CHIP_DISTRIBUTION",
-        "EXECUTION_PRICE_POLICY",
-        "STOCK_LIST",
-    ]
-    assert process_start == ["LOG_LEVEL"]
+    assert runtime_refreshable == ["STOCK_LIST"]
+    assert process_start == ["ENABLE_CHIP_DISTRIBUTION", "EXECUTION_PRICE_POLICY", "LOG_LEVEL"]
 
 
 def test_runtime_execution_price_policy_close_only_ignores_realtime_price():

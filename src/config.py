@@ -308,10 +308,6 @@ class Config:
     _instance: Optional['Config'] = None
     _RUNTIME_REFRESHABLE_ENV_KEYS: ClassVar[FrozenSet[str]] = frozenset(
         {
-            "ENABLE_REALTIME_QUOTE",
-            "ENABLE_CHIP_DISTRIBUTION",
-            "EXECUTION_PRICE_POLICY",
-            "REALTIME_SOURCE_PRIORITY",
             "STOCK_LIST",
         }
     )
