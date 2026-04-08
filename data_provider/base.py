@@ -342,6 +342,7 @@ class DataFetcherManager:
         """
         from src.config import get_config
 
+        self._static_config = config
         self.config = config or get_config()
         self._fetchers: List[BaseFetcher] = []
         
@@ -351,6 +352,16 @@ class DataFetcherManager:
         else:
             # 默认数据源将在首次使用时延迟加载
             self._init_default_fetchers()
+
+    def _get_active_config(self):
+        """Return the latest runtime config unless a fixed config was injected."""
+        if self._static_config is not None:
+            return self._static_config
+
+        from src.config import get_config
+
+        self.config = get_config()
+        return self.config
     
     def _init_default_fetchers(self) -> None:
         """
@@ -579,7 +590,7 @@ class DataFetcherManager:
 
         from .realtime_types import get_realtime_circuit_breaker
         
-        config = self.config
+        config = self._get_active_config()
         
         # 如果实时行情功能被禁用，直接返回 None
         if not config.enable_realtime_quote:
@@ -749,7 +760,7 @@ class DataFetcherManager:
 
         from .realtime_types import get_chip_circuit_breaker
 
-        config = self.config
+        config = self._get_active_config()
 
         # 如果筹码分布功能被禁用，直接返回 None
         if not config.enable_chip_distribution:
