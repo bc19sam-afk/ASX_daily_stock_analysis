@@ -31,6 +31,7 @@ from src.search_service import SearchService
 from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from src.core.position_manager import PositionManager
+from src.core.pipeline_notifications import send_single_stock_notification
 from bot.models import BotMessage
 
 
@@ -1314,17 +1315,13 @@ class StockAnalysisPipeline:
                 # 单股推送模式（#55）：每分析完一只股票立即推送
                 if single_stock_notify and self.notifier.is_available():
                     try:
-                        # 根据报告类型选择生成方法
-                        if report_type == ReportType.FULL:
-                            # 完整报告：使用决策仪表盘格式
-                            report_content = self.notifier.generate_dashboard_report([result])
-                            logger.info(f"[{code}] 使用完整报告格式")
-                        else:
-                            # 精简报告：使用单股报告格式（默认）
-                            report_content = self.notifier.generate_single_stock_report(result)
-                            logger.info(f"[{code}] 使用精简报告格式")
-                        
-                        if self.notifier.send(report_content, email_stock_codes=[code]):
+                        if send_single_stock_notification(
+                            notifier=self.notifier,
+                            result=result,
+                            report_type=report_type,
+                            code=code,
+                            logger=logger,
+                        ):
                             logger.info(f"[{code}] 单股推送成功")
                         else:
                             logger.warning(f"[{code}] 单股推送失败")

@@ -2,7 +2,9 @@
 
 中文 | [English](README.md)
 
-Daily Stock Analysis 是一个基于 Python 的股票分析与报告系统，整合了多源市场数据、LLM 生成分析、基于规则的仓位管理、可选的大盘复盘、通知分发，以及 FastAPI + React Web 控制台，并支持本地运行与 GitHub Actions 工作流。
+Daily Stock Analysis 是一个面向人工决策辅助的股票分析与报告系统，整合了多源市场数据、LLM 生成分析、基于规则的仓位管理、可选的大盘复盘、通知分发，以及 FastAPI + React Web 控制台，并支持本地运行与 GitHub Actions 工作流。
+
+当前产品定位和默认运行假设以 ASX 为主，同时支持 AU/US 股票进入同一套分析与报告流程。本文档中的默认示例保持为纯 ASX，因为运行时默认仍假设 `MARKET_CALENDAR=ASX`、`MARKET_TIMEZONE=Australia/Sydney`。仓库源码中仍保留部分早期 A 股阶段的注释、命名和集成痕迹，但本文档中的用户指南按当前 ASX/AU/US 使用方式编写。
 
 ## 当前架构
 
@@ -43,6 +45,8 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
 # edit .env with at least stock list + one LLM provider key
+# 当前默认示例可先填：BHP.AX, CBA.AX, CSL.AX
+# 如果混合 AU/US 股票，请同时检查 MARKET_CALENDAR / MARKET_TIMEZONE
 python main.py
 ```
 
@@ -112,7 +116,7 @@ docker compose -f docker/docker-compose.yml up -d
 - 当 `GITHUB_ACTIONS=true` 时，`main.py` 中 API 服务启动逻辑会按设计不启动。
 - 默认分析模式对账户状态为只读（`ANALYSIS_READ_ONLY=true`），因此常规分析会计算建议，但除非显式关闭该设置，否则不会写入真实账户变更。
 - 图片提取接口只接受一个上传文件（`file`），并带有 MIME 类型限制与 5MB 大小限制。
-- 源码中的部分运行注释/文档仍保留历史命名（A股/ASX 混用），因此代码/注释命名尚未完全统一。
+- 源码中的部分运行注释/文档仍保留历史命名和中国市场集成痕迹，因此内部代码/注释命名尚未完全收敛到当前 ASX/AU/US 产品范围。
 
 ## 许可证
 见 [LICENSE](LICENSE)。

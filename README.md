@@ -2,7 +2,9 @@
 
 [中文](README.zh-CN.md) | English
 
-Daily Stock Analysis is a Python-based stock analysis and reporting system that combines multi-source market data, LLM-generated analysis, rule-based position management, optional market review, notification delivery, and a FastAPI + React web console, with both local execution and GitHub Actions workflows supported.
+Daily Stock Analysis is a Python-based stock analysis and reporting system for manual decision support. It combines multi-source market data, LLM-generated analysis, rule-based position management, optional market review, notification delivery, and a FastAPI + React web console, with both local execution and GitHub Actions workflows supported.
+
+The current product positioning and default runtime assumptions are centered on ASX-first workflows, with AU/US symbols supported in the same reporting flow. The default examples in this document stay ASX-only because runtime defaults still assume `MARKET_CALENDAR=ASX` and `MARKET_TIMEZONE=Australia/Sydney`. Some source comments and legacy integrations still reflect the repository's earlier A-share history, but user-facing setup guidance in this document is written for the current ASX/AU/US usage model.
 
 ## Current architecture
 
@@ -43,6 +45,8 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
 # edit .env with at least stock list + one LLM provider key
+# example watchlist for current defaults: BHP.AX, CBA.AX, CSL.AX
+# if you mix AU/US symbols, also review MARKET_CALENDAR / MARKET_TIMEZONE
 python main.py
 ```
 
@@ -141,7 +145,7 @@ Current outputs on `main`:
 - API service bootstrap in `main.py` intentionally does not start when `GITHUB_ACTIONS=true`.
 - Default analysis mode is read-only for account state (`ANALYSIS_READ_ONLY=true`), so normal analysis computes recommendations without writing real account changes unless explicitly disabled.
 - Image extraction endpoint accepts only one uploaded file (`file`) with MIME type restrictions and a 5MB size limit.
-- Some runtime comments/docs in source files still contain legacy naming (A股/ASX wording mixed), so naming in code/comments is not fully normalized.
+- Some runtime comments/docs in source files still contain legacy naming or China-market integrations from earlier repository history, so internal naming is not yet fully normalized to the current ASX/AU/US product scope.
 
 ## License
 See [LICENSE](LICENSE).
