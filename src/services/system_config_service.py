@@ -136,14 +136,17 @@ class SystemConfigService:
             raise ConfigConflictError(current_version=self._manager.get_config_version())
         updated_keys, skipped_masked_keys, new_version = update_result
 
-        warnings: List[str] = []
+        warnings: List[str] = Config.build_reload_scope_warnings(
+            updated_keys=updated_keys,
+            reload_now=reload_now,
+        )
         reload_triggered = False
         if reload_now:
             try:
                 Config.reset_instance()
                 setup_env(override=True)
                 config = Config.get_instance()
-                warnings = config.validate()
+                warnings.extend(config.validate())
                 reload_triggered = True
             except Exception as exc:  # pragma: no cover - defensive branch
                 logger.error("Configuration reload failed: %s", exc, exc_info=True)

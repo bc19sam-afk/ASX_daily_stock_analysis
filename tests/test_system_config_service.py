@@ -106,6 +106,36 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertFalse(validation["valid"])
         self.assertTrue(any(issue["code"] == "invalid_format" for issue in validation["issues"]))
 
+    def test_update_reports_runtime_refreshable_keys_reloaded_in_process(self) -> None:
+        response = self.service.update(
+            config_version=self.manager.get_config_version(),
+            items=[{"key": "STOCK_LIST", "value": "BHP.AX,CBA.AX"}],
+            reload_now=True,
+        )
+
+        self.assertTrue(response["reload_triggered"])
+        self.assertTrue(
+            any(
+                "Runtime-refreshable settings were reloaded in-process: STOCK_LIST" in warning
+                for warning in response["warnings"]
+            )
+        )
+
+    def test_update_reports_process_start_keys_as_restart_bound(self) -> None:
+        response = self.service.update(
+            config_version=self.manager.get_config_version(),
+            items=[{"key": "LOG_LEVEL", "value": "DEBUG"}],
+            reload_now=False,
+        )
+
+        self.assertFalse(response["reload_triggered"])
+        self.assertTrue(
+            any(
+                "process-start configuration" in warning and "LOG_LEVEL" in warning
+                for warning in response["warnings"]
+            )
+        )
+
     def test_update_raises_conflict_for_stale_version(self) -> None:
         with self.assertRaises(ConfigConflictError):
             self.service.update(

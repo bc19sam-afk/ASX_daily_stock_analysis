@@ -24,6 +24,7 @@ class SystemConfigFieldSchema(BaseModel):
     options: List[str] = Field(default_factory=list)
     validation: Dict[str, Any] = Field(default_factory=dict)
     display_order: int
+    reload_scope: Literal["runtime_refreshable", "process_start"] = "process_start"
 
 
 class SystemConfigCategorySchema(BaseModel):

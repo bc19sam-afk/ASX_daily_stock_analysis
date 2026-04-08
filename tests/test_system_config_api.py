@@ -47,6 +47,7 @@ class SystemConfigApiTestCase(unittest.TestCase):
         item_map = {item["key"]: item for item in payload["items"]}
         self.assertEqual(item_map["GEMINI_API_KEY"]["value"], "secret-key-value")
         self.assertFalse(item_map["GEMINI_API_KEY"]["is_masked"])
+        self.assertEqual(item_map["STOCK_LIST"]["schema"]["reload_scope"], "runtime_refreshable")
 
     def test_put_config_updates_secret_and_plain_field(self) -> None:
         current = self.client.get("/api/v1/system/config").json()

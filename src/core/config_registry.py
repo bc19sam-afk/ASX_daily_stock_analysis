@@ -10,6 +10,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
+from src.config import Config
+
 SCHEMA_VERSION = "2026-02-09"
 
 _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
@@ -609,6 +611,10 @@ def get_field_definition(key: str, value_hint: Optional[str] = None) -> Dict[str
     if key_upper in _FIELD_DEFINITIONS:
         field = deepcopy(_FIELD_DEFINITIONS[key_upper])
         field["key"] = key_upper
+        field.setdefault(
+            "reload_scope",
+            "runtime_refreshable" if key_upper in Config.runtime_refreshable_env_keys() else "process_start",
+        )
         return field
 
     category = _infer_category(key_upper)
@@ -627,6 +633,7 @@ def get_field_definition(key: str, value_hint: Optional[str] = None) -> Dict[str
         "options": [],
         "validation": {},
         "display_order": 9000,
+        "reload_scope": "runtime_refreshable" if key_upper in Config.runtime_refreshable_env_keys() else "process_start",
     }
     return field
 
