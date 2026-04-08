@@ -342,8 +342,11 @@ class DataFetcherManager:
         """
         from src.config import get_config
 
-        self._static_config = config
-        self.config = config or get_config()
+        runtime_config = get_config()
+        # Treat the shared global config singleton as runtime-managed even when
+        # callers pass it explicitly (for example, long-lived pipeline instances).
+        self._static_config = None if config is None or config is runtime_config else config
+        self.config = config or runtime_config
         self._fetchers: List[BaseFetcher] = []
         
         if fetchers:
@@ -354,7 +357,7 @@ class DataFetcherManager:
             self._init_default_fetchers()
 
     def _get_active_config(self):
-        """Return the latest runtime config unless a fixed config was injected."""
+        """Return the latest runtime config unless a fixed non-global config was injected."""
         if self._static_config is not None:
             return self._static_config
 

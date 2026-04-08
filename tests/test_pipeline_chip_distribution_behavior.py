@@ -47,6 +47,45 @@ def _build_pipeline(monkeypatch, enable_chip_distribution: bool):
     return StockAnalysisPipeline(config=config)
 
 
+def test_pipeline_global_config_injection_still_refreshes_fetcher_config(monkeypatch):
+    current_config = {
+        "value": SimpleNamespace(
+            enable_chip_distribution=False,
+            enable_realtime_quote=False,
+            realtime_source_priority="yfinance",
+        )
+    }
+
+    monkeypatch.setattr("src.config.get_config", lambda: current_config["value"])
+
+    pipeline = _build_pipeline(monkeypatch, enable_chip_distribution=True)
+    fetcher = DummyChipFetcher()
+    pipeline.fetcher_manager._fetchers = [fetcher]
+
+    class DummyCircuitBreaker:
+        def is_available(self, source_key):
+            return True
+
+        def record_success(self, source_key):
+            pass
+
+        def record_failure(self, source_key, error):
+            pass
+
+    monkeypatch.setattr("data_provider.realtime_types.get_chip_circuit_breaker", lambda: DummyCircuitBreaker())
+
+    current_config["value"] = SimpleNamespace(
+        enable_chip_distribution=True,
+        enable_realtime_quote=False,
+        realtime_source_priority="yfinance",
+    )
+
+    chip = pipeline.fetcher_manager.get_chip_distribution("600519")
+
+    assert chip is not None
+    assert fetcher.calls == 1
+
+
 def test_pipeline_config_true_allows_chip_distribution_even_if_global_default_false(monkeypatch):
     monkeypatch.setattr(
         "src.config.get_config",
