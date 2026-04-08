@@ -109,6 +109,19 @@ def test_config_registry_has_execution_price_policy_enum_validation():
     assert field["validation"].get("enum") == ["realtime_if_available", "close_only"]
 
 
+def test_config_classify_reload_scope_separates_runtime_and_process_start_keys():
+    runtime_refreshable, process_start = Config.classify_reload_scope(
+        ["stock_list", "EXECUTION_PRICE_POLICY", "LOG_LEVEL", "ENABLE_CHIP_DISTRIBUTION"]
+    )
+
+    assert runtime_refreshable == [
+        "ENABLE_CHIP_DISTRIBUTION",
+        "EXECUTION_PRICE_POLICY",
+        "STOCK_LIST",
+    ]
+    assert process_start == ["LOG_LEVEL"]
+
+
 def test_runtime_execution_price_policy_close_only_ignores_realtime_price():
     enhanced_context = {
         "realtime": {"price": "101.5"},

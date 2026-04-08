@@ -14,7 +14,7 @@ import os
 import re
 import logging
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import ClassVar, FrozenSet, Iterable, List, Optional, Tuple
 from dotenv import load_dotenv, dotenv_values
 from dataclasses import dataclass, field
 
@@ -306,6 +306,15 @@ class Config:
     
     # 单例实例存储
     _instance: Optional['Config'] = None
+    _RUNTIME_REFRESHABLE_ENV_KEYS: ClassVar[FrozenSet[str]] = frozenset(
+        {
+            "ENABLE_REALTIME_QUOTE",
+            "ENABLE_CHIP_DISTRIBUTION",
+            "EXECUTION_PRICE_POLICY",
+            "REALTIME_SOURCE_PRIORITY",
+            "STOCK_LIST",
+        }
+    )
     
     @classmethod
     def get_instance(cls) -> 'Config':
@@ -621,6 +630,57 @@ class Config:
     def reset_instance(cls) -> None:
         """重置单例（主要用于测试）"""
         cls._instance = None
+
+    @classmethod
+    def runtime_refreshable_env_keys(cls) -> frozenset[str]:
+        """Return config keys that are expected to support runtime refresh."""
+        return cls._RUNTIME_REFRESHABLE_ENV_KEYS
+
+    @classmethod
+    def classify_reload_scope(cls, keys: Iterable[str]) -> Tuple[List[str], List[str]]:
+        """
+        Split updated config keys into:
+        - runtime-refreshable keys
+        - process-start keys that should be treated as restart-bound by default
+        """
+        normalized = sorted(
+            {
+                str(key or "").strip().upper()
+                for key in keys
+                if str(key or "").strip()
+            }
+        )
+        runtime_refreshable = [key for key in normalized if key in cls._RUNTIME_REFRESHABLE_ENV_KEYS]
+        process_start = [key for key in normalized if key not in cls._RUNTIME_REFRESHABLE_ENV_KEYS]
+        return runtime_refreshable, process_start
+
+    @classmethod
+    def build_reload_scope_warnings(cls, updated_keys: Iterable[str], *, reload_now: bool) -> List[str]:
+        """Build user-facing warnings for config updates with different reload scopes."""
+        runtime_refreshable, process_start = cls.classify_reload_scope(updated_keys)
+        warnings: List[str] = []
+
+        if runtime_refreshable and reload_now:
+            warnings.append(
+                "Runtime-refreshable settings were reloaded in-process: "
+                + ", ".join(runtime_refreshable)
+            )
+
+        if runtime_refreshable and not reload_now:
+            warnings.append(
+                "Runtime-refreshable settings were updated but reload_now=false, "
+                "so the current process keeps old values until reload/restart: "
+                + ", ".join(runtime_refreshable)
+            )
+
+        if process_start:
+            warnings.append(
+                "Some updated settings should be treated as process-start configuration "
+                "and may require the next process restart to fully apply: "
+                + ", ".join(process_start)
+            )
+
+        return warnings
 
     def refresh_stock_list(self) -> None:
         """

@@ -70,6 +70,37 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         self.assertEqual(current_map["STOCK_LIST"], "600519,300750")
         self.assertEqual(current_map["GEMINI_API_KEY"], "secret-key-value")
 
+    def test_update_without_reload_reports_runtime_and_restart_scopes(self) -> None:
+        old_version = self.manager.get_config_version()
+        response = self.service.update(
+            config_version=old_version,
+            items=[
+                {"key": "STOCK_LIST", "value": "600519,300750"},
+                {"key": "LOG_LEVEL", "value": "DEBUG"},
+            ],
+            reload_now=False,
+        )
+
+        warning_text = "\n".join(response["warnings"])
+        self.assertIn("reload_now=false", warning_text)
+        self.assertIn("STOCK_LIST", warning_text)
+        self.assertIn("require the next process restart", warning_text)
+        self.assertIn("LOG_LEVEL", warning_text)
+
+    def test_update_with_reload_only_warns_for_process_start_scope(self) -> None:
+        old_version = self.manager.get_config_version()
+        response = self.service.update(
+            config_version=old_version,
+            items=[{"key": "LOG_LEVEL", "value": "DEBUG"}],
+            reload_now=True,
+        )
+
+        warning_text = "\n".join(response["warnings"])
+        self.assertTrue(response["reload_triggered"])
+        self.assertIn("require the next process restart", warning_text)
+        self.assertIn("LOG_LEVEL", warning_text)
+        self.assertNotIn("reload_now=false", warning_text)
+
     def test_validate_reports_invalid_time(self) -> None:
         validation = self.service.validate(items=[{"key": "SCHEDULE_TIME", "value": "25:70"}])
         self.assertFalse(validation["valid"])

@@ -149,6 +149,8 @@ class SystemConfigService:
                 logger.error("Configuration reload failed: %s", exc, exc_info=True)
                 warnings.append("Configuration updated but reload failed")
 
+        warnings.extend(Config.build_reload_scope_warnings(updated_keys, reload_now=reload_now))
+
         return {
             "success": True,
             "config_version": new_version,

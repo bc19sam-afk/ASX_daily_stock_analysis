@@ -72,6 +72,28 @@ class SystemConfigApiTestCase(unittest.TestCase):
         self.assertIn("STOCK_LIST=600519,300750", env_content)
         self.assertIn("GEMINI_API_KEY=new-secret-value", env_content)
 
+    def test_put_config_surfaces_reload_scope_warnings(self) -> None:
+        current = self.client.get("/api/v1/system/config").json()
+
+        response = self.client.put(
+            "/api/v1/system/config",
+            json={
+                "config_version": current["config_version"],
+                "reload_now": False,
+                "items": [
+                    {"key": "STOCK_LIST", "value": "600519,300750"},
+                    {"key": "LOG_LEVEL", "value": "DEBUG"},
+                ],
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        warning_text = "\n".join(payload["warnings"])
+        self.assertIn("reload_now=false", warning_text)
+        self.assertIn("STOCK_LIST", warning_text)
+        self.assertIn("require the next process restart", warning_text)
+        self.assertIn("LOG_LEVEL", warning_text)
+
     def test_put_config_returns_conflict_when_version_is_stale(self) -> None:
         response = self.client.put(
             "/api/v1/system/config",
