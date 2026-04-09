@@ -51,6 +51,9 @@ from src.notification_formatting import (
     format_valuation_source_label as _format_valuation_source_label_helper,
     format_yes_no_label as _format_yes_no_label_helper,
 )
+from src.notification_recommended_action_builders import (
+    build_recommended_actions_table,
+)
 from src.notification_portfolio_builders import (
     build_report_time_portfolio_overview,
     build_section_c_reconciliation_lines,
@@ -977,39 +980,17 @@ class NotificationService:
         return "量能数据不足（量比/换手率缺失），不做量能结论"
 
     def _build_recommended_actions_table(self, results: List[AnalysisResult]) -> List[str]:
-        """Build recommended actions table (analysis output; not yet executed)."""
-        lines = [
-            "| 标的 | 今日主动作（确定性/未执行） | AI补充（仅参考） |",
-            "|---|---|---|",
-        ]
-
-        for r in results:
-            action_model = self._get_primary_action_model(r)
-            _, signal_emoji, _ = self._get_signal_level(r)
-            display_name = self._format_stock_display_name(r.name, r.code)
-            stock_cell = self._to_markdown_table_cell(
-                f"{signal_emoji} **{self._escape_md(display_name)}**"
-            )
-            action_cell = self._to_markdown_table_cell(
-                f"{self._format_position_action_label(action_model['position_action'])} · "
-                f"{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])}"
-            )
-            ai_view_text = (
-                f"{self._get_conflict_safe_ai_commentary(r)} · "
-                f"评分 {r.sentiment_score} · {r.trend_prediction}"
-            )
-            if action_model['ai_conflict']:
-                ai_view_text += " ⚠️(已抑制冲突态AI操作措辞)"
-            ai_view_cell = self._to_markdown_table_cell(ai_view_text)
-
-            lines.append(
-                "| "
-                f"{stock_cell} | "
-                f"{action_cell} | "
-                f"{ai_view_cell} "
-                "|"
-            )
-        return lines
+        return build_recommended_actions_table(
+            results=results,
+            get_primary_action_model=self._get_primary_action_model,
+            get_signal_level=self._get_signal_level,
+            format_stock_display_name=self._format_stock_display_name,
+            escape_md=self._escape_md,
+            to_markdown_table_cell=self._to_markdown_table_cell,
+            format_position_action_label=self._format_position_action_label,
+            format_sizing_brief=self._format_sizing_brief,
+            get_conflict_safe_ai_commentary=self._get_conflict_safe_ai_commentary,
+        )
 
     def _is_actionable_today(self, result: AnalysisResult) -> bool:
         """Return True when deterministic action implies execution-worthy change."""
