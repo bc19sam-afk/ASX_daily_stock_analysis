@@ -51,6 +51,11 @@ from src.notification_formatting import (
     format_valuation_source_label as _format_valuation_source_label_helper,
     format_yes_no_label as _format_yes_no_label_helper,
 )
+from src.notification_portfolio_builders import (
+    build_report_time_portfolio_overview,
+    build_section_c_reconciliation_lines,
+    build_simulated_target_allocation_table,
+)
 from src.storage import get_db
 from bot.models import BotMessage
 
@@ -1083,28 +1088,15 @@ class NotificationService:
         results: List[AnalysisResult],
         executed_weight_by_code: Optional[Dict[str, float]] = None,
     ) -> List[str]:
-        """Build simulated target allocation table; clearly separated from executed state."""
-        executed_weight_by_code = executed_weight_by_code or {}
-        lines = [
-            "| 标的 | 当前已执行权重 | 模拟目标权重 | 模拟调仓金额 |",
-            "|---|---:|---:|---:|",
-        ]
-
-        for r in results:
-            _, signal_emoji, _ = self._get_signal_level(r)
-            display_name = self._format_stock_display_name(r.name, r.code)
-            stock_cell = self._to_markdown_table_cell(
-                f"{signal_emoji} **{self._escape_md(display_name)}**"
-            )
-            lines.append(
-                "| "
-                f"{stock_cell} | "
-                f"{executed_weight_by_code.get(self._normalize_stock_code(r.code), 0.0):.2%} | "
-                f"{getattr(r, 'target_weight', 0.0):.2%} | "
-                f"{getattr(r, 'delta_amount', 0.0):,.2f} "
-                "|"
-            )
-        return lines
+        return build_simulated_target_allocation_table(
+            results=results,
+            executed_weight_by_code=executed_weight_by_code,
+            format_stock_display_name=self._format_stock_display_name,
+            escape_md=self._escape_md,
+            to_markdown_table_cell=self._to_markdown_table_cell,
+            get_signal_level=self._get_signal_level,
+            normalize_stock_code=self._normalize_stock_code,
+        )
 
     def _build_section_c_reconciliation_lines(
         self,
@@ -1112,43 +1104,11 @@ class NotificationService:
         results: List[AnalysisResult],
         overview_holdings: Optional[List[Dict[str, Any]]] = None,
     ) -> List[str]:
-        """Build reconciliation summary so Section C closes to 100% explicitly."""
-        holdings = overview_holdings or []
-        analyzed_target_weight_sum = sum(float(getattr(r, "target_weight", 0.0) or 0.0) for r in results)
-        analyzed_codes = {
-            self._normalize_stock_code(getattr(r, "code", ""))
-            for r in results
-            if self._normalize_stock_code(getattr(r, "code", ""))
-        }
-        unmanaged_holdings_weight = sum(
-            float(item.get("weight") or 0.0)
-            for item in holdings
-            if self._normalize_stock_code(item.get("code", "")) not in analyzed_codes
+        return build_section_c_reconciliation_lines(
+            results=results,
+            overview_holdings=overview_holdings,
+            normalize_stock_code=self._normalize_stock_code,
         )
-        raw_target_cash_weight = 1.0 - analyzed_target_weight_sum - unmanaged_holdings_weight
-        target_cash_weight = max(raw_target_cash_weight, 0.0)
-        residual = 1.0 - analyzed_target_weight_sum - unmanaged_holdings_weight - target_cash_weight
-        tolerance = 1e-6
-
-        lines = [
-            "",
-            "### C 段闭环说明（为什么目标仓位不一定等于 100%）",
-            "",
-            f"- 已分析标的目标仓位合计：**{analyzed_target_weight_sum:.2%}**",
-            f"- 未纳入今日分析的持仓权重：**{unmanaged_holdings_weight:.2%}**",
-            f"- 目标现金权重：**{target_cash_weight:.2%}**",
-            f"- 闭环残差：**{residual:.4%}**",
-            "- 闭环关系：**已分析标的目标仓位合计 + 未纳入今日分析的持仓权重 + 目标现金权重 + 闭环残差 = 100%**",
-        ]
-        if abs(residual) <= tolerance:
-            lines.append(
-                "- 说明：残差在四舍五入/容差范围内，可视为数值舍入带来的极小差异。"
-            )
-        else:
-            lines.append(
-                "- 说明：残差超出容差范围，表示仅靠舍入无法完全解释差异，请结合账户与分析覆盖范围进一步核对。"
-            )
-        return lines
 
     def _count_primary_decisions(self, results: List[AnalysisResult]) -> Dict[str, int]:
         counts = {'BUY': 0, 'HOLD': 0, 'SELL': 0}
@@ -1228,76 +1188,12 @@ class NotificationService:
         overview: Dict[str, Any],
         results: List[AnalysisResult],
     ) -> Dict[str, Any]:
-        """Build read-only mark-to-market overview using executed holdings and report-time prices.
-
-        Price priority per holding:
-        1) result.current_price (realtime preferred, else today.close already resolved in pipeline)
-        2) fallback to stored market_value for that holding
-        """
-        cash = round(float((overview or {}).get("cash") or 0.0), 2)
-        original_holdings = (overview or {}).get("holdings") or []
-
-        report_time_prices: Dict[str, float] = {}
-        analyzed_codes: Set[str] = set()
-        for result in results or []:
-            code = self._normalize_stock_code(getattr(result, "code", ""))
-            if not code:
-                continue
-            analyzed_codes.add(code)
-            price = self._to_positive_float(getattr(result, "current_price", None))
-            if price is not None:
-                report_time_prices[code] = price
-
-        holdings: List[Dict[str, Any]] = []
-        equity_value = 0.0
-        fallback_codes: List[str] = []
-
-        for holding in original_holdings:
-            code = self._normalize_stock_code(holding.get("code", ""))
-            quantity = float(holding.get("quantity") or 0.0)
-            report_time_price = report_time_prices.get(code)
-
-            if report_time_price is not None:
-                market_value = round(max(quantity, 0.0) * report_time_price, 2)
-                valuation_source = "report_time_price"
-            else:
-                market_value = round(float(holding.get("market_value") or 0.0), 2)
-                valuation_source = "stored_market_value_fallback"
-                if code:
-                    fallback_codes.append(code)
-
-            equity_value += max(market_value, 0.0)
-            holdings.append(
-                {
-                    "code": code,
-                    "name": holding.get("name"),
-                    "quantity": quantity,
-                    "avg_cost": float(holding.get("avg_cost") or 0.0),
-                    "current_price": report_time_price if report_time_price is not None else holding.get("current_price"),
-                    "market_value": market_value,
-                    "valuation_source": valuation_source,
-                    "analyzed_today": code in analyzed_codes,
-                }
-            )
-
-        equity_value = round(equity_value, 2)
-        total_value = round(cash + equity_value, 2)
-        for item in holdings:
-            item["weight"] = (item["market_value"] / total_value) if total_value > 0 else 0.0
-
-        if fallback_codes:
-            logger.info(
-                "Portfolio overview price fallback to stored market_value for holdings without report-time price: %s",
-                ",".join(fallback_codes),
-            )
-
-        return {
-            "snapshot_date": (overview or {}).get("snapshot_date"),
-            "cash": cash,
-            "equity_value": equity_value,
-            "total_value": total_value,
-            "holdings": holdings,
-        }
+        return build_report_time_portfolio_overview(
+            overview=overview,
+            results=results,
+            normalize_stock_code=self._normalize_stock_code,
+            to_positive_float=self._to_positive_float,
+        )
     
     def generate_dashboard_report(
         self,
