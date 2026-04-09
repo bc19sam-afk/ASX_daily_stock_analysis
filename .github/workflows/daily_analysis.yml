@@ -1,12 +1,11 @@
 name: 每日股票分析
 
 on:
-  # 定时触发（GitHub Actions cron 使用 UTC）
-  # 为了让 Melbourne/Sydney 本地时间全年都在工作日 07:20 触发，
-  # 这里同时监听夏令时和冬令时对应的 UTC 时间，再在 workflow 内按本地时间做一次门禁。
+  # 定时触发（使用 GitHub Actions timezone-aware schedule）
+  # 直接按 Australia/Sydney 本地工作日 07:20 调度，交给 GitHub 处理 DST。
   schedule:
-    - cron: '20 20 * * 0-4'     # AEDT 对应：次日 07:20
-    - cron: '20 21 * * 0-4'     # AEST 对应：次日 07:20
+    - cron: '20 7 * * 1-5'
+      timezone: 'Australia/Sydney'
   
   # 手动触发
   workflow_dispatch:
@@ -33,7 +32,7 @@ jobs:
     timeout-minutes: 60
     
     steps:
-      - name: 本地时间门禁（Melbourne 07:20）
+      - name: 调度门禁（Australia/Sydney 工作日）
         id: schedule_gate
         shell: bash
         run: |
@@ -43,18 +42,17 @@ jobs:
             exit 0
           fi
 
-          local_time=$(TZ='Australia/Melbourne' date '+%H:%M')
-          local_weekday=$(TZ='Australia/Melbourne' date '+%u')
-          local_stamp=$(TZ='Australia/Melbourne' date '+%Y-%m-%d %H:%M:%S %Z')
+          local_weekday=$(TZ='Australia/Sydney' date '+%u')
+          local_stamp=$(TZ='Australia/Sydney' date '+%Y-%m-%d %H:%M:%S %Z')
 
-          echo "Melbourne local time: $local_stamp"
+          echo "Australia/Sydney local time: $local_stamp"
 
-          if [ "$local_time" = "07:20" ] && [ "$local_weekday" -ge 1 ] && [ "$local_weekday" -le 5 ]; then
+          if [ "$local_weekday" -ge 1 ] && [ "$local_weekday" -le 5 ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "matched Melbourne weekday 07:20 gate"
+            echo "matched timezone-aware Australia/Sydney weekday schedule"
           else
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "skip: not the Melbourne weekday 07:20 execution window"
+            echo "skip: not an Australia/Sydney weekday"
           fi
 
       - name: 随机延迟（避免固定时间访问）
