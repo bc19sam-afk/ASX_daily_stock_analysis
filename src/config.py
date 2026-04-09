@@ -308,6 +308,7 @@ class Config:
     _instance: Optional['Config'] = None
     _RUNTIME_REFRESHABLE_ENV_KEYS: ClassVar[FrozenSet[str]] = frozenset(
         {
+            # StockAnalysisPipeline.run() refreshes this on each stock-list read.
             "STOCK_LIST",
         }
     )
