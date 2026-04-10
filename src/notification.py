@@ -1187,7 +1187,7 @@ class NotificationService:
         return build_dashboard_observation_appendix_lines(
             observation_items=observation_items,
             section_title="## 详细个股附录（非持仓观察版）",
-            section_intro="> 规则：非持仓且今日无明确动作的标的进入观察版，保留结论、理由、风险、参考位，不再只显示一行摘要。",
+            section_intro="> 规则：非持仓且今日无明确动作的标的进入观察版，保留结论/理由/风险/参考位，不再只显示一行摘要。",
         )
     
     def generate_dashboard_report(
