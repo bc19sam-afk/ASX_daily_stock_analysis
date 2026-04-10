@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from data_provider.base import BaseFetcher, DataFetcherManager
-from data_provider.realtime_types import UnifiedRealtimeQuote
+from data_provider.realtime_types import RealtimeSource, UnifiedRealtimeQuote
 
 
 class DummyFetcher(BaseFetcher):
@@ -91,7 +91,14 @@ def test_market_symbol_classifier():
 
 
 def test_realtime_asx_routes_to_yfinance_first():
-    yf_quote = UnifiedRealtimeQuote(code="CBA.AX", name="CBA", price=123.45)
+    yf_quote = UnifiedRealtimeQuote(
+        code="CBA.AX",
+        name="CBA",
+        price=123.45,
+        source=RealtimeSource.YFINANCE,
+        volume_ratio=1.3,
+        turnover_rate=2.1,
+    )
     yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=yf_quote)
     cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=None)
     manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
@@ -105,7 +112,14 @@ def test_realtime_asx_routes_to_yfinance_first():
 
 
 def test_realtime_us_routing_behavior_preserved():
-    yf_quote = UnifiedRealtimeQuote(code="AAPL", name="Apple", price=200.0)
+    yf_quote = UnifiedRealtimeQuote(
+        code="AAPL",
+        name="Apple",
+        price=200.0,
+        source=RealtimeSource.YFINANCE,
+        volume_ratio=1.1,
+        turnover_rate=0.9,
+    )
     yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=yf_quote)
     cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=None)
     manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
@@ -119,7 +133,14 @@ def test_realtime_us_routing_behavior_preserved():
 
 
 def test_realtime_dotted_us_symbol_routes_to_yfinance():
-    yf_quote = UnifiedRealtimeQuote(code="BRK.B", name="Berkshire Hathaway", price=500.0)
+    yf_quote = UnifiedRealtimeQuote(
+        code="BRK.B",
+        name="Berkshire Hathaway",
+        price=500.0,
+        source=RealtimeSource.YFINANCE,
+        volume_ratio=1.0,
+        turnover_rate=0.8,
+    )
     yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=yf_quote)
     cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=None)
     manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
@@ -142,5 +163,37 @@ def test_realtime_yfinance_none_then_fallback_source():
         quote = manager.get_realtime_quote("BRK.B")
 
     assert quote is fallback_quote
+    assert yf_fetcher.realtime_calls == 1
+    assert cn_fetcher.realtime_calls == 1
+
+
+def test_realtime_yfinance_partial_quote_gets_supplemented_by_later_source():
+    yf_quote = UnifiedRealtimeQuote(
+        code="CBA.AX",
+        name="CBA",
+        price=123.45,
+        source=RealtimeSource.YFINANCE,
+        volume_ratio=None,
+        turnover_rate=None,
+    )
+    supplemental_quote = UnifiedRealtimeQuote(
+        code="CBA.AX",
+        name="CBA",
+        price=123.40,
+        source=RealtimeSource.EFINANCE,
+        volume_ratio=1.8,
+        turnover_rate=3.2,
+    )
+    yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=yf_quote)
+    cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=supplemental_quote)
+    manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
+
+    with patch("src.config.get_config", return_value=SimpleNamespace(enable_realtime_quote=True, realtime_source_priority="efinance")):
+        quote = manager.get_realtime_quote("CBA.AX")
+
+    assert quote is yf_quote
+    assert quote.source == RealtimeSource.YFINANCE
+    assert quote.volume_ratio == 1.8
+    assert quote.turnover_rate == 3.2
     assert yf_fetcher.realtime_calls == 1
     assert cn_fetcher.realtime_calls == 1

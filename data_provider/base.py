@@ -594,6 +594,9 @@ class DataFetcherManager:
         from .realtime_types import get_realtime_circuit_breaker
         
         config = self._get_active_config()
+        errors = []
+        primary_quote = None
+        supplement_attempts = 0
         
         # 如果实时行情功能被禁用，直接返回 None
         if not config.enable_realtime_quote:
@@ -607,21 +610,22 @@ class DataFetcherManager:
                     if hasattr(fetcher, 'get_realtime_quote'):
                         try:
                             quote = fetcher.get_realtime_quote(stock_code)
-                            if quote is not None:
+                            if quote is not None and quote.has_basic_data():
                                 logger.info(f"[实时行情] {stock_code} 成功获取 (来源: yfinance)")
-                                return quote
+                                primary_quote = quote
+                                if (
+                                    primary_quote.volume_ratio is not None
+                                    and primary_quote.turnover_rate is not None
+                                ):
+                                    return primary_quote
                         except Exception as e:
                             logger.warning(f"[实时行情] {stock_code} 获取失败: {e}")
                     break
-            logger.warning(f"[实时行情] {stock_code} yfinance 无可用数据，尝试后备数据源")
+            if primary_quote is None:
+                logger.warning(f"[实时行情] {stock_code} yfinance 无可用数据，尝试后备数据源")
         
         # 获取配置的数据源优先级
         source_priority = config.realtime_source_priority.split(',')
-        
-        errors = []
-        # primary_quote holds the first successful result; we may supplement
-        # missing fields (volume_ratio, turnover_rate, etc.) from later sources.
-        primary_quote = None
         
         for source in source_priority:
             source = source.strip().lower()
