@@ -1179,6 +1179,52 @@ class NotificationService:
             to_positive_float=self._to_positive_float,
         )
 
+    def _build_dashboard_observation_item(
+        self,
+        result: AnalysisResult,
+    ) -> Dict[str, str]:
+        signal_text, signal_emoji, _ = self._get_signal_level(result)
+        dashboard = result.dashboard if hasattr(result, "dashboard") and result.dashboard else {}
+        intel = dashboard.get("intelligence", {}) if dashboard else {}
+        battle = dashboard.get("battle_plan", {}) if dashboard else {}
+        sniper = battle.get("sniper_points", {}) if battle else {}
+        risk_alerts = intel.get("risk_alerts", []) if intel else []
+        reason_text = result.buy_reason or result.analysis_summary or "N/A"
+
+        normalized_risk_alerts = []
+        for item in risk_alerts:
+            if item is None:
+                continue
+            if isinstance(item, dict):
+                text = str(item.get("message") or item.get("title") or "").strip()
+            else:
+                text = str(item).strip()
+            if text:
+                normalized_risk_alerts.append(text)
+
+        risk_text = (
+            "；".join(normalized_risk_alerts[:2])
+            if normalized_risk_alerts else (result.risk_warning or "暂无新增高优先级风险")
+        )
+
+        ref_points = []
+        if sniper.get("ideal_buy"):
+            ref_points.append(f"参考买入位 {self._clean_sniper_value(sniper.get('ideal_buy'))}")
+        if sniper.get("stop_loss"):
+            ref_points.append(f"风险提示位 {self._clean_sniper_value(sniper.get('stop_loss'))}")
+        if sniper.get("take_profit"):
+            ref_points.append(f"参考目标位 {self._clean_sniper_value(sniper.get('take_profit'))}")
+        ref_text = " | ".join(ref_points) if ref_points else "暂无明确参考位"
+
+        return {
+            "heading": f"### {signal_emoji} {self._escape_md(self._format_stock_display_name(result.name, result.code))}",
+            "summary_line": f"- 核心结论：{signal_text} | 评分 {result.sentiment_score} | {result.trend_prediction}",
+            "action_line": f"- 主动作：{self._format_position_action_label(self._get_primary_action_model(result)['position_action'])}",
+            "reason_line": f"- 关键理由：{reason_text}",
+            "risk_line": f"- 风险：{risk_text}",
+            "reference_line": f"- 参考位：{ref_text}",
+        }
+
     def _build_dashboard_observation_appendix_lines(
         self,
         *,
@@ -1654,46 +1700,7 @@ class NotificationService:
             if observation_non_holding_results:
                 observation_items = []
                 for result in observation_non_holding_results:
-                    signal_text, signal_emoji, _ = self._get_signal_level(result)
-                    dashboard = result.dashboard if hasattr(result, "dashboard") and result.dashboard else {}
-                    intel = dashboard.get("intelligence", {}) if dashboard else {}
-                    battle = dashboard.get("battle_plan", {}) if dashboard else {}
-                    sniper = battle.get("sniper_points", {}) if battle else {}
-                    risk_alerts = intel.get("risk_alerts", []) if intel else []
-                    reason_text = result.buy_reason or result.analysis_summary or "N/A"
-                    normalized_risk_alerts = []
-                    for item in risk_alerts:
-                        if item is None:
-                            continue
-                        if isinstance(item, dict):
-                            text = str(item.get("message") or item.get("title") or "").strip()
-                        else:
-                            text = str(item).strip()
-                        if text:
-                            normalized_risk_alerts.append(text)
-                    risk_text = (
-                        "；".join(normalized_risk_alerts[:2])
-                        if normalized_risk_alerts else (result.risk_warning or "暂无新增高优先级风险")
-                    )
-                    ref_points = []
-                    if sniper.get("ideal_buy"):
-                        ref_points.append(f"参考买入位 {self._clean_sniper_value(sniper.get('ideal_buy'))}")
-                    if sniper.get("stop_loss"):
-                        ref_points.append(f"风险提示位 {self._clean_sniper_value(sniper.get('stop_loss'))}")
-                    if sniper.get("take_profit"):
-                        ref_points.append(f"参考目标位 {self._clean_sniper_value(sniper.get('take_profit'))}")
-                    ref_text = " | ".join(ref_points) if ref_points else "暂无明确参考位"
-
-                    observation_items.append(
-                        {
-                            "heading": f"### {signal_emoji} {self._escape_md(self._format_stock_display_name(result.name, result.code))}",
-                            "summary_line": f"- 核心结论：{signal_text} | 评分 {result.sentiment_score} | {result.trend_prediction}",
-                            "action_line": f"- 主动作：{self._format_position_action_label(self._get_primary_action_model(result)['position_action'])}",
-                            "reason_line": f"- 关键理由：{reason_text}",
-                            "risk_line": f"- 风险：{risk_text}",
-                            "reference_line": f"- 参考位：{ref_text}",
-                        }
-                    )
+                    observation_items.append(self._build_dashboard_observation_item(result))
                 report_lines.extend(
                     self._build_dashboard_observation_appendix_lines(
                         observation_items=observation_items,
