@@ -814,10 +814,74 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("## 详细个股附录（非持仓观察版）", report)
         self.assertIn("- 风险：财报窗口临近；流动性偏弱", report)
 
+    def test_build_dashboard_observation_item_normalizes_risk_and_reference_lines(self) -> None:
+        service = self._build_service()
+        result = self._build_result(
+            code="OBS1",
+            final_decision="HOLD",
+            position_action="HOLD",
+            buy_reason="wait",
+            risk_warning="fallback risk",
+            dashboard={
+                "intelligence": {
+                    "risk_alerts": [
+                        {"title": "Window near"},
+                        {"message": "Liquidity thin"},
+                        123,
+                        None,
+                    ]
+                },
+                "battle_plan": {
+                    "sniper_points": {
+                        "ideal_buy": "10.50",
+                        "stop_loss": "9.80",
+                        "take_profit": "11.60",
+                    }
+                },
+            },
+        )
+
+        item = service._build_dashboard_observation_item(result)
+
+        self.assertEqual(
+            item["heading"],
+            f"### {service._get_signal_level(result)[1]} "
+            f"{service._escape_md(service._format_stock_display_name(result.name, result.code))}",
+        )
+        self.assertIn(service._get_signal_level(result)[0], item["summary_line"])
+        self.assertIn(str(result.sentiment_score), item["summary_line"])
+        self.assertIn(result.trend_prediction, item["summary_line"])
+        self.assertIn(
+            service._format_position_action_label(
+                service._get_primary_action_model(result)["position_action"]
+            ),
+            item["action_line"],
+        )
+        self.assertTrue(item["reason_line"].endswith("wait"))
+        self.assertIn("Window near", item["risk_line"])
+        self.assertIn("Liquidity thin", item["risk_line"])
+        self.assertIn("10.50", item["reference_line"])
+        self.assertIn("9.80", item["reference_line"])
+        self.assertIn("11.60", item["reference_line"])
+
     @patch("src.notification.get_db")
+    @patch.object(NotificationService, "_build_dashboard_observation_item")
     @patch("src.notification.build_dashboard_observation_appendix_lines")
-    def test_observation_appendix_wrapper_passes_normalized_items_to_builder(self, mock_builder, mock_get_db) -> None:
+    def test_observation_appendix_wrapper_uses_private_item_helper_before_appendix_builder(
+        self,
+        mock_builder,
+        mock_item_helper,
+        mock_get_db,
+    ) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        mock_item_helper.return_value = {
+            "heading": "### helper heading",
+            "summary_line": "- helper summary",
+            "action_line": "- helper action",
+            "reason_line": "- helper reason",
+            "risk_line": "- helper risk",
+            "reference_line": "- helper reference",
+        }
         mock_builder.return_value = ["## wrapper sentinel", "- rendered by builder", ""]
         service = self._build_service()
         service._report_summary_only = False
@@ -846,31 +910,15 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
         self.assertIn("## wrapper sentinel", report)
+        mock_item_helper.assert_called_once_with(result)
         mock_builder.assert_called_once()
         kwargs = mock_builder.call_args.kwargs
-        self.assertTrue(kwargs["section_title"].startswith("## "))
-        self.assertTrue(kwargs["section_intro"].startswith("> "))
-
-        item = kwargs["observation_items"][0]
+        self.assertEqual(kwargs["section_title"], "## 详细个股附录（非持仓观察版）")
         self.assertEqual(
-            item["heading"],
-            f"### {service._get_signal_level(result)[1]} "
-            f"{service._escape_md(service._format_stock_display_name(result.name, result.code))}",
+            kwargs["section_intro"],
+            "> 规则：非持仓且今日无明确动作的标的进入观察版，保留结论/理由/风险/参考位，不再只显示一行摘要。",
         )
-        self.assertIn(service._get_signal_level(result)[0], item["summary_line"])
-        self.assertIn(str(result.sentiment_score), item["summary_line"])
-        self.assertIn(result.trend_prediction, item["summary_line"])
-        self.assertIn(
-            service._format_position_action_label(
-                service._get_primary_action_model(result)["position_action"]
-            ),
-            item["action_line"],
-        )
-        self.assertTrue(item["reason_line"].endswith("wait"))
-        self.assertIn("Window near", item["risk_line"])
-        self.assertIn("Liquidity thin", item["risk_line"])
-        self.assertIn("10.50", item["reference_line"])
-        self.assertIn("9.80", item["reference_line"])
+        self.assertEqual(kwargs["observation_items"], [mock_item_helper.return_value])
 
     @patch("src.notification.get_db")
     def test_primary_action_stays_canonical_while_ai_commentary_remains_independent(self, mock_get_db) -> None:
