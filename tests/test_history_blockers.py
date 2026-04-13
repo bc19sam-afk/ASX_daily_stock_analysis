@@ -181,6 +181,32 @@ class HistoryBlockersTestCase(unittest.TestCase):
         self.assertAlmostEqual(report.summary.current_weight, 2 / 3, places=4)
         self.assertAlmostEqual(report.summary.target_weight, 2 / 3, places=4)
 
+    def test_history_detail_normalizes_warn_to_pass(self) -> None:
+        db = DatabaseManager(self._db_url("history_warn.db"))
+        service = HistoryService(db)
+
+        result = AnalysisResult(
+            code="BHP.AX",
+            name="BHP",
+            sentiment_score=65,
+            trend_prediction="震荡",
+            operation_advice="观察",
+            analysis_summary="历史 legacy warn",
+            validation_status="WARN",
+            validation_issues=["legacy warn"],
+            analysis_status="OK",
+        )
+        db.save_analysis_history(
+            result=result,
+            query_id="query-history-warn",
+            report_type="detailed",
+            news_content="",
+        )
+
+        detail = service.get_history_detail("query-history-warn")
+
+        self.assertEqual(detail["validation_status"], "PASS")
+
     def test_migration_script_skips_when_db_is_missing(self) -> None:
         missing_path = os.path.join(self._temp_dir.name, "missing.db")
         script_path = os.path.join(

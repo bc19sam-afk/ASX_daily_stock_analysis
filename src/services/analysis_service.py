@@ -14,6 +14,7 @@ import logging
 import uuid
 from typing import Optional, Dict, Any
 
+from src.core.validator import normalize_validation_status
 from src.enums import ReportType
 from src.repositories.analysis_repo import AnalysisRepository
 
@@ -118,6 +119,7 @@ class AnalysisService:
         
         # 计算情绪标签
         sentiment_label = self._get_sentiment_label(result.sentiment_score)
+        validation_status = normalize_validation_status(getattr(result, "validation_status", "PASS"))
         
         # 构建报告结构
         report = {
@@ -129,13 +131,13 @@ class AnalysisService:
                 "current_price": result.current_price,
                 "change_pct": result.change_pct,
                 "analysis_status": getattr(result, "analysis_status", "OK" if getattr(result, "success", True) else "FAILED"),
-                "validation_status": getattr(result, "validation_status", "PASS"),
+                "validation_status": validation_status,
             },
             "summary": {
                 "analysis_summary": result.analysis_summary,
                 "operation_advice": result.operation_advice,
                 "analysis_status": getattr(result, "analysis_status", "OK" if getattr(result, "success", True) else "FAILED"),
-                "validation_status": getattr(result, "validation_status", "PASS"),
+                "validation_status": validation_status,
                 "validation_issues": list(getattr(result, "validation_issues", []) or []),
                 "position_action": getattr(result, "position_action", "HOLD"),
                 "trend_prediction": result.trend_prediction,

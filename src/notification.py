@@ -2157,14 +2157,31 @@ class NotificationService:
             core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary,
         )
         if one_sentence:
-            lines.extend([
-                "### 📌 核心结论",
-                "",
-                f"- 🧭 **主动作（优先执行）**: {self._format_primary_action_text(result)}",
-                f"- 📌 **一句话结论**: {one_sentence}",
-                f"- 💬 **AI补充（非执行）**: {self._get_conflict_safe_ai_commentary(result)}",
-                "",
-            ])
+            if _is_validation_blocked(result):
+                current_weight = float(getattr(result, "current_weight", 0.0) or 0.0)
+                hold_line = (
+                    f"- 🧾 **持仓处理**: 保留当前持仓，不执行调仓（当前仓位 {current_weight:.2%}）"
+                    if current_weight > 0
+                    else "- 🧾 **持仓处理**: 当前不建立新仓位，仅观察"
+                )
+                lines.extend([
+                    "### 📌 核心结论",
+                    "",
+                    "- 🧭 **当前状态**: 当前不可决策，仅观察",
+                    hold_line,
+                    f"- 📌 **一句话结论**: {one_sentence}",
+                    f"- 💬 **AI补充（非执行）**: {self._get_conflict_safe_ai_commentary(result)}",
+                    "",
+                ])
+            else:
+                lines.extend([
+                    "### 📌 核心结论",
+                    "",
+                    f"- 🧭 **主动作（优先执行）**: {self._format_primary_action_text(result)}",
+                    f"- 📌 **一句话结论**: {one_sentence}",
+                    f"- 💬 **AI补充（非执行）**: {self._get_conflict_safe_ai_commentary(result)}",
+                    "",
+                ])
         
         # 重要信息（舆情+基本面）
         info_added = False
@@ -2208,7 +2225,7 @@ class NotificationService:
         
         # 狙击点位
         sniper = battle.get('sniper_points', {}) if battle else {}
-        if sniper:
+        if sniper and not _is_validation_blocked(result):
             lines.extend([
                 "### 🎯 操作点位",
                 "",
@@ -2223,7 +2240,7 @@ class NotificationService:
         
         # 持仓建议
         pos_advice = core.get('position_advice', {}) if core else {}
-        if pos_advice:
+        if pos_advice and not _is_validation_blocked(result):
             lines.extend([
                 "### 💼 持仓建议",
                 "",

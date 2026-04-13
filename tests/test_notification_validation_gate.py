@@ -101,12 +101,39 @@ class NotificationValidationGateTestCase(unittest.TestCase):
 
     def test_single_stock_report_shows_validation_gate_banner(self) -> None:
         service = self._build_service()
+        result = self._build_blocked_result()
+        result.current_weight = 0.25
+        result.target_weight = 0.25
+        result.target_quantity = 1000
+        result.dashboard = {
+            "core_conclusion": {
+                "one_sentence": "等待验证问题修复",
+                "position_advice": {
+                    "no_position": "建议观察后再开仓",
+                    "has_position": "建议继续持有并根据目标数量调整",
+                },
+            },
+            "battle_plan": {
+                "sniper_points": {
+                    "ideal_buy": "10.0",
+                    "stop_loss": "9.2",
+                    "take_profit": "11.5",
+                }
+            },
+        }
 
-        report = service.generate_single_stock_report(self._build_blocked_result())
+        report = service.generate_single_stock_report(result)
 
         self.assertIn("### ⚠️ 验证闸门", report)
         self.assertIn("BLOCK / 不可决策 / 仅观察", report)
         self.assertIn("价格口径混用", report)
+        self.assertIn("当前不可决策，仅观察", report)
+        self.assertIn("保留当前持仓，不执行调仓", report)
+        self.assertNotIn("主动作（优先执行）", report)
+        self.assertNotIn("确定性仓位指引(主指令)", report)
+        self.assertNotIn("目标数量", report)
+        self.assertNotIn("目标仓位", report)
+        self.assertNotIn("操作点位", report)
 
 
 if __name__ == "__main__":
