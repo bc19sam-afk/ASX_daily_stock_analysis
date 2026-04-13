@@ -14,7 +14,7 @@ import json
 import math
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from json_repair import repair_json
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -246,6 +246,8 @@ class AnalysisResult:
     change_pct: Optional[float] = None     # 分析时的涨跌幅(%)
     realtime_price: Optional[float] = None  # 真实实时价格（若不可用则为 None）
     execution_price_source: str = "close_only"  # realtime | latest_close | close_only
+    validation_status: str = "PASS"  # PASS/WARN/BLOCK
+    validation_issues: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典以便最终推送"""
@@ -296,6 +298,12 @@ class AnalysisResult:
             'success': self.success,
             'analysis_status': self.analysis_status,
             'error_message': self.error_message,
+            'current_price': self.current_price,
+            'change_pct': self.change_pct,
+            'realtime_price': self.realtime_price,
+            'execution_price_source': self.execution_price_source,
+            'validation_status': self.validation_status,
+            'validation_issues': list(self.validation_issues or []),
         }
 
     def get_core_conclusion(self) -> str:

@@ -16,20 +16,20 @@ from pydantic import BaseModel, Field
 
 class HistoryItem(BaseModel):
     """历史记录摘要（列表展示用）"""
-    
+
     query_id: str = Field(..., description="分析记录唯一标识")
     stock_code: str = Field(..., description="股票代码")
     stock_name: Optional[str] = Field(None, description="股票名称")
     report_type: Optional[str] = Field(None, description="报告类型")
     sentiment_score: Optional[int] = Field(
-        None, 
+        None,
         description="情绪评分 (0-100)",
         ge=0,
-        le=100
+        le=100,
     )
     operation_advice: Optional[str] = Field(None, description="操作建议")
     created_at: Optional[str] = Field(None, description="创建时间")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -39,26 +39,26 @@ class HistoryItem(BaseModel):
                 "report_type": "detailed",
                 "sentiment_score": 75,
                 "operation_advice": "持有",
-                "created_at": "2024-01-01T12:00:00"
+                "created_at": "2024-01-01T12:00:00",
             }
         }
 
 
 class HistoryListResponse(BaseModel):
     """历史记录列表响应"""
-    
+
     total: int = Field(..., description="总记录数")
     page: int = Field(..., description="当前页码")
     limit: int = Field(..., description="每页数量")
     items: List[HistoryItem] = Field(default_factory=list, description="记录列表")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
                 "total": 100,
                 "page": 1,
                 "limit": 20,
-                "items": []
+                "items": [],
             }
         }
 
@@ -73,9 +73,9 @@ class NewsIntelItem(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "title": "公司发布业绩快报，营收同比增长 20%",
-                "snippet": "公司公告显示，季度营收同比增长 20%...",
-                "url": "https://example.com/news/123"
+                "title": "公司发布业绩快报，营收同比增长20%",
+                "snippet": "公司公告显示，季度营收同比增长20%...",
+                "url": "https://example.com/news/123",
             }
         }
 
@@ -90,14 +90,14 @@ class NewsIntelResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "total": 2,
-                "items": []
+                "items": [],
             }
         }
 
 
 class ReportMeta(BaseModel):
     """报告元信息"""
-    
+
     query_id: str = Field(..., description="分析记录唯一标识")
     stock_code: str = Field(..., description="股票代码")
     stock_name: Optional[str] = Field(None, description="股票名称")
@@ -106,20 +106,23 @@ class ReportMeta(BaseModel):
     current_price: Optional[float] = Field(None, description="分析时股价")
     change_pct: Optional[float] = Field(None, description="分析时涨跌幅(%)")
     analysis_status: Optional[str] = Field(None, description="外层分析状态(OK/DEGRADED/FAILED)")
+    validation_status: Optional[str] = Field(None, description="决策验证状态(PASS/WARN/BLOCK)")
 
 
 class ReportSummary(BaseModel):
     """报告概览区"""
-    
+
     analysis_summary: Optional[str] = Field(None, description="关键结论")
     operation_advice: Optional[str] = Field(None, description="操作建议")
     analysis_status: Optional[str] = Field(None, description="外层分析状态(OK/DEGRADED/FAILED)")
+    validation_status: Optional[str] = Field(None, description="决策验证状态(PASS/WARN/BLOCK)")
+    validation_issues: Optional[List[str]] = Field(None, description="决策验证问题列表")
     trend_prediction: Optional[str] = Field(None, description="趋势预测")
     sentiment_score: Optional[int] = Field(
-        None, 
+        None,
         description="情绪评分 (0-100)",
         ge=0,
-        le=100
+        le=100,
     )
     sentiment_label: Optional[str] = Field(None, description="情绪标签")
     alpha_decision: Optional[str] = Field(None, description="规则层决策(BUY/HOLD/SELL)")
@@ -139,7 +142,7 @@ class ReportSummary(BaseModel):
 
 class ReportStrategy(BaseModel):
     """策略点位区"""
-    
+
     ideal_buy: Optional[str] = Field(None, description="理想买入价")
     secondary_buy: Optional[str] = Field(None, description="第二买入价")
     stop_loss: Optional[str] = Field(None, description="止损价")
@@ -148,21 +151,21 @@ class ReportStrategy(BaseModel):
 
 class ReportDetails(BaseModel):
     """报告详情区"""
-    
+
     news_content: Optional[str] = Field(None, description="新闻摘要")
-    raw_result: Optional[Any] = Field(None, description="原始分析结果（JSON）")
-    context_snapshot: Optional[Any] = Field(None, description="分析时上下文快照（JSON）")
+    raw_result: Optional[Any] = Field(None, description="原始分析结果(JSON)")
+    context_snapshot: Optional[Any] = Field(None, description="分析时上下文快照(JSON)")
 
 
 class AnalysisReport(BaseModel):
     """完整分析报告"""
-    
+
     meta: ReportMeta = Field(..., description="元信息")
     summary: ReportSummary = Field(..., description="概览区")
     strategy: Optional[ReportStrategy] = Field(None, description="策略点位区")
     details: Optional[ReportDetails] = Field(None, description="详情区")
     portfolio: Optional[Any] = Field(None, description="组合快照与持仓明细")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -171,21 +174,24 @@ class AnalysisReport(BaseModel):
                     "stock_code": "600519",
                     "stock_name": "贵州茅台",
                     "report_type": "detailed",
-                    "created_at": "2024-01-01T12:00:00"
+                    "created_at": "2024-01-01T12:00:00",
+                    "validation_status": "PASS",
                 },
                 "summary": {
                     "analysis_summary": "技术面向好，建议持有",
                     "operation_advice": "持有",
                     "trend_prediction": "看多",
                     "sentiment_score": 75,
-                    "sentiment_label": "乐观"
+                    "sentiment_label": "乐观",
+                    "validation_status": "PASS",
+                    "validation_issues": [],
                 },
                 "strategy": {
                     "ideal_buy": "1800.00",
                     "secondary_buy": "1750.00",
                     "stop_loss": "1700.00",
-                    "take_profit": "2000.00"
+                    "take_profit": "2000.00",
                 },
-                "details": None
+                "details": None,
             }
         }

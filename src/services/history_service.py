@@ -133,6 +133,12 @@ class HistoryService:
                     raw_result = json.loads(record.raw_result)
                 except json.JSONDecodeError:
                     raw_result = record.raw_result
+            validation_status = raw_result.get("validation_status") if isinstance(raw_result, dict) else None
+            validation_issues = (
+                list(raw_result.get("validation_issues") or [])
+                if isinstance(raw_result, dict)
+                else []
+            )
             
             # 解析 context_snapshot JSON
             context_snapshot = None
@@ -151,6 +157,9 @@ class HistoryService:
                 "stock_name": record.name,
                 "report_type": record.report_type,
                 "created_at": record.created_at.isoformat() if record.created_at else None,
+                "analysis_status": raw_result.get("analysis_status") if isinstance(raw_result, dict) else None,
+                "validation_status": validation_status,
+                "validation_issues": validation_issues,
                 "analysis_summary": record.analysis_summary,
                 "operation_advice": record.operation_advice,
                 "trend_prediction": record.trend_prediction,

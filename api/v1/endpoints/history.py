@@ -211,12 +211,17 @@ def get_history_detail(
             report_type=result.get("report_type"),
             created_at=result.get("created_at"),
             current_price=current_price,
-            change_pct=change_pct
+            change_pct=change_pct,
+            analysis_status=result.get("analysis_status"),
+            validation_status=result.get("validation_status"),
         )
         
         summary = ReportSummary(
             analysis_summary=result.get("analysis_summary"),
             operation_advice=result.get("operation_advice"),
+            analysis_status=result.get("analysis_status"),
+            validation_status=result.get("validation_status"),
+            validation_issues=result.get("validation_issues"),
             trend_prediction=result.get("trend_prediction"),
             sentiment_score=result.get("sentiment_score"),
             sentiment_label=result.get("sentiment_label"),

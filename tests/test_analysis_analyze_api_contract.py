@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -66,7 +67,7 @@ def test_analyze_allows_single_stock_codes_and_enters_existing_path(monkeypatch)
     assert captured["request_stock_codes"] == ["600519"]
 
 
-def test_get_analysis_status_db_fallback_does_not_default_analysis_status_to_ok(monkeypatch):
+def test_get_analysis_status_db_fallback_preserves_validation_status(monkeypatch):
     class _TaskQueueStub:
         @staticmethod
         def get_task(_task_id):
@@ -81,6 +82,13 @@ def test_get_analysis_status_db_fallback_does_not_default_analysis_status_to_ok(
         operation_advice = "持有"
         trend_prediction = "震荡"
         analysis_summary = "回调观察"
+        raw_result = json.dumps(
+            {
+                "validation_status": "BLOCK",
+                "validation_issues": ["价格口径混用：信号基于旧日线，但执行价使用实时价格。"],
+            },
+            ensure_ascii=False,
+        )
 
     class _DBStub:
         @staticmethod
@@ -97,3 +105,6 @@ def test_get_analysis_status_db_fallback_does_not_default_analysis_status_to_ok(
 
     assert report["meta"]["analysis_status"] is None
     assert report["summary"]["analysis_status"] is None
+    assert report["meta"]["validation_status"] == "BLOCK"
+    assert report["summary"]["validation_status"] == "BLOCK"
+    assert report["summary"]["validation_issues"] == ["价格口径混用：信号基于旧日线，但执行价使用实时价格。"]

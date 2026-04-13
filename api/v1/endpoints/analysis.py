@@ -55,6 +55,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _extract_validation_payload(raw_result: Any) -> Dict[str, Any]:
+    data = raw_result
+    if isinstance(raw_result, str):
+        try:
+            data = json.loads(raw_result)
+        except Exception:
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "validation_status": data.get("validation_status"),
+        "validation_issues": list(data.get("validation_issues") or []),
+    }
+
+
 # ============================================================
 # POST /analyze - 触发股票分析
 # ============================================================
@@ -447,6 +462,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
 
         if records:
             record = records[0]
+            validation_payload = _extract_validation_payload(getattr(record, "raw_result", None))
             # Build report from DB record so completed tasks return real data
             report_dict = AnalysisReport(
                 meta=ReportMeta(
@@ -456,6 +472,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     report_type=getattr(record, 'report_type', None),
                     created_at=record.created_at.isoformat() if record.created_at else None,
                     analysis_status=getattr(record, 'analysis_status', None),
+                    validation_status=validation_payload["validation_status"],
                 ),
                 summary=ReportSummary(
                     sentiment_score=record.sentiment_score,
@@ -463,6 +480,8 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     trend_prediction=record.trend_prediction,
                     analysis_summary=record.analysis_summary,
                     analysis_status=getattr(record, 'analysis_status', None),
+                    validation_status=validation_payload["validation_status"],
+                    validation_issues=validation_payload["validation_issues"],
                     alpha_decision=getattr(record, "alpha_decision", None),
                     final_decision=getattr(record, "final_decision", None),
                     watchlist_state=getattr(record, "watchlist_state", None),
@@ -549,12 +568,15 @@ def _build_analysis_report(
         current_price=meta_data.get("current_price"),
         change_pct=meta_data.get("change_pct"),
         analysis_status=meta_data.get("analysis_status") or summary_data.get("analysis_status"),
+        validation_status=meta_data.get("validation_status") or summary_data.get("validation_status"),
     )
 
     summary = ReportSummary(
         analysis_summary=summary_data.get("analysis_summary"),
         operation_advice=summary_data.get("operation_advice"),
         analysis_status=summary_data.get("analysis_status") or meta_data.get("analysis_status"),
+        validation_status=summary_data.get("validation_status") or meta_data.get("validation_status"),
+        validation_issues=summary_data.get("validation_issues"),
         trend_prediction=summary_data.get("trend_prediction"),
         sentiment_score=summary_data.get("sentiment_score"),
         sentiment_label=summary_data.get("sentiment_label"),

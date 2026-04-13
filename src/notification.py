@@ -138,6 +138,25 @@ def _is_failed_analysis(result: Any) -> bool:
     return _normalize_analysis_status(result) == 'FAILED'
 
 
+def _normalize_validation_status(result: Any) -> str:
+    """Normalize validation status to PASS/WARN/BLOCK."""
+    status = str(getattr(result, 'validation_status', '') or '').strip().upper()
+    if status in ('PASS', 'WARN', 'BLOCK'):
+        return status
+    return 'PASS'
+
+
+def _is_validation_blocked(result: Any) -> bool:
+    return _normalize_validation_status(result) == 'BLOCK'
+
+
+def _get_validation_issues(result: Any) -> List[str]:
+    issues = getattr(result, 'validation_issues', None)
+    if not isinstance(issues, list):
+        return []
+    return [str(item).strip() for item in issues if str(item).strip()]
+
+
 class NotificationChannel(Enum):
     """通知渠道类型"""
     WECHAT = "wechat"      # 企业微信
@@ -550,6 +569,13 @@ class NotificationService:
     def _format_sizing_brief(target_weight: float, action: str = "") -> str:
         return _format_sizing_brief_helper(target_weight, action)
 
+    @staticmethod
+    def _format_validation_issue_text(result: AnalysisResult) -> str:
+        issues = _get_validation_issues(result)
+        if not issues:
+            return "验证闸门阻断，但未提供具体原因。"
+        return "；".join(issues)
+
     def _build_data_baseline_lines(
         self,
         results: List[AnalysisResult],
@@ -576,6 +602,7 @@ class NotificationService:
         news_cutoff = generated_at.strftime("%Y-%m-%d %H:%M")
         normal_results = [r for r in results if not _is_failed_analysis(r)]
         failed_results = [r for r in results if _is_failed_analysis(r)]
+        blocked_results = [r for r in normal_results if _is_validation_blocked(r)]
         total_count = len(normal_results)
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
         for result in normal_results:
@@ -1020,6 +1047,15 @@ class NotificationService:
         1) position_action decides executable action bucket when valid.
         2) missing/invalid position_action falls back to final_decision.
         """
+        if _is_validation_blocked(result):
+            current_weight = float(getattr(result, 'current_weight', 0.0) or 0.0)
+            return {
+                'decision': 'HOLD',
+                'position_action': 'HOLD',
+                'target_weight': current_weight,
+                'delta_amount': 0.0,
+                'ai_conflict': False,
+            }
         position_action = _normalize_position_action(result)
         decision = _decision_from_position_action(position_action)
         if not decision:
@@ -1042,6 +1078,8 @@ class NotificationService:
         """Return unified final advice wording aligned with deterministic decision."""
         if _is_failed_analysis(result):
             return "分析失败（需重跑）"
+        if _is_validation_blocked(result):
+            return "不可决策/仅观察"
         decision = self._get_primary_action_model(result)['decision']
         return _decision_to_canonical_advice(decision)
 
@@ -1055,6 +1093,8 @@ class NotificationService:
 
     def _get_conflict_safe_ai_commentary(self, result: AnalysisResult) -> str:
         """Return AI commentary text safe for conflict-state presentation."""
+        if _is_validation_blocked(result):
+            return "验证闸门为 BLOCK，当前只保留观察，不输出可执行动作解释。"
         action_model = self._get_primary_action_model(result)
         if action_model['ai_conflict']:
             return "AI解读与确定性主动作存在方向冲突，已转为中性说明"
@@ -1062,6 +1102,8 @@ class NotificationService:
 
     def _get_conflict_safe_core_conclusion(self, result: AnalysisResult, text: Any) -> str:
         """Return core conclusion text safe for conflict-state presentation."""
+        if _is_validation_blocked(result):
+            return "验证闸门为 BLOCK：当前不可决策，仅可观察。"
         if self._get_primary_action_model(result)['ai_conflict']:
             return "AI总结与确定性主动作存在方向冲突，请仅按确定性主动作执行"
         normalized = str(text or '').strip()
@@ -1316,6 +1358,7 @@ class NotificationService:
             r for r in successful_results
             if self._normalize_stock_code(getattr(r, "code", "")) not in holding_codes
         ]
+        blocked_results = [r for r in successful_results if _is_validation_blocked(r)]
         actionable_holding_results = [r for r in holding_results if self._is_actionable_today(r)]
         actionable_non_holding_results = [r for r in non_holding_results if self._is_actionable_today(r)]
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
@@ -1342,6 +1385,8 @@ class NotificationService:
             report_lines.append(f"- 当前持仓有 **{len(uncovered_holdings)}** 只未覆盖分析，请优先补齐。")
         if failed_results:
             report_lines.append(f"- 今日有 **{len(failed_results)}** 只分析失败，建议重跑后再决策。")
+        if blocked_results:
+            report_lines.append(f"- 今日有 **{len(blocked_results)}** 只触发验证阻断，结论统一按“不可决策/仅观察”处理。")
         if has_mixed_price_basis:
             report_lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
         report_lines.extend(["", "---", ""])
@@ -1376,7 +1421,7 @@ class NotificationService:
                 "",
             ])
 
-        has_risk_or_failure_block = bool(uncovered_holdings or failed_results or has_mixed_price_basis)
+        has_risk_or_failure_block = bool(uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis)
         if successful_results:
             report_lines.extend([
                 "## 当前持仓行动清单",
@@ -1404,6 +1449,13 @@ class NotificationService:
                 for result in failed_results:
                     reason = str(getattr(result, "error_message", "") or "未知错误")
                     report_lines.append(f"- {result.name}({result.code})：{reason[:120]}")
+                report_lines.append("")
+            if blocked_results:
+                report_lines.append("**不可决策（仅观察）**")
+                for result in blocked_results:
+                    report_lines.append(
+                        f"- {result.name}({result.code})：{self._format_validation_issue_text(result)}"
+                    )
                 report_lines.append("")
             if has_mixed_price_basis:
                 report_lines.extend([
@@ -1734,6 +1786,7 @@ class NotificationService:
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
         normal_results = [r for r in sorted_results if not _is_failed_analysis(r)]
         failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
+        blocked_results = [r for r in normal_results if _is_validation_blocked(r)]
         
         # 统计 - 使用主决策（优先 final_decision）
         decision_counts = self._count_primary_decisions(normal_results)
@@ -1747,6 +1800,11 @@ class NotificationService:
             f"> 成功 {len(normal_results)} 只 | 失败 {len(failed_results)} 只 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
             "",
         ]
+        if blocked_results:
+            lines.extend([
+                f"> ⚠️ 有 {len(blocked_results)} 只触发验证阻断，统一按不可决策/仅观察输出",
+                "",
+            ])
         lines.extend(self._build_data_baseline_lines(results, generated_at, title="**🕒 数据时间基准**"))
 
         try:
@@ -1780,6 +1838,12 @@ class NotificationService:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 action_model = self._get_primary_action_model(r)
+                if _is_validation_blocked(r):
+                    lines.append(
+                        f"⚠️ **{stock_name}({r.code})**: 不可决策/仅观察 "
+                        f"(原因: {self._format_validation_issue_text(r)[:80]})"
+                    )
+                    continue
                 lines.append(
                     f"{signal_emoji} **{stock_name}({r.code})**: "
                     f"{self._format_position_action_label(action_model['position_action'])} · "
@@ -1916,6 +1980,11 @@ class NotificationService:
                 reason = str(getattr(result, "error_message", "") or "未知错误")
                 lines.append(f"- {result.name}({result.code})：{reason[:80]}")
             lines.append("")
+        if blocked_results:
+            lines.extend(["**⚠️ 不可决策（仅观察）**"])
+            for result in blocked_results:
+                lines.append(f"- {result.name}({result.code})：{self._format_validation_issue_text(result)[:80]}")
+            lines.append("")
         
         # 底部
         lines.append(f"*生成时间: {generated_at.strftime('%H:%M')}*")
@@ -2033,6 +2102,14 @@ class NotificationService:
             "",
         ]
         lines.extend(self._build_data_baseline_lines([result], generated_at, title="### 🕒 数据时间基准"))
+        if _is_validation_blocked(result):
+            lines.extend([
+                "### ⚠️ 验证闸门",
+                "",
+                "- 当前状态：**BLOCK / 不可决策 / 仅观察**",
+                f"- 原因：{self._format_validation_issue_text(result)}",
+                "",
+            ])
 
         self._append_market_snapshot(lines, result)
         

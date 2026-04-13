@@ -32,6 +32,7 @@ from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from src.core.position_manager import PositionManager
 from src.core.pipeline_notifications import send_single_stock_notification
+from src.core.validator import evaluate_analysis_gate
 from bot.models import BotMessage
 
 
@@ -411,12 +412,17 @@ class StockAnalysisPipeline:
                     result=result,
                     enhanced_context=enhanced_context,
                 )
-                self._apply_position_management(
+                self._apply_validation_gate(
                     result=result,
-                    query_id=query_id,
-                    current_price=result.current_price,
-                    persist=not getattr(self.config, "analysis_read_only", True),
+                    enhanced_context=enhanced_context,
                 )
+                if result.validation_status != "BLOCK":
+                    self._apply_position_management(
+                        result=result,
+                        query_id=query_id,
+                        current_price=result.current_price,
+                        persist=not getattr(self.config, "analysis_read_only", True),
+                    )
 
             # Step 8: 保存分析历史记录
             if result:
@@ -636,6 +642,54 @@ class StockAnalysisPipeline:
             enhanced_context=enhanced_context,
             execution_price_policy=execution_price_policy,
         )
+
+    def _apply_validation_gate(
+        self,
+        *,
+        result: AnalysisResult,
+        enhanced_context: Dict[str, Any],
+    ) -> None:
+        outcome = evaluate_analysis_gate(
+            enhanced_context=enhanced_context,
+            execution_price_source=result.execution_price_source,
+            current_price=result.current_price,
+            market_timezone=getattr(self.config, "market_timezone", "Australia/Sydney"),
+            market_calendar=getattr(self.config, "market_calendar", "ASX"),
+        )
+        result.validation_status = outcome.validation_status
+        result.validation_issues = list(outcome.validation_issues)
+        if outcome.validation_status == "BLOCK":
+            self._apply_blocked_validation_state(result=result)
+
+    @staticmethod
+    def _append_unique_text(existing: str, additions: List[str]) -> str:
+        parts = [str(existing or "").strip()] if str(existing or "").strip() else []
+        for item in additions:
+            text = str(item or "").strip()
+            if not text or text in parts:
+                continue
+            parts.append(text)
+        return "；".join(parts)
+
+    def _apply_blocked_validation_state(self, *, result: AnalysisResult) -> None:
+        issues = list(result.validation_issues or [])
+        result.final_decision = "HOLD"
+        result.position_action = "HOLD"
+        result.watchlist_state = "OBSERVE"
+        result.target_weight = float(getattr(result, "current_weight", 0.0) or 0.0)
+        result.delta_amount = 0.0
+        result.operation_advice = "不可决策，仅观察"
+        result.action_reason = self._append_unique_text(
+            result.action_reason,
+            ["validation_blocked", *issues],
+        )
+        result.risk_warning = self._append_unique_text(
+            result.risk_warning,
+            issues,
+        )
+        if str(getattr(result, "analysis_status", "OK") or "").upper() == "OK":
+            result.analysis_status = "DEGRADED"
+        logger.warning("[%s] validation gate blocked actionable output: %s", result.code, " | ".join(issues))
 
     @staticmethod
     def _resolve_execution_price(
