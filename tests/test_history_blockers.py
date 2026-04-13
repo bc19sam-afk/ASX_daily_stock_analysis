@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 
+from api.v1.endpoints import history as history_endpoint
 from src.analyzer import AnalysisResult
 from src.services.history_service import HistoryService
 from src.storage import DatabaseManager
@@ -115,6 +116,70 @@ class HistoryBlockersTestCase(unittest.TestCase):
         self.assertEqual(detail["event_risk"], "HIGH")
         self.assertEqual(detail["sector_tone"], "NEU")
         self.assertEqual(detail["data_quality_flag"], "OK")
+
+    def test_get_history_detail_preserves_blocked_weights_and_status(self) -> None:
+        db = DatabaseManager(self._db_url("history_blocked.db"))
+        service = HistoryService(db)
+
+        result = AnalysisResult(
+            code="BHP.AX",
+            name="BHP",
+            sentiment_score=65,
+            trend_prediction="震荡",
+            operation_advice="不可决策，仅观察",
+            analysis_summary="等待数据修复",
+            current_weight=2 / 3,
+            target_weight=2 / 3,
+            validation_status="BLOCK",
+            validation_issues=["价格口径混用"],
+            analysis_status="DEGRADED",
+        )
+        db.save_analysis_history(
+            result=result,
+            query_id="query-history-blocked",
+            report_type="detailed",
+            news_content="",
+        )
+
+        detail = service.get_history_detail("query-history-blocked")
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail["analysis_status"], "DEGRADED")
+        self.assertEqual(detail["validation_status"], "BLOCK")
+        self.assertEqual(detail["validation_issues"], ["价格口径混用"])
+        self.assertAlmostEqual(detail["current_weight"], 2 / 3, places=4)
+        self.assertAlmostEqual(detail["target_weight"], 2 / 3, places=4)
+
+    def test_history_detail_endpoint_preserves_blocked_weights_and_status(self) -> None:
+        db = DatabaseManager(self._db_url("history_endpoint.db"))
+
+        result = AnalysisResult(
+            code="BHP.AX",
+            name="BHP",
+            sentiment_score=65,
+            trend_prediction="震荡",
+            operation_advice="不可决策，仅观察",
+            analysis_summary="等待数据修复",
+            current_weight=2 / 3,
+            target_weight=2 / 3,
+            validation_status="BLOCK",
+            validation_issues=["价格口径混用"],
+            analysis_status="DEGRADED",
+        )
+        db.save_analysis_history(
+            result=result,
+            query_id="query-history-endpoint",
+            report_type="detailed",
+            news_content="",
+        )
+
+        report = history_endpoint.get_history_detail("query-history-endpoint", db_manager=db)
+
+        self.assertEqual(report.meta.analysis_status, "DEGRADED")
+        self.assertEqual(report.meta.validation_status, "BLOCK")
+        self.assertEqual(report.summary.analysis_status, "DEGRADED")
+        self.assertEqual(report.summary.validation_status, "BLOCK")
+        self.assertAlmostEqual(report.summary.current_weight, 2 / 3, places=4)
+        self.assertAlmostEqual(report.summary.target_weight, 2 / 3, places=4)
 
     def test_migration_script_skips_when_db_is_missing(self) -> None:
         missing_path = os.path.join(self._temp_dir.name, "missing.db")

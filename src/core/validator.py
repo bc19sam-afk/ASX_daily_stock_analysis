@@ -11,10 +11,22 @@ from zoneinfo import ZoneInfo
 from src.market_calendar import get_last_closed_trading_date, is_trading_day
 
 
+VALIDATION_STATUS_PASS = "PASS"
+VALIDATION_STATUS_BLOCK = "BLOCK"
+
+
 @dataclass(frozen=True)
 class ValidationOutcome:
-    validation_status: str = "PASS"
+    validation_status: str = VALIDATION_STATUS_PASS
     validation_issues: List[str] = field(default_factory=list)
+
+
+def normalize_validation_status(value: Any) -> str:
+    """Normalize external validation status to the current PASS/BLOCK contract."""
+    status = str(value or "").strip().upper()
+    if status == VALIDATION_STATUS_BLOCK:
+        return VALIDATION_STATUS_BLOCK
+    return VALIDATION_STATUS_PASS
 
 
 def evaluate_analysis_gate(
@@ -65,7 +77,7 @@ def evaluate_analysis_gate(
         )
 
     if issues:
-        return ValidationOutcome(validation_status="BLOCK", validation_issues=_dedupe(issues))
+        return ValidationOutcome(validation_status=VALIDATION_STATUS_BLOCK, validation_issues=_dedupe(issues))
     return ValidationOutcome()
 
 

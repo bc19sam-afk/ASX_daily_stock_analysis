@@ -529,7 +529,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([success_buy, failed_hold], report_date="2026-03-30")
 
-        self.assertIn("成功分析 **1** 只 | 失败 **1** 只 | 🟢买入:1 🟡观望:0 🔴卖出:0", report)
+        self.assertIn("成功分析 **1** 只 | 失败 **1** 只 | BLOCK **0** 只 | 🟢买入:1 🟡观望:0 🔴卖出:0", report)
         self.assertNotIn("🟡观望:1", report)
 
     @patch("src.notification.get_db")
@@ -566,6 +566,22 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         summary = NotificationBuilder.build_stock_summary([failed_result])
         self.assertIn("⚠️ 分析失败（建议重跑）", summary)
+        self.assertNotIn("持有/观望", summary)
+
+    def test_blocked_result_stock_summary_is_not_rendered_as_hold(self) -> None:
+        blocked_result = self._build_result(
+            code="000858",
+            name="五粮液",
+            final_decision="HOLD",
+            position_action="HOLD",
+            operation_advice="不可决策，仅观察",
+            validation_status="BLOCK",
+            validation_issues=["价格口径混用：信号基于旧日线，但执行价使用实时价格。"],
+        )
+
+        summary = NotificationBuilder.build_stock_summary([blocked_result])
+        self.assertIn("⚠️ 不可决策（仅观察）", summary)
+        self.assertIn("价格口径混用", summary)
         self.assertNotIn("持有/观望", summary)
 
     @patch("src.notification.datetime")

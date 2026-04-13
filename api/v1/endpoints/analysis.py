@@ -44,6 +44,7 @@ from api.v1.schemas.history import (
     ReportDetails,
 )
 from src.config import Config
+from src.core.validator import normalize_validation_status
 from src.services.task_queue import (
     get_task_queue,
     DuplicateTaskError,
@@ -65,7 +66,12 @@ def _extract_validation_payload(raw_result: Any) -> Dict[str, Any]:
     if not isinstance(data, dict):
         data = {}
     return {
-        "validation_status": data.get("validation_status"),
+        "analysis_status": data.get("analysis_status"),
+        "validation_status": (
+            normalize_validation_status(data.get("validation_status"))
+            if "validation_status" in data
+            else None
+        ),
         "validation_issues": list(data.get("validation_issues") or []),
     }
 
@@ -471,7 +477,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     stock_name=record.name,
                     report_type=getattr(record, 'report_type', None),
                     created_at=record.created_at.isoformat() if record.created_at else None,
-                    analysis_status=getattr(record, 'analysis_status', None),
+                    analysis_status=validation_payload["analysis_status"],
                     validation_status=validation_payload["validation_status"],
                 ),
                 summary=ReportSummary(
@@ -479,7 +485,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     operation_advice=record.operation_advice,
                     trend_prediction=record.trend_prediction,
                     analysis_summary=record.analysis_summary,
-                    analysis_status=getattr(record, 'analysis_status', None),
+                    analysis_status=validation_payload["analysis_status"],
                     validation_status=validation_payload["validation_status"],
                     validation_issues=validation_payload["validation_issues"],
                     alpha_decision=getattr(record, "alpha_decision", None),

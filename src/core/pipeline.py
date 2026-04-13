@@ -673,10 +673,16 @@ class StockAnalysisPipeline:
 
     def _apply_blocked_validation_state(self, *, result: AnalysisResult) -> None:
         issues = list(result.validation_issues or [])
+        portfolio_state = self._load_existing_portfolio_state(result=result)
+        current_weight = float(getattr(result, "current_weight", 0.0) or 0.0)
+        if portfolio_state is not None:
+            current_weight = round(float(portfolio_state.get("current_weight", current_weight) or 0.0), 4)
+            result.current_weight = current_weight
+            result.target_quantity = float(portfolio_state.get("quantity", 0.0) or 0.0)
         result.final_decision = "HOLD"
         result.position_action = "HOLD"
         result.watchlist_state = "OBSERVE"
-        result.target_weight = float(getattr(result, "current_weight", 0.0) or 0.0)
+        result.target_weight = current_weight
         result.delta_amount = 0.0
         result.operation_advice = "不可决策，仅观察"
         result.action_reason = self._append_unique_text(
@@ -690,6 +696,29 @@ class StockAnalysisPipeline:
         if str(getattr(result, "analysis_status", "OK") or "").upper() == "OK":
             result.analysis_status = "DEGRADED"
         logger.warning("[%s] validation gate blocked actionable output: %s", result.code, " | ".join(issues))
+
+    def _load_existing_portfolio_state(
+        self,
+        *,
+        result: AnalysisResult,
+    ) -> Optional[Dict[str, float]]:
+        db = getattr(self, "db", None)
+        if db is None:
+            return None
+        try:
+            latest_snapshot = db.get_latest_account_snapshot()
+            existing = db.get_portfolio_position(result.code)
+            open_positions = db.get_portfolio_positions(only_open=True)
+            return self._build_live_portfolio_state(
+                code=result.code,
+                existing=existing,
+                open_positions=open_positions,
+                latest_snapshot=latest_snapshot,
+                current_price=getattr(result, "current_price", None),
+            )
+        except Exception:
+            logger.exception("[%s] failed to load existing portfolio state for blocked validation", result.code)
+            return None
 
     @staticmethod
     def _resolve_execution_price(

@@ -7,7 +7,7 @@ import unittest
 
 from src.analyzer import AnalysisResult
 from src.core.pipeline import StockAnalysisPipeline
-from src.core.validator import evaluate_analysis_gate
+from src.core.validator import evaluate_analysis_gate, normalize_validation_status
 
 
 class ValidationGateTestCase(unittest.TestCase):
@@ -99,6 +99,10 @@ class ValidationGateTestCase(unittest.TestCase):
 
         self.assertEqual(outcome.validation_status, "PASS")
         self.assertEqual(outcome.validation_issues, [])
+
+    def test_normalize_validation_status_collapses_warn_to_pass(self) -> None:
+        self.assertEqual(normalize_validation_status("WARN"), "PASS")
+        self.assertEqual(normalize_validation_status("BLOCK"), "BLOCK")
 
 
 if __name__ == "__main__":

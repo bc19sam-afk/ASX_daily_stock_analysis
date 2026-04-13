@@ -84,6 +84,7 @@ def test_get_analysis_status_db_fallback_preserves_validation_status(monkeypatch
         analysis_summary = "回调观察"
         raw_result = json.dumps(
             {
+                "analysis_status": "DEGRADED",
                 "validation_status": "BLOCK",
                 "validation_issues": ["价格口径混用：信号基于旧日线，但执行价使用实时价格。"],
             },
@@ -103,8 +104,8 @@ def test_get_analysis_status_db_fallback_preserves_validation_status(monkeypatch
     status = analysis_endpoint.get_analysis_status("task_x")
     report = status.result.report
 
-    assert report["meta"]["analysis_status"] is None
-    assert report["summary"]["analysis_status"] is None
+    assert report["meta"]["analysis_status"] == "DEGRADED"
+    assert report["summary"]["analysis_status"] == "DEGRADED"
     assert report["meta"]["validation_status"] == "BLOCK"
     assert report["summary"]["validation_status"] == "BLOCK"
     assert report["summary"]["validation_issues"] == ["价格口径混用：信号基于旧日线，但执行价使用实时价格。"]

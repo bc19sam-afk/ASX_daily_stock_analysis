@@ -42,6 +42,63 @@ class NotificationValidationGateTestCase(unittest.TestCase):
         self.assertIn("价格口径混用", report)
         self.assertIn("不可决策/仅观察", report)
 
+    @patch("src.notification.get_db")
+    def test_dashboard_report_keeps_blocked_holding_weight_and_excludes_simulated_row(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 5000.0,
+            "equity_value": 10000.0,
+            "total_value": 15000.0,
+            "holdings": [
+                {"code": "BHP.AX", "name": "BHP", "quantity": 100.0, "market_value": 10000.0, "weight": 2 / 3, "current_price": 100.0}
+            ],
+        }
+        service = self._build_service()
+        result = self._build_blocked_result()
+        result.current_weight = 2 / 3
+        result.target_weight = 2 / 3
+        result.current_price = 100.0
+
+        report = service.generate_dashboard_report([result], report_date="2026-04-14")
+
+        self.assertIn("BLOCK **1**", report)
+        self.assertIn("🟡观望:0", report)
+        self.assertIn("当前/保持仓位 66.67%/66.67%", report)
+        section_c = report.split("## 目标仓位模拟（计划视图）", 1)[1]
+        self.assertNotIn("BHP.AX", section_c)
+
+    @patch("src.notification.get_db")
+    def test_wechat_dashboard_separates_blocked_bucket_from_hold_and_simulated_allocation(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 5000.0,
+            "equity_value": 10000.0,
+            "total_value": 15000.0,
+            "holdings": [
+                {"code": "BHP.AX", "name": "BHP", "quantity": 100.0, "market_value": 10000.0, "weight": 2 / 3, "current_price": 100.0}
+            ],
+        }
+        service = self._build_service()
+        result = self._build_blocked_result()
+        result.current_weight = 2 / 3
+        result.target_weight = 2 / 3
+
+        wechat = service.generate_wechat_dashboard([result])
+
+        self.assertIn("BLOCK 1 只", wechat)
+        self.assertIn("🟡观望:0", wechat)
+        self.assertIn("**B2) 不可决策（仅观察）**", wechat)
+        section_c = wechat.split("**C) 目标仓位（模拟，不代表已成交）**", 1)[1]
+        self.assertNotIn("BHP.AX", section_c)
+
+    def test_wechat_summary_separates_blocked_bucket_from_hold_counts(self) -> None:
+        service = self._build_service()
+
+        summary = service.generate_wechat_summary([self._build_blocked_result()])
+
+        self.assertIn("BLOCK **1**", summary)
+        self.assertIn("🟡持有:0", summary)
+        self.assertIn("**⚠️ 不可决策（仅观察）**", summary)
+        self.assertIn("- BHP (BHP.AX)：价格口径混用", summary)
+
     def test_single_stock_report_shows_validation_gate_banner(self) -> None:
         service = self._build_service()
 

@@ -42,6 +42,7 @@ except ImportError:
 
 from src.config import get_config
 from src.analyzer import AnalysisResult
+from src.core.validator import normalize_validation_status
 from src.formatters import format_feishu_markdown, markdown_to_html_document
 from src.notification_formatting import (
     format_position_action_label as _format_position_action_label_helper,
@@ -139,11 +140,8 @@ def _is_failed_analysis(result: Any) -> bool:
 
 
 def _normalize_validation_status(result: Any) -> str:
-    """Normalize validation status to PASS/WARN/BLOCK."""
-    status = str(getattr(result, 'validation_status', '') or '').strip().upper()
-    if status in ('PASS', 'WARN', 'BLOCK'):
-        return status
-    return 'PASS'
+    """Normalize validation status to the current PASS/BLOCK contract."""
+    return normalize_validation_status(getattr(result, 'validation_status', None))
 
 
 def _is_validation_blocked(result: Any) -> bool:
@@ -673,15 +671,15 @@ class NotificationService:
             key=lambda x: x.sentiment_score, 
             reverse=True
         )
-        normal_results = [r for r in sorted_results if not _is_failed_analysis(r)]
+        normal_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
         failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
 
         # 统计信息 - 仅统计非失败结果
-        decision_counts = self._count_primary_decisions(normal_results)
+        decision_counts = self._count_primary_decisions(actionable_results)
         buy_count = decision_counts['BUY']
         sell_count = decision_counts['SELL']
         hold_count = decision_counts['HOLD']
-        avg_score = sum(r.sentiment_score for r in normal_results) / len(normal_results) if normal_results else 0
+        avg_score = sum(r.sentiment_score for r in actionable_results) / len(actionable_results) if actionable_results else 0
         
         report_lines.extend([
             "## 📊 操作建议汇总",
@@ -691,6 +689,7 @@ class NotificationService:
             f"| 🟢 建议买入/加仓 | **{buy_count}** 只 |",
             f"| 🟡 建议持有/观望 | **{hold_count}** 只 |",
             f"| 🔴 建议减仓/卖出 | **{sell_count}** 只 |",
+            f"| ⚠️ 不可决策/仅观察 | **{len(blocked_results)}** 只 |",
             f"| 📈 平均看多评分 | **{avg_score:.1f}** 分 |",
             "",
             "---",
@@ -700,16 +699,20 @@ class NotificationService:
         # Issue #262: summary_only 时仅输出摘要，跳过个股详情
         if self._report_summary_only:
             report_lines.extend(["## 📊 分析结果摘要", ""])
-            for r in normal_results:
+            for r in actionable_results:
                 _, emoji, _ = self._get_signal_level(r)
                 report_lines.append(
                     f"{emoji} **{r.name}({r.code})**: {self._get_canonical_operation_advice(r)} | "
                     f"评分 {r.sentiment_score} | {r.trend_prediction} | 价格基准：{self._get_price_basis_label(r)}"
                 )
+            if blocked_results:
+                report_lines.extend(["", "## ⚠️ 不可决策（仅观察）", ""])
+                for r in blocked_results:
+                    report_lines.append(self._format_blocked_result_line(r, truncate=120))
         else:
             report_lines.extend(["## 📈 个股详细分析", ""])
             # 逐个股票的详细分析
-            for result in normal_results:
+            for result in actionable_results:
                 _, emoji, _ = self._get_signal_level(result)
                 confidence_stars = result.get_confidence_stars() if hasattr(result, 'get_confidence_stars') else '⭐⭐'
                 
@@ -1139,11 +1142,37 @@ class NotificationService:
     def _count_primary_decisions(self, results: List[AnalysisResult]) -> Dict[str, int]:
         counts = {'BUY': 0, 'HOLD': 0, 'SELL': 0}
         for result in results:
-            if _is_failed_analysis(result):
+            if _is_failed_analysis(result) or _is_validation_blocked(result):
                 continue
             decision = self._get_primary_action_model(result)['decision']
             counts[decision] = counts.get(decision, 0) + 1
         return counts
+
+    def _split_completed_results(
+        self,
+        results: List[AnalysisResult],
+    ) -> tuple[List[AnalysisResult], List[AnalysisResult], List[AnalysisResult]]:
+        successful_results = [r for r in results if not _is_failed_analysis(r)]
+        blocked_results = [r for r in successful_results if _is_validation_blocked(r)]
+        actionable_results = [r for r in successful_results if not _is_validation_blocked(r)]
+        return successful_results, actionable_results, blocked_results
+
+    def _format_blocked_result_line(
+        self,
+        result: AnalysisResult,
+        *,
+        truncate: Optional[int] = None,
+    ) -> str:
+        stock_name = self._escape_md(self._format_stock_display_name(result.name, result.code))
+        reason = self._format_validation_issue_text(result)
+        if truncate is not None:
+            reason = reason[:truncate]
+        current_weight = float(getattr(result, 'current_weight', 0.0) or 0.0)
+        target_weight = float(getattr(result, 'target_weight', current_weight) or 0.0)
+        weight_text = ""
+        if current_weight > 0 or target_weight > 0:
+            weight_text = f" | 当前/保持仓位 {current_weight:.2%}/{target_weight:.2%}"
+        return f"- {stock_name}：{reason}{weight_text}"
 
     def _format_primary_action_text(self, result: AnalysisResult) -> str:
         model = self._get_primary_action_model(result)
@@ -1302,11 +1331,11 @@ class NotificationService:
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
 
-        successful_results_for_summary = [r for r in sorted_results if not _is_failed_analysis(r)]
+        successful_results_for_summary, actionable_results_for_summary, blocked_results_for_summary = self._split_completed_results(sorted_results)
         failed_results_for_summary = [r for r in sorted_results if _is_failed_analysis(r)]
 
         # 统计信息（仅统计成功分析，避免与后续可见区块口径不一致）
-        decision_counts = self._count_primary_decisions(successful_results_for_summary)
+        decision_counts = self._count_primary_decisions(actionable_results_for_summary)
         buy_count = decision_counts['BUY']
         sell_count = decision_counts['SELL']
         hold_count = decision_counts['HOLD']
@@ -1321,6 +1350,12 @@ class NotificationService:
             ),
             "",
         ]
+        report_lines[2] = (
+            f"> 成功分析 **{len(successful_results_for_summary)}** 只 | "
+            f"失败 **{len(failed_results_for_summary)}** 只 | "
+            f"BLOCK **{len(blocked_results_for_summary)}** 只 | "
+            f"🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}"
+        )
         report_lines.extend(self._build_data_baseline_lines(results, generated_at))
 
         try:
@@ -1339,7 +1374,7 @@ class NotificationService:
             for item in holdings
             if self._normalize_stock_code(item.get("code", ""))
         }
-        successful_results = [r for r in sorted_results if not _is_failed_analysis(r)]
+        successful_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
         failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
         successful_codes = {
             self._normalize_stock_code(getattr(r, "code", ""))
@@ -1351,14 +1386,13 @@ class NotificationService:
             if self._normalize_stock_code(item.get("code", "")) not in successful_codes
         ]
         holding_results = [
-            r for r in successful_results
+            r for r in actionable_results
             if self._normalize_stock_code(getattr(r, "code", "")) in holding_codes
         ]
         non_holding_results = [
-            r for r in successful_results
+            r for r in actionable_results
             if self._normalize_stock_code(getattr(r, "code", "")) not in holding_codes
         ]
-        blocked_results = [r for r in successful_results if _is_validation_blocked(r)]
         actionable_holding_results = [r for r in holding_results if self._is_actionable_today(r)]
         actionable_non_holding_results = [r for r in non_holding_results if self._is_actionable_today(r)]
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
@@ -1453,9 +1487,7 @@ class NotificationService:
             if blocked_results:
                 report_lines.append("**不可决策（仅观察）**")
                 for result in blocked_results:
-                    report_lines.append(
-                        f"- {result.name}({result.code})：{self._format_validation_issue_text(result)}"
-                    )
+                    report_lines.append(self._format_blocked_result_line(result))
                 report_lines.append("")
             if has_mixed_price_basis:
                 report_lines.extend([
@@ -1463,7 +1495,7 @@ class NotificationService:
                     "- 本次包含实时价格与非实时价格混用，执行前请二次确认价格基准。",
                     "",
                 ])
-        if successful_results:
+        if actionable_results or blocked_results:
             report_lines.extend([
                 "## 非持仓观察名单",
                 "",
@@ -1481,13 +1513,13 @@ class NotificationService:
             ])
             report_lines.extend(
                 self._build_simulated_target_allocation_table(
-                    successful_results,
+                    actionable_results,
                     executed_weight_by_code=executed_weight_by_code,
                 )
             )
             report_lines.extend(
                 self._build_section_c_reconciliation_lines(
-                    results=successful_results,
+                    results=actionable_results,
                     overview_holdings=holdings,
                 )
             )
@@ -1784,12 +1816,11 @@ class NotificationService:
         
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
-        normal_results = [r for r in sorted_results if not _is_failed_analysis(r)]
+        normal_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
         failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
-        blocked_results = [r for r in normal_results if _is_validation_blocked(r)]
-        
+
         # 统计 - 使用主决策（优先 final_decision）
-        decision_counts = self._count_primary_decisions(normal_results)
+        decision_counts = self._count_primary_decisions(actionable_results)
         buy_count = decision_counts['BUY']
         sell_count = decision_counts['SELL']
         hold_count = decision_counts['HOLD']
@@ -1797,7 +1828,7 @@ class NotificationService:
         lines = [
             f"## 🎯 {report_date} 决策仪表盘",
             "",
-            f"> 成功 {len(normal_results)} 只 | 失败 {len(failed_results)} 只 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
+            f"> 成功 {len(normal_results)} 只 | 失败 {len(failed_results)} 只 | BLOCK {len(blocked_results)} 只 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
             "",
         ]
         if blocked_results:
@@ -1834,27 +1865,28 @@ class NotificationService:
         
         # Issue #262: summary_only 时仅输出摘要列表
         if self._report_summary_only:
-            for r in normal_results:
+            for r in actionable_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 action_model = self._get_primary_action_model(r)
-                if _is_validation_blocked(r):
-                    lines.append(
-                        f"⚠️ **{stock_name}({r.code})**: 不可决策/仅观察 "
-                        f"(原因: {self._format_validation_issue_text(r)[:80]})"
-                    )
-                    continue
                 lines.append(
                     f"{signal_emoji} **{stock_name}({r.code})**: "
                     f"{self._format_position_action_label(action_model['position_action'])} · "
                     f"{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])} "
                     f"(AI补充: {self._get_conflict_safe_ai_commentary(r)} / 评分{r.sentiment_score})"
                 )
+            if blocked_results:
+                lines.extend([
+                    "",
+                    "**B2) 不可决策（仅观察）**",
+                ])
+                for result in blocked_results:
+                    lines.append(self._format_blocked_result_line(result, truncate=80))
             lines.extend([
                 "",
                 "**C) 目标仓位（模拟，不代表已成交）**",
             ])
-            for r in normal_results:
+            for r in actionable_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 lines.append(
@@ -1863,7 +1895,7 @@ class NotificationService:
                     f"(Δ{getattr(r, 'delta_amount', 0.0):,.2f})"
                 )
         else:
-            for result in normal_results:
+            for result in actionable_results:
                 signal_text, signal_emoji, _ = self._get_signal_level(result)
                 action_model = self._get_primary_action_model(result)
                 dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
@@ -1980,10 +2012,10 @@ class NotificationService:
                 reason = str(getattr(result, "error_message", "") or "未知错误")
                 lines.append(f"- {result.name}({result.code})：{reason[:80]}")
             lines.append("")
-        if blocked_results:
+        if blocked_results and not self._report_summary_only:
             lines.extend(["**⚠️ 不可决策（仅观察）**"])
             for result in blocked_results:
-                lines.append(f"- {result.name}({result.code})：{self._format_validation_issue_text(result)[:80]}")
+                lines.append(self._format_blocked_result_line(result, truncate=80))
             lines.append("")
         
         # 底部
@@ -2008,26 +2040,26 @@ class NotificationService:
 
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
-        normal_results = [r for r in sorted_results if not _is_failed_analysis(r)]
+        normal_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
         failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
 
         # 统计 - 使用主决策（优先 final_decision）
-        decision_counts = self._count_primary_decisions(normal_results)
+        decision_counts = self._count_primary_decisions(actionable_results)
         buy_count = decision_counts['BUY']
         sell_count = decision_counts['SELL']
         hold_count = decision_counts['HOLD']
-        avg_score = sum(r.sentiment_score for r in normal_results) / len(normal_results) if normal_results else 0
+        avg_score = sum(r.sentiment_score for r in actionable_results) / len(actionable_results) if actionable_results else 0
 
         lines = [
             f"## 📅 {report_date} 股票分析报告",
             "",
-            f"> 成功 **{len(normal_results)}** 只 | 失败 **{len(failed_results)}** 只 | 🟢买入:{buy_count} 🟡持有:{hold_count} 🔴卖出:{sell_count} | 均分:{avg_score:.0f}",
+            f"> 成功 **{len(normal_results)}** 只 | 失败 **{len(failed_results)}** 只 | BLOCK **{len(blocked_results)}** 只 | 🟢买入:{buy_count} 🟡持有:{hold_count} 🔴卖出:{sell_count} | 均分:{avg_score:.0f}",
             "",
         ]
         lines.extend(self._build_data_baseline_lines(results, generated_at, title="**🕒 数据时间基准**"))
         
         # 每只股票精简信息（控制长度）
-        for result in normal_results:
+        for result in actionable_results:
             _, emoji, _ = self._get_signal_level(result)
             
             # 核心信息行
@@ -2052,6 +2084,12 @@ class NotificationService:
                 risk = result.risk_warning[:50] + "..." if len(result.risk_warning) > 50 else result.risk_warning
                 lines.append(f"⚠️ {risk}")
             
+            lines.append("")
+
+        if blocked_results:
+            lines.extend(["", "**⚠️ 不可决策（仅观察）**"])
+            for result in blocked_results:
+                lines.append(self._format_blocked_result_line(result, truncate=80))
             lines.append("")
         
         # 底部
@@ -4370,10 +4408,12 @@ class NotificationBuilder:
             daily_anchor = "最新可用日线（通常为昨日收盘）"
 
         normal_results = [r for r in results if not _is_failed_analysis(r)]
+        actionable_results = [r for r in normal_results if not _is_validation_blocked(r)]
+        blocked_results = [r for r in normal_results if _is_validation_blocked(r)]
         failed_results = [r for r in results if _is_failed_analysis(r)]
-        total_count = len(normal_results)
+        total_count = len(actionable_results)
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
-        for result in normal_results:
+        for result in actionable_results:
             basis_counts[NotificationService._classify_price_basis(result)] += 1
         lines = [
             "📊 **今日自选股摘要**",
@@ -4387,7 +4427,7 @@ class NotificationBuilder:
             "",
         ]
         
-        for r in sorted(normal_results, key=lambda x: x.sentiment_score, reverse=True):
+        for r in sorted(actionable_results, key=lambda x: x.sentiment_score, reverse=True):
             decision = _get_effective_decision(r)
             emoji = _decision_to_signal_emoji(decision)
             basis = NotificationService._format_price_basis_label(NotificationService._classify_price_basis(r))
@@ -4395,6 +4435,13 @@ class NotificationBuilder:
                 f"{emoji} {r.name}({r.code}): {_decision_to_canonical_advice(decision)} | "
                 f"评分 {r.sentiment_score} | 价格基准：{basis}"
             )
+
+        if blocked_results:
+            lines.extend(["", "⚠️ 不可决策（仅观察）:"])
+            for r in blocked_results:
+                lines.append(
+                    f"- {r.name}({r.code}): {NotificationService._format_validation_issue_text(r)[:80]}"
+                )
         
         if failed_results:
             lines.extend(["", "⚠️ 分析失败（建议重跑）:"])

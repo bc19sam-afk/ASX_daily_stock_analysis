@@ -25,7 +25,12 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         self.pipeline.db = self.db
         self.pipeline.position_manager = PositionManager()
-        self.pipeline.config = SimpleNamespace(min_position_delta_amount=0.0, min_order_notional=0.0)
+        self.pipeline.config = SimpleNamespace(
+            min_position_delta_amount=0.0,
+            min_order_notional=0.0,
+            market_timezone="Australia/Sydney",
+            market_calendar="ASX",
+        )
 
     def tearDown(self):
         DatabaseManager.reset_instance()
@@ -729,7 +734,10 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         pipeline.analyzer.analyze.return_value = self._result("RO1", final_decision="BUY")
         pipeline.save_context_snapshot = False
 
-        with patch.object(pipeline, "_apply_position_management") as mock_apply:
+        with patch.object(pipeline, "_apply_position_management") as mock_apply, patch.object(
+            pipeline, "_apply_validation_gate"
+        ) as mock_validation:
+            mock_validation.side_effect = lambda *, result, enhanced_context: setattr(result, "validation_status", "PASS")
             result = pipeline.analyze_stock(
                 code="RO1",
                 report_type=ReportType.SIMPLE,
@@ -759,8 +767,11 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
 
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
 
-        with patch.object(pipeline, "_apply_decision_structure") as mock_decision:
+        with patch.object(pipeline, "_apply_decision_structure") as mock_decision, patch.object(
+            pipeline, "_apply_validation_gate"
+        ) as mock_validation:
             mock_decision.return_value = None
+            mock_validation.side_effect = lambda *, result, enhanced_context: setattr(result, "validation_status", "PASS")
             result = pipeline.analyze_stock(
                 code="RW1",
                 report_type=ReportType.SIMPLE,
@@ -775,6 +786,44 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         snapshot_after = self.db.get_latest_account_snapshot()
         self.assertIsNotNone(snapshot_after)
         self.assertLess(snapshot_after.cash, 10000.0)
+
+    def test_blocked_validation_preserves_existing_holding_weights(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=5000, equity_value=10000, total_value=15000)
+        self.db.upsert_portfolio_position(
+            code="BHP.AX",
+            name="BHP",
+            quantity=100,
+            avg_cost=95,
+            current_price=100,
+            weight=10000 / 15000,
+            market_value=10000,
+        )
+
+        result = AnalysisResult(
+            code="BHP.AX",
+            name="BHP",
+            sentiment_score=68,
+            trend_prediction="震荡",
+            operation_advice="加仓",
+            final_decision="BUY",
+            position_action="ADD",
+        )
+        result.current_price = 100
+
+        self.pipeline._apply_validation_gate(
+            result=result,
+            enhanced_context={
+                "date": date.today().isoformat(),
+                "today": {},
+                "data_missing": True,
+            },
+        )
+
+        self.assertEqual(result.validation_status, "BLOCK")
+        self.assertAlmostEqual(result.current_weight, 10000 / 15000, places=4)
+        self.assertAlmostEqual(result.target_weight, 10000 / 15000, places=4)
+        self.assertEqual(result.target_quantity, 100.0)
+        self.assertEqual(result.position_action, "HOLD")
 
 
 if __name__ == "__main__":

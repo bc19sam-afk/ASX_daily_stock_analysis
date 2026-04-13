@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
+from src.core.validator import normalize_validation_status
 from src.storage import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,11 @@ class HistoryService:
                     raw_result = json.loads(record.raw_result)
                 except json.JSONDecodeError:
                     raw_result = record.raw_result
-            validation_status = raw_result.get("validation_status") if isinstance(raw_result, dict) else None
+            validation_status = (
+                normalize_validation_status(raw_result.get("validation_status"))
+                if isinstance(raw_result, dict) and "validation_status" in raw_result
+                else None
+            )
             validation_issues = (
                 list(raw_result.get("validation_issues") or [])
                 if isinstance(raw_result, dict)
