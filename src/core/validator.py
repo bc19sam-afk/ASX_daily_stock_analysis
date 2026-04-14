@@ -19,6 +19,10 @@ VALIDATION_STATUS_BLOCK = "BLOCK"
 class ValidationOutcome:
     validation_status: str = VALIDATION_STATUS_PASS
     validation_issues: List[str] = field(default_factory=list)
+    blocked_reason: List[str] = field(default_factory=list)
+    mixed_price_basis: bool = False
+    stale_daily_context: bool = False
+    missing_critical_data: bool = False
 
 
 def normalize_validation_status(value: Any) -> str:
@@ -50,20 +54,29 @@ def evaluate_analysis_gate(
     today_close = _to_positive_float((context.get("today") or {}).get("close"))
     execution_price = _to_positive_float(current_price)
     issues: List[str] = []
+    blocked_reason: List[str] = []
+    mixed_price_basis = False
+    stale_daily_context = False
+    missing_critical_data = False
 
     if bool(context.get("data_missing")):
         issues.append("缺少完整日线分析上下文，当前结果不可用于决策。")
+        missing_critical_data = True
     if context_date is None:
         issues.append("缺少日线基准日期，无法确认分析时间口径。")
+        missing_critical_data = True
     if today_close is None:
         issues.append("缺少当日收盘价快照，无法建立稳定的日线信号基准。")
+        missing_critical_data = True
     if execution_price is None:
         issues.append("缺少可用执行价格，无法形成可执行仓位动作。")
+        missing_critical_data = True
 
     if context_date is not None and context_date < expected_daily_date:
         issues.append(
             f"日线基准已过期：当前仅有 {context_date.isoformat()}，但应至少更新到 {expected_daily_date.isoformat()}。"
         )
+        stale_daily_context = True
 
     normalized_source = str(execution_price_source or "").strip().lower()
     if (
@@ -75,10 +88,30 @@ def evaluate_analysis_gate(
         issues.append(
             f"价格口径混用：信号基于 {context_date.isoformat()} 日线收盘，但执行价使用实时价格。"
         )
+        mixed_price_basis = True
+
+    if mixed_price_basis:
+        blocked_reason.append("mixed_price_basis")
+    if stale_daily_context:
+        blocked_reason.append("stale_daily_context")
+    if missing_critical_data:
+        blocked_reason.append("missing_critical_data")
 
     if issues:
-        return ValidationOutcome(validation_status=VALIDATION_STATUS_BLOCK, validation_issues=_dedupe(issues))
-    return ValidationOutcome()
+        return ValidationOutcome(
+            validation_status=VALIDATION_STATUS_BLOCK,
+            validation_issues=_dedupe(issues),
+            blocked_reason=_dedupe(blocked_reason),
+            mixed_price_basis=mixed_price_basis,
+            stale_daily_context=stale_daily_context,
+            missing_critical_data=missing_critical_data,
+        )
+    return ValidationOutcome(
+        blocked_reason=[],
+        mixed_price_basis=False,
+        stale_daily_context=False,
+        missing_critical_data=False,
+    )
 
 
 def _to_market_now(now: Optional[datetime], timezone_name: str) -> datetime:
