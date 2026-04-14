@@ -154,7 +154,9 @@ class HistoryService:
                     context_snapshot = record.context_snapshot
             
             # 计算情绪标签
-            sentiment_label = self._get_sentiment_label(record.sentiment_score or 50)
+            sentiment_label = self._get_sentiment_label(
+                record.sentiment_score if record.sentiment_score is not None else 50
+            )
             
             return {
                 "query_id": record.query_id,

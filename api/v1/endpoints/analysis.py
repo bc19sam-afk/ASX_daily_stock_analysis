@@ -469,6 +469,8 @@ def get_analysis_status(task_id: str) -> TaskStatus:
         if records:
             record = records[0]
             validation_payload = _extract_validation_payload(getattr(record, "raw_result", None))
+            from src.services.analysis_service import AnalysisService
+            sentiment_score = record.sentiment_score if record.sentiment_score is not None else 50
             # Build report from DB record so completed tasks return real data
             report_dict = AnalysisReport(
                 meta=ReportMeta(
@@ -488,8 +490,14 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     analysis_status=validation_payload["analysis_status"],
                     validation_status=validation_payload["validation_status"],
                     validation_issues=validation_payload["validation_issues"],
+                    sentiment_label=AnalysisService()._get_sentiment_label(sentiment_score),
                     alpha_decision=getattr(record, "alpha_decision", None),
                     final_decision=getattr(record, "final_decision", None),
+                    position_action=getattr(record, "position_action", None),
+                    target_weight=getattr(record, "target_weight", None),
+                    current_weight=getattr(record, "current_weight", None),
+                    delta_amount=getattr(record, "delta_amount", None),
+                    action_reason=getattr(record, "action_reason", None),
                     watchlist_state=getattr(record, "watchlist_state", None),
                     market_regime=getattr(record, "market_regime", None),
                     news_sentiment=getattr(record, "news_sentiment", None),
