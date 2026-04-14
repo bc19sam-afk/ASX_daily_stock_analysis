@@ -298,6 +298,47 @@ def test_get_analysis_status_db_fallback_matches_sync_and_history_summary_for_bl
         assert status_summary[field] == sync_summary[field] == history_summary[field]
 
 
+def test_get_analysis_status_db_fallback_preserves_zero_sentiment_label_parity(monkeypatch):
+    service = AnalysisService()
+    result = _build_result(
+        code="TLS.AX",
+        name="Telstra",
+        sentiment_score=0,
+        position_action="HOLD",
+        alpha_decision="HOLD",
+        final_decision="HOLD",
+        current_weight=0.0,
+        target_weight=0.0,
+        delta_amount=0.0,
+        action_reason="extreme bearish sample",
+    )
+    sync_summary = service._build_analysis_response(
+        result,
+        "query_zero_sentiment",
+        ReportType.FULL,
+    )["report"]["summary"]
+    db = _save_result_to_temp_db(result, "query_zero_sentiment", with_snapshot=True)
+
+    try:
+        status_summary = _build_status_response_from_db(
+            monkeypatch,
+            db,
+            "query_zero_sentiment",
+        ).result.report["summary"]
+        history_summary = history_endpoint.get_history_detail(
+            "query_zero_sentiment",
+            db_manager=db,
+        ).summary.model_dump()
+    finally:
+        DatabaseManager.reset_instance()
+        db._test_tmpdir.cleanup()
+
+    assert sync_summary["sentiment_score"] == 0
+    assert status_summary["sentiment_score"] == 0
+    assert history_summary["sentiment_score"] == 0
+    assert status_summary["sentiment_label"] == sync_summary["sentiment_label"] == history_summary["sentiment_label"]
+
+
 def test_get_analysis_status_db_fallback_preserves_blocked_holding_weights(monkeypatch):
     result = _build_result(
         code="BHP.AX",
