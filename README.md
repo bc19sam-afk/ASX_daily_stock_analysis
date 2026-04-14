@@ -83,6 +83,13 @@ docker compose -f docker/docker-compose.yml up -d
 - Daily/manual analysis: `.github/workflows/daily_analysis.yml`.
 - Manual account initialization: `.github/workflows/init-portfolio.yml`.
 - Manual trade recording: `.github/workflows/record-trade.yml`.
+- Gemini secrets:
+  - prefer `GEMINI_API_KEYS` with comma-separated keys; it takes precedence over `GEMINI_API_KEY`
+  - fallback to `GEMINI_API_KEY` when `GEMINI_API_KEYS` is unset
+  - Gemini key rotation only happens on transient failures such as `429`, quota/rate-limit errors, transient `5xx`, and connection errors
+  - permanent Gemini request/model/argument errors are surfaced directly instead of rotating to the next key
+- Search secrets:
+  - `TAVILY_API_KEYS` accepts comma-separated keys and already supports automatic rotation
 
 ## Runtime modes (actual CLI behavior)
 

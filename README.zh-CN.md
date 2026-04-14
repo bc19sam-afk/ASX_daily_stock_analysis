@@ -83,6 +83,13 @@ docker compose -f docker/docker-compose.yml up -d
 - 每日/手动分析：`.github/workflows/daily_analysis.yml`。
 - 手动账户初始化：`.github/workflows/init-portfolio.yml`。
 - 手动交易记录：`.github/workflows/record-trade.yml`。
+- Gemini secrets：
+  - 推荐使用 `GEMINI_API_KEYS`，多个 key 用英文逗号分隔；该配置优先于 `GEMINI_API_KEY`
+  - 未配置 `GEMINI_API_KEYS` 时，会回退到单个 `GEMINI_API_KEY`
+  - Gemini 仅在 `429`、quota/rate limit、瞬时 `5xx`、连接类错误时自动切换到下一个 key
+  - 对参数错误、模型名错误、请求格式错误这类永久错误，会直接报错，不会切 key
+- 搜索 secrets：
+  - `TAVILY_API_KEYS` 支持多个 key，使用方式同样是英文逗号分隔
 
 ## 运行模式（实际 CLI 行为）
 

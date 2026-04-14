@@ -184,7 +184,8 @@ journalctl -u stock-analyzer -f
 
 | 配置项 | 说明 | 获取方式 |
 |--------|------|----------|
-| `GEMINI_API_KEY` | AI 分析必需 | [Google AI Studio](https://aistudio.google.com/) |
+| `GEMINI_API_KEYS` | AI 分析必需（推荐，多个 key 用逗号分隔） | [Google AI Studio](https://aistudio.google.com/) |
+| `GEMINI_API_KEY` | AI 分析必需（兼容旧版单 key） | [Google AI Studio](https://aistudio.google.com/) |
 | `STOCK_LIST` | 自选股列表 | 逗号分隔的股票代码 |
 | `WECHAT_WEBHOOK_URL` | 微信推送 | 企业微信群机器人 |
 
@@ -348,7 +349,8 @@ git push -u origin main
 
 | Secret 名称 | 说明 | 必填 |
 |------------|------|------|
-| `GEMINI_API_KEY` | Gemini AI API Key | ✅ |
+| `GEMINI_API_KEYS` | Gemini AI API Keys（推荐，多个 key 用逗号分隔） | ✅ |
+| `GEMINI_API_KEY` | Gemini AI API Key（兼容旧版单 key） | 可选 |
 | `WECHAT_WEBHOOK_URL` | 企业微信机器人 Webhook | 可选* |
 | `FEISHU_WEBHOOK_URL` | 飞书机器人 Webhook | 可选* |
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 可选* |
@@ -359,12 +361,17 @@ git push -u origin main
 | `SERVERCHAN3_SENDKEY` | Server酱³ Sendkey | 可选* |
 | `CUSTOM_WEBHOOK_URLS` | 自定义 Webhook（多个逗号分隔） | 可选* |
 | `STOCK_LIST` | 自选股列表，如 `600519,300750` | ✅ |
-| `TAVILY_API_KEYS` | Tavily 搜索 API Key | 推荐 |
+| `TAVILY_API_KEYS` | Tavily 搜索 API Key（多个 key 用逗号分隔） | 推荐 |
 | `SERPAPI_API_KEYS` | SerpAPI Key | 可选 |
 | `TUSHARE_TOKEN` | Tushare Token | 可选 |
 | `GEMINI_MODEL` | 模型名称（默认 gemini-2.0-flash） | 可选 |
 
 > *注：通知渠道至少配置一个，支持多渠道同时推送
+
+> 说明：
+> - `GEMINI_API_KEYS` 优先级高于 `GEMINI_API_KEY`，多个 key 使用英文逗号分隔。
+> - Gemini 仅在 `429`、quota/rate limit、瞬时 `5xx`、连接类错误时自动切换到下一个 key。
+> - `TAVILY_API_KEYS` 也支持多个 key，使用方式同样是英文逗号分隔。
 
 #### 3. 验证 Workflow 文件
 

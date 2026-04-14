@@ -19,6 +19,7 @@ from dotenv import load_dotenv, dotenv_values
 from dataclasses import dataclass, field
 
 from src.enums import ReportType
+from src.gemini_key_manager import parse_gemini_api_keys
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,7 @@ class Config:
     
     # === AI 分析配置 ===
     gemini_api_key: Optional[str] = None
+    gemini_api_keys: List[str] = field(default_factory=list)
     gemini_model: str = "gemini-3-flash-preview"  # 主模型
     gemini_model_fallback: str = "gemini-2.5-flash"  # 备选模型
     gemini_temperature: float = 0.7  # 温度参数（0.0-2.0，控制输出随机性，默认0.7）
@@ -400,6 +402,11 @@ class Config:
         
         tavily_keys_str = os.getenv('TAVILY_API_KEYS', '')
         tavily_api_keys = [k.strip() for k in tavily_keys_str.split(',') if k.strip()]
+
+        gemini_api_keys = parse_gemini_api_keys(
+            os.getenv('GEMINI_API_KEYS', ''),
+            os.getenv('GEMINI_API_KEY'),
+        )
         
         serpapi_keys_str = os.getenv('SERPAPI_API_KEYS', '')
         serpapi_keys = [k.strip() for k in serpapi_keys_str.split(',') if k.strip()]
@@ -424,7 +431,8 @@ class Config:
             feishu_app_secret=os.getenv('FEISHU_APP_SECRET'),
             feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),
             tushare_token=os.getenv('TUSHARE_TOKEN'),
-            gemini_api_key=os.getenv('GEMINI_API_KEY'),
+            gemini_api_key=gemini_api_keys[0] if gemini_api_keys else os.getenv('GEMINI_API_KEY'),
+            gemini_api_keys=gemini_api_keys,
             gemini_model=os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview'),
             gemini_model_fallback=os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-2.5-flash'),
             gemini_temperature=float(os.getenv('GEMINI_TEMPERATURE', '0.7')),

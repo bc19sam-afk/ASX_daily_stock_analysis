@@ -606,7 +606,7 @@ def main() -> int:
                 )
 
             if config.gemini_api_key or config.openai_api_key:
-                analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+                analyzer = GeminiAnalyzer()
                 if not analyzer.is_available():
                     logger.warning("AI 分析器初始化后不可用，请检查 API Key 配置")
                     analyzer = None

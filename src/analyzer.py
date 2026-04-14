@@ -20,6 +20,11 @@ from json_repair import repair_json
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from src.config import get_config
+from src.gemini_key_manager import (
+    GeminiKeyManager,
+    is_transient_gemini_error,
+    is_valid_gemini_api_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -583,7 +588,11 @@ class GeminiAnalyzer:
             api_key: Gemini API Key（可选，默认从配置读取）
         """
         config = get_config()
-        self._api_key = api_key or config.gemini_api_key
+        self._gemini_key_manager = GeminiKeyManager.from_config(
+            config,
+            override_key=api_key,
+        )
+        self._api_key = self._gemini_key_manager.current_key
         self._model = None
         self._current_model_name = None  # 当前使用的模型名称
         self._using_fallback = False  # 是否正在使用备选模型
@@ -593,7 +602,7 @@ class GeminiAnalyzer:
         self._anthropic_client = None  # Anthropic 客户端
 
         # 检查 Gemini API Key 是否有效（过滤占位符）
-        gemini_key_valid = self._api_key and not self._api_key.startswith('your_') and len(self._api_key) > 10
+        gemini_key_valid = is_valid_gemini_api_key(self._api_key)
 
         # 优先级：Gemini > Anthropic > OpenAI
         if gemini_key_valid:
@@ -701,14 +710,11 @@ class GeminiAnalyzer:
         初始化 Gemini 模型（使用新版 google-genai SDK）
         """
         try:
-            from google import genai
-
             config = get_config()
             model_name = config.gemini_model
-            fallback_model = config.gemini_model_fallback
 
-            # 新版 SDK 使用 Client
-            self._model = genai.Client(api_key=self._api_key)
+            if not self._activate_current_gemini_key():
+                return
             self._current_model_name = model_name
             self._using_fallback = False
             logger.info(f"Gemini 模型初始化成功 (模型: {model_name})")
@@ -716,6 +722,63 @@ class GeminiAnalyzer:
         except Exception as e:
             logger.error(f"Gemini 模型初始化失败: {e}")
             self._model = None
+
+    def _build_gemini_client(self, api_key: str):
+        from google import genai
+
+        return genai.Client(api_key=api_key)
+
+    def _activate_current_gemini_key(self) -> bool:
+        current_key = self._gemini_key_manager.current_key
+        if not is_valid_gemini_api_key(current_key):
+            self._api_key = None
+            self._model = None
+            return False
+
+        try:
+            self._model = self._build_gemini_client(current_key)
+            self._api_key = current_key
+            return True
+        except Exception as e:
+            logger.error(
+                "[Gemini] Failed to initialize client for API key %s: %s",
+                self._gemini_key_manager.current_key_label(),
+                e,
+            )
+            self._model = None
+            return False
+
+    def _rotate_to_next_gemini_key(self, error: Exception) -> bool:
+        if not is_transient_gemini_error(error):
+            return False
+        if not self._gemini_key_manager.rotate_to_next_key():
+            return False
+
+        logger.warning(
+            "[Gemini] Transient error detected, switching to next API key: %s",
+            self._gemini_key_manager.current_key_label(),
+        )
+        if not self._activate_current_gemini_key():
+            logger.error("[Gemini] Failed to activate rotated API key")
+            return False
+        return True
+
+    def _generate_gemini_content(self, prompt: str, generation_config: dict) -> str:
+        from google.genai import types as genai_types
+
+        response = self._model.models.generate_content(
+            model=self._current_model_name,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=self.SYSTEM_PROMPT,
+                temperature=generation_config.get("temperature", 0.7),
+                max_output_tokens=generation_config.get("max_output_tokens", 8192),
+            ),
+        )
+
+        if response and response.text:
+            return response.text
+        raise ValueError("Gemini 返回空响应")
 
     def _switch_to_fallback_model(self) -> bool:
         """
@@ -943,40 +1006,42 @@ class GeminiAnalyzer:
                     delay = min(delay, 60)  # 最大60秒
                     logger.info(f"[Gemini] 第 {attempt + 1} 次重试，等待 {delay:.1f} 秒...")
                     time.sleep(delay)
-                
-                from google.genai import types as genai_types
-                response = self._model.models.generate_content(
-                    model=self._current_model_name,
-                    contents=prompt,
-                    config=genai_types.GenerateContentConfig(
-                        system_instruction=self.SYSTEM_PROMPT,
-                        temperature=generation_config.get("temperature", 0.7),
-                        max_output_tokens=generation_config.get("max_output_tokens", 8192),
-                    )
-                )
 
-                if response and response.text:
-                    return response.text
-                else:
-                    raise ValueError("Gemini 返回空响应")
+                return self._generate_gemini_content(prompt, generation_config)
                     
             except Exception as e:
                 last_error = e
                 error_str = str(e)
+                error_lower = error_str.lower()
+                is_transient = is_transient_gemini_error(e)
+                if not is_transient:
+                    logger.warning(
+                        "[Gemini] Non-transient error detected, stop Gemini retries without rotating key: %s",
+                        error_str[:100],
+                    )
+                    break
                 
                 # 检查是否是 429 限流 或 503 过载错误
-                is_rate_limit = '429' in error_str or 'quota' in error_str.lower() or 'rate' in error_str.lower()
-                is_overload = '503' in error_str or 'unavailable' in error_str.lower() or 'connection' in error_str.lower()
+                is_rate_limit = (
+                    '429' in error_str
+                    or 'quota' in error_lower
+                    or 'rate limit' in error_lower
+                    or 'too many requests' in error_lower
+                )
+                is_overload = is_transient and not is_rate_limit
                 
                 if is_rate_limit or is_overload:
+                    if self._rotate_to_next_gemini_key(e):
+                        logger.info("[Gemini] 已切换到下一个 API key，继续重试")
+                        continue
+
                     err_type = "限流 (429)" if is_rate_limit else "过载/连接失败 (503)"
                     logger.warning(f"[Gemini] API {err_type}，第 {attempt + 1}/{max_retries} 次尝试: {error_str[:100]}")
                     
                     # 503/连接失败时重建Client，避免持久连接状态损坏
                     if is_overload and hasattr(self, '_model') and self._model is not None:
                         try:
-                            from google import genai as _genai
-                            self._model = _genai.Client(api_key=self._api_key)
+                            self._model = self._build_gemini_client(self._api_key)
                             logger.info("[Gemini] 已重建Client连接")
                         except Exception:
                             pass
@@ -1734,20 +1799,16 @@ class GeminiAnalyzer:
             raise ValueError("OpenAI repair returned empty response")
 
         if self._model is not None:
-            from google.genai import types as genai_types
-
-            response = self._model.models.generate_content(
-                model=self._current_model_name,
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(
-                    system_instruction=self.SYSTEM_PROMPT,
-                    temperature=generation_config.get("temperature", 0.1),
-                    max_output_tokens=generation_config.get("max_output_tokens", 2048),
-                ),
-            )
-            if response and response.text:
-                return response.text
-            raise ValueError("Gemini repair returned empty response")
+            last_error: Optional[Exception] = None
+            while self._model is not None:
+                try:
+                    return self._generate_gemini_content(prompt, generation_config)
+                except Exception as e:
+                    last_error = e
+                    if not self._rotate_to_next_gemini_key(e):
+                        raise
+            if last_error is not None:
+                raise last_error
 
         raise ValueError("No available model for one-shot repair")
 

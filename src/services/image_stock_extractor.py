@@ -17,6 +17,7 @@ import re
 from typing import List, Optional, Tuple
 
 from src.config import get_config
+from src.gemini_key_manager import GeminiKeyManager, is_transient_gemini_error
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ def _is_key_valid(key: Optional[str]) -> bool:
 def _select_vision_provider() -> str:
     """返回首个可用的 Vision 提供方：gemini、anthropic、openai。"""
     cfg = get_config()
-    if _is_key_valid(cfg.gemini_api_key):
+    if GeminiKeyManager.from_config(cfg).has_keys():
         return "gemini"
     if _is_key_valid(cfg.anthropic_api_key):
         return "anthropic"
@@ -141,22 +142,38 @@ def _call_gemini(image_b64: str, mime_type: str) -> str:
     import google.generativeai as genai
 
     cfg = get_config()
-    genai.configure(api_key=cfg.gemini_api_key)
+    key_manager = GeminiKeyManager.from_config(cfg)
+    if not key_manager.has_keys():
+        raise ValueError("Gemini Vision API key not configured")
     # 使用支持图像的模型（gemini-1.5-flash / gemini-2.0-flash）
     # Ensure non-empty model name (cfg.gemini_model can be "")
     model_name = (getattr(cfg, "gemini_model", "gemini-2.0-flash") or "gemini-2.0-flash")
     if "gemini-3" in (model_name or ""):
         model_name = "gemini-2.0-flash"
-    model = genai.GenerativeModel(model_name)
+    last_error: Optional[Exception] = None
     # Gemini API 要求的 inline_data 格式
     part = {"inline_data": {"mime_type": mime_type, "data": image_b64}}
-    response = model.generate_content(
-        [part, EXTRACT_PROMPT],
-        request_options={"timeout": VISION_API_TIMEOUT},
-    )
-    if response and response.text:
-        return response.text
-    raise ValueError("Gemini returned empty response")
+    while key_manager.current_key:
+        try:
+            genai.configure(api_key=key_manager.current_key)
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(
+                [part, EXTRACT_PROMPT],
+                request_options={"timeout": VISION_API_TIMEOUT},
+            )
+            if response and response.text:
+                return response.text
+            raise ValueError("Gemini returned empty response")
+        except Exception as e:
+            last_error = e
+            if not is_transient_gemini_error(e) or not key_manager.rotate_to_next_key():
+                raise
+            logger.warning(
+                "[ImageExtractor] Gemini transient error, switching API key: %s",
+                key_manager.current_key_label(),
+            )
+
+    raise last_error or ValueError("Gemini returned empty response")
 
 
 def _call_anthropic(image_b64: str, mime_type: str) -> str:
@@ -270,7 +287,7 @@ def extract_stock_codes_from_image(
     last_err: Optional[Exception] = None
     for p in order:
         cfg = get_config()
-        if p == "gemini" and not _is_key_valid(cfg.gemini_api_key):
+        if p == "gemini" and not GeminiKeyManager.from_config(cfg).has_keys():
             continue
         if p == "anthropic" and not _is_key_valid(cfg.anthropic_api_key):
             continue
