@@ -11,6 +11,7 @@ A股自选股智能分析系统 - 核心分析流水线
 4. 提供股票分析的核心功能
 """
 
+import json
 import logging
 import math
 import time
@@ -660,6 +661,26 @@ class StockAnalysisPipeline:
         result.validation_issues = list(outcome.validation_issues)
         if outcome.validation_status == "BLOCK":
             self._apply_blocked_validation_state(result=result)
+        self._log_validation_gate_outcome(result=result, outcome=outcome)
+
+    def _log_validation_gate_outcome(
+        self,
+        *,
+        result: AnalysisResult,
+        outcome: Any,
+    ) -> None:
+        payload = {
+            "event": "validator_gate",
+            "stock_code": result.code,
+            "query_id": getattr(self, "query_id", None),
+            "validation_status": outcome.validation_status,
+            "blocked_reason": list(getattr(outcome, "blocked_reason", []) or []),
+            "mixed_price_basis": bool(getattr(outcome, "mixed_price_basis", False)),
+            "stale_daily_context": bool(getattr(outcome, "stale_daily_context", False)),
+            "missing_critical_data": bool(getattr(outcome, "missing_critical_data", False)),
+        }
+        log_method = logger.warning if outcome.validation_status == "BLOCK" else logger.info
+        log_method("[validator_gate] %s", json.dumps(payload, ensure_ascii=False, sort_keys=True))
 
     @staticmethod
     def _append_unique_text(existing: str, additions: List[str]) -> str:
@@ -695,7 +716,6 @@ class StockAnalysisPipeline:
         )
         if str(getattr(result, "analysis_status", "OK") or "").upper() == "OK":
             result.analysis_status = "DEGRADED"
-        logger.warning("[%s] validation gate blocked actionable output: %s", result.code, " | ".join(issues))
 
     def _load_existing_portfolio_state(
         self,
