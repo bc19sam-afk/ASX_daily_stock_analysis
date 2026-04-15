@@ -198,6 +198,35 @@ class ValidationGateTestCase(unittest.TestCase):
         self.assertFalse(payload["stale_daily_context"])
         self.assertFalse(payload["missing_critical_data"])
 
+    def test_post_open_close_only_basis_still_passes_validation(self) -> None:
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.config = SimpleNamespace(
+            execution_price_policy="close_only",
+            market_timezone="Australia/Sydney",
+            market_calendar="ASX",
+        )
+        result = self._build_result()
+        enhanced_context = {
+            "date": "2026-04-14",
+            "today": {"close": 48.2},
+            "realtime": {"price": 49.1, "change_pct": 1.7},
+        }
+
+        pipeline._apply_runtime_price_fields(result=result, enhanced_context=enhanced_context)
+        outcome = evaluate_analysis_gate(
+            enhanced_context=enhanced_context,
+            execution_price_source=result.execution_price_source,
+            current_price=result.current_price,
+            market_timezone="Australia/Sydney",
+            market_calendar="ASX",
+            now=datetime(2026, 4, 15, 10, 30, tzinfo=ZoneInfo("Australia/Sydney")),
+        )
+
+        self.assertEqual(result.execution_price_source, "close_only")
+        self.assertEqual(result.current_price, 48.2)
+        self.assertEqual(outcome.validation_status, "PASS")
+        self.assertEqual(outcome.blocked_reason, [])
+
     def test_normalize_validation_status_collapses_warn_to_pass(self) -> None:
         self.assertEqual(normalize_validation_status("WARN"), "PASS")
         self.assertEqual(normalize_validation_status("BLOCK"), "BLOCK")
