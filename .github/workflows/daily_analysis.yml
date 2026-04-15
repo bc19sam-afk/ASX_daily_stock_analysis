@@ -190,8 +190,6 @@ jobs:
           MARKET_REVIEW_PUSH_ENABLED: ${{ vars.MARKET_REVIEW_PUSH_ENABLED || secrets.MARKET_REVIEW_PUSH_ENABLED || '' }}
           MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED: ${{ vars.MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED || secrets.MARKET_REVIEW_EMPTY_RESULTS_FALLBACK_ENABLED || '' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '30' }}
-          # 日报任务固定使用昨收口径；开盘后手动重跑也保持同一分析基准
-          EXECUTION_PRICE_POLICY: close_only
 
           # ==========================================
           # 系统配置
