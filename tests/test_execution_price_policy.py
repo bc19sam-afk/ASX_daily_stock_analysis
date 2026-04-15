@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -176,6 +177,65 @@ def test_runtime_signal_price_and_execution_price_are_separated():
         "realtime": {"price": "120.2", "change_pct": "1.2"},
         "today": {"close": "118.4"},
     }
+    pipeline._apply_runtime_price_fields(result=result, enhanced_context=enhanced_context)
+
+    assert result.realtime_price == "120.2"
+    assert result.current_price == 118.4
+    assert result.execution_price_source == "close_only"
+
+
+def test_runtime_execution_price_policy_forces_close_only_before_asx_open_from_utc_runner():
+    pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+    pipeline.config = SimpleNamespace(
+        execution_price_policy="realtime_if_available",
+        market_timezone="Australia/Sydney",
+        market_calendar="ASX",
+    )
+    pipeline._now_for_testing = datetime(2026, 4, 14, 22, 30, tzinfo=timezone.utc)
+
+    policy = pipeline._resolve_runtime_execution_price_policy(
+        execution_price_policy="realtime_if_available",
+    )
+
+    assert policy == "close_only"
+
+
+def test_runtime_execution_price_policy_keeps_realtime_after_asx_open():
+    pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+    pipeline.config = SimpleNamespace(
+        execution_price_policy="realtime_if_available",
+        market_timezone="Australia/Sydney",
+        market_calendar="ASX",
+    )
+    pipeline._now_for_testing = datetime(2026, 4, 15, 0, 30, tzinfo=timezone.utc)
+
+    policy = pipeline._resolve_runtime_execution_price_policy(
+        execution_price_policy="realtime_if_available",
+    )
+
+    assert policy == "realtime_if_available"
+
+
+def test_apply_runtime_price_fields_forces_close_only_before_asx_open():
+    pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+    pipeline.config = SimpleNamespace(
+        execution_price_policy="realtime_if_available",
+        market_timezone="Australia/Sydney",
+        market_calendar="ASX",
+    )
+    pipeline._now_for_testing = datetime(2026, 4, 14, 22, 30, tzinfo=timezone.utc)
+    result = AnalysisResult(
+        code="BHP.AX",
+        name="BHP",
+        sentiment_score=60,
+        trend_prediction="闇囪崱",
+        operation_advice="鎸佹湁",
+    )
+    enhanced_context = {
+        "realtime": {"price": "120.2", "change_pct": "1.2"},
+        "today": {"close": "118.4"},
+    }
+
     pipeline._apply_runtime_price_fields(result=result, enhanced_context=enhanced_context)
 
     assert result.realtime_price == "120.2"

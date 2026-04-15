@@ -34,6 +34,7 @@ from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from src.core.position_manager import PositionManager
 from src.core.pipeline_notifications import send_single_stock_notification
 from src.core.validator import evaluate_analysis_gate
+from src.market_calendar import is_pre_market_open
 from bot.models import BotMessage
 
 
@@ -635,6 +636,9 @@ class StockAnalysisPipeline:
         execution_price_policy = str(
             getattr(self.config, "execution_price_policy", "realtime_if_available")
         ).strip().lower()
+        execution_price_policy = self._resolve_runtime_execution_price_policy(
+            execution_price_policy=execution_price_policy,
+        )
         result.current_price = self._resolve_execution_price(
             enhanced_context=enhanced_context,
             execution_price_policy=execution_price_policy,
@@ -643,6 +647,24 @@ class StockAnalysisPipeline:
             enhanced_context=enhanced_context,
             execution_price_policy=execution_price_policy,
         )
+
+    def _resolve_runtime_execution_price_policy(
+        self,
+        *,
+        execution_price_policy: str,
+    ) -> str:
+        """Apply market-window overrides to the configured execution price policy."""
+        policy = str(execution_price_policy or "").strip().lower()
+        if policy != "realtime_if_available":
+            return policy
+
+        if is_pre_market_open(
+            getattr(self, "_now_for_testing", None),
+            calendar=getattr(self.config, "market_calendar", "ASX"),
+            market_timezone=getattr(self.config, "market_timezone", "Australia/Sydney"),
+        ):
+            return "close_only"
+        return policy
 
     def _apply_validation_gate(
         self,
