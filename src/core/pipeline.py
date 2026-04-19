@@ -11,7 +11,6 @@ A股自选股智能分析系统 - 核心分析流水线
 4. 提供股票分析的核心功能
 """
 
-import json
 import logging
 import math
 import time
@@ -33,7 +32,7 @@ from src.enums import ReportType
 from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from src.core.position_manager import PositionManager
 from src.core.pipeline_notifications import send_single_stock_notification
-from src.core.validator import evaluate_analysis_gate
+from src.core.pipeline_validation import apply_validation_gate as apply_pipeline_validation_gate
 from src.market_calendar import is_pre_market_open
 from bot.models import BotMessage
 
@@ -671,73 +670,18 @@ class StockAnalysisPipeline:
         *,
         result: AnalysisResult,
         enhanced_context: Dict[str, Any],
+        now: Optional[datetime] = None,
     ) -> None:
-        outcome = evaluate_analysis_gate(
+        apply_pipeline_validation_gate(
+            logger=logger,
+            result=result,
             enhanced_context=enhanced_context,
-            execution_price_source=result.execution_price_source,
-            current_price=result.current_price,
             market_timezone=getattr(self.config, "market_timezone", "Australia/Sydney"),
             market_calendar=getattr(self.config, "market_calendar", "ASX"),
+            query_id=getattr(self, "query_id", None),
+            now=now,
+            load_portfolio_state=self._load_existing_portfolio_state,
         )
-        result.validation_status = outcome.validation_status
-        result.validation_issues = list(outcome.validation_issues)
-        if outcome.validation_status == "BLOCK":
-            self._apply_blocked_validation_state(result=result)
-        self._log_validation_gate_outcome(result=result, outcome=outcome)
-
-    def _log_validation_gate_outcome(
-        self,
-        *,
-        result: AnalysisResult,
-        outcome: Any,
-    ) -> None:
-        payload = {
-            "event": "validator_gate",
-            "stock_code": result.code,
-            "query_id": getattr(self, "query_id", None),
-            "validation_status": outcome.validation_status,
-            "blocked_reason": list(getattr(outcome, "blocked_reason", []) or []),
-            "mixed_price_basis": bool(getattr(outcome, "mixed_price_basis", False)),
-            "stale_daily_context": bool(getattr(outcome, "stale_daily_context", False)),
-            "missing_critical_data": bool(getattr(outcome, "missing_critical_data", False)),
-        }
-        log_method = logger.warning if outcome.validation_status == "BLOCK" else logger.info
-        log_method("[validator_gate] %s", json.dumps(payload, ensure_ascii=False, sort_keys=True))
-
-    @staticmethod
-    def _append_unique_text(existing: str, additions: List[str]) -> str:
-        parts = [str(existing or "").strip()] if str(existing or "").strip() else []
-        for item in additions:
-            text = str(item or "").strip()
-            if not text or text in parts:
-                continue
-            parts.append(text)
-        return "；".join(parts)
-
-    def _apply_blocked_validation_state(self, *, result: AnalysisResult) -> None:
-        issues = list(result.validation_issues or [])
-        portfolio_state = self._load_existing_portfolio_state(result=result)
-        current_weight = float(getattr(result, "current_weight", 0.0) or 0.0)
-        if portfolio_state is not None:
-            current_weight = round(float(portfolio_state.get("current_weight", current_weight) or 0.0), 4)
-            result.current_weight = current_weight
-            result.target_quantity = float(portfolio_state.get("quantity", 0.0) or 0.0)
-        result.final_decision = "HOLD"
-        result.position_action = "HOLD"
-        result.watchlist_state = "OBSERVE"
-        result.target_weight = current_weight
-        result.delta_amount = 0.0
-        result.operation_advice = "不可决策，仅观察"
-        result.action_reason = self._append_unique_text(
-            result.action_reason,
-            ["validation_blocked", *issues],
-        )
-        result.risk_warning = self._append_unique_text(
-            result.risk_warning,
-            issues,
-        )
-        if str(getattr(result, "analysis_status", "OK") or "").upper() == "OK":
-            result.analysis_status = "DEGRADED"
 
     def _load_existing_portfolio_state(
         self,

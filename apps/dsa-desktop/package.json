@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "dev": "electron .",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "smoke": "node scripts/smoke.js"
   },
   "devDependencies": {
     "electron": "^31.4.0",

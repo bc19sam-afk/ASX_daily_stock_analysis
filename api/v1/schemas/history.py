@@ -11,11 +11,25 @@
 
 from typing import Optional, List, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HistoryItem(BaseModel):
     """历史记录摘要（列表展示用）"""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "query_id": "abc123",
+                "stock_code": "600519",
+                "stock_name": "贵州茅台",
+                "report_type": "detailed",
+                "sentiment_score": 75,
+                "operation_advice": "持有",
+                "created_at": "2024-01-01T12:00:00",
+            }
+        }
+    )
 
     query_id: str = Field(..., description="分析记录唯一标识")
     stock_code: str = Field(..., description="股票代码")
@@ -30,30 +44,11 @@ class HistoryItem(BaseModel):
     operation_advice: Optional[str] = Field(None, description="操作建议")
     created_at: Optional[str] = Field(None, description="创建时间")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "query_id": "abc123",
-                "stock_code": "600519",
-                "stock_name": "贵州茅台",
-                "report_type": "detailed",
-                "sentiment_score": 75,
-                "operation_advice": "持有",
-                "created_at": "2024-01-01T12:00:00",
-            }
-        }
-
-
 class HistoryListResponse(BaseModel):
     """历史记录列表响应"""
 
-    total: int = Field(..., description="总记录数")
-    page: int = Field(..., description="当前页码")
-    limit: int = Field(..., description="每页数量")
-    items: List[HistoryItem] = Field(default_factory=list, description="记录列表")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "total": 100,
                 "page": 1,
@@ -61,38 +56,45 @@ class HistoryListResponse(BaseModel):
                 "items": [],
             }
         }
+    )
 
+    total: int = Field(..., description="总记录数")
+    page: int = Field(..., description="当前页码")
+    limit: int = Field(..., description="每页数量")
+    items: List[HistoryItem] = Field(default_factory=list, description="记录列表")
 
 class NewsIntelItem(BaseModel):
     """新闻情报条目"""
 
-    title: str = Field(..., description="新闻标题")
-    snippet: str = Field("", description="新闻摘要（最多200字）")
-    url: str = Field(..., description="新闻链接")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "title": "公司发布业绩快报，营收同比增长20%",
                 "snippet": "公司公告显示，季度营收同比增长20%...",
                 "url": "https://example.com/news/123",
             }
         }
+    )
+
+    title: str = Field(..., description="新闻标题")
+    snippet: str = Field("", description="新闻摘要（最多200字）")
+    url: str = Field(..., description="新闻链接")
 
 
 class NewsIntelResponse(BaseModel):
     """新闻情报响应"""
 
-    total: int = Field(..., description="新闻条数")
-    items: List[NewsIntelItem] = Field(default_factory=list, description="新闻列表")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "total": 2,
                 "items": [],
             }
         }
+    )
+
+    total: int = Field(..., description="新闻条数")
+    items: List[NewsIntelItem] = Field(default_factory=list, description="新闻列表")
 
 
 class ReportMeta(BaseModel):
@@ -160,14 +162,8 @@ class ReportDetails(BaseModel):
 class AnalysisReport(BaseModel):
     """完整分析报告"""
 
-    meta: ReportMeta = Field(..., description="元信息")
-    summary: ReportSummary = Field(..., description="概览区")
-    strategy: Optional[ReportStrategy] = Field(None, description="策略点位区")
-    details: Optional[ReportDetails] = Field(None, description="详情区")
-    portfolio: Optional[Any] = Field(None, description="组合快照与持仓明细")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "meta": {
                     "query_id": "abc123",
@@ -195,3 +191,10 @@ class AnalysisReport(BaseModel):
                 "details": None,
             }
         }
+    )
+
+    meta: ReportMeta = Field(..., description="元信息")
+    summary: ReportSummary = Field(..., description="概览区")
+    strategy: Optional[ReportStrategy] = Field(None, description="策略点位区")
+    details: Optional[ReportDetails] = Field(None, description="详情区")
+    portfolio: Optional[Any] = Field(None, description="组合快照与持仓明细")

@@ -6,11 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "audit": "npm audit --audit-level=high",
     "lint": "eslint .",
+    "smoke": "npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "axios": "^1.13.4",
+    "axios": "^1.15.0",
     "camelcase-keys": "^10.0.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -34,6 +36,6 @@
     "tailwindcss": "^4.1.18",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4"
+    "vite": "^7.3.2"
   }
 }

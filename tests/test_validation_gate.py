@@ -152,6 +152,7 @@ class ValidationGateTestCase(unittest.TestCase):
                     "date": "2026-04-09",
                     "today": {"close": 48.2},
                 },
+                now=datetime(2026, 4, 14, 18, 0, tzinfo=ZoneInfo("Australia/Sydney")),
             )
 
         self.assertEqual(len(captured.records), 1)
@@ -184,6 +185,7 @@ class ValidationGateTestCase(unittest.TestCase):
                     "date": "2026-04-14",
                     "today": {"close": 48.2},
                 },
+                now=datetime(2026, 4, 14, 18, 0, tzinfo=ZoneInfo("Australia/Sydney")),
             )
 
         self.assertEqual(len(captured.records), 1)

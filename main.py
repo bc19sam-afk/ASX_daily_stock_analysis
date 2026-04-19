@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 主调度程序
+ASX-first 自选股分析系统 - 主调度程序
 ===================================
 
 职责：
@@ -15,11 +15,9 @@ A股自选股智能分析系统 - 主调度程序
     python main.py --debug      # 调试模式
     python main.py --dry-run    # 仅获取数据不分析
 
-交易理念（已融入分析）：
-- 严进策略：不追高，乖离率 > 5% 不买入
-- 趋势交易：只做 MA5>MA10>MA20 多头排列
-- 效率优先：关注筹码集中度好的股票
-- 买点偏好：缩量回踩 MA5/MA10 支撑
+定位说明：
+- 以 ASX/AU 手动决策辅助为主，兼容 AU/US 标的同一报告流程
+- 不做自动交易，重点是报告口径一致、时间基准清楚、减少误导
 """
 import os
 from src.config import setup_env, setup_proxy_from_env
@@ -45,6 +43,7 @@ from src.market_calendar import is_trading_day, is_market_closed
 
 from src.config import get_config, Config
 from src.logging_config import setup_logging
+from src.server_runtime import apply_legacy_server_aliases, resolve_main_server_host_port
 
 
 logger = logging.getLogger(__name__)
@@ -516,25 +515,14 @@ def main() -> int:
         stock_codes = [code.strip() for code in args.stocks.split(',') if code.strip()]
         logger.info(f"使用命令行指定的股票列表: {stock_codes}")
 
-    # === 处理 --webui / --webui-only 参数，映射到 --serve / --serve-only ===
-    if args.webui:
-        args.serve = True
-    if args.webui_only:
-        args.serve_only = True
-
-    # 兼容旧版 WEBUI_ENABLED 环境变量
-    if config.webui_enabled and not (args.serve or args.serve_only):
-        args.serve = True
+    # === 处理 legacy WebUI 参数，统一映射到 canonical serve 路径 ===
+    apply_legacy_server_aliases(args, webui_enabled=config.webui_enabled)
 
     # === 启动 Web 服务 (如果启用) ===
     start_serve = (args.serve or args.serve_only) and os.getenv("GITHUB_ACTIONS") != "true"
 
-    # 兼容旧版 WEBUI_HOST/WEBUI_PORT：如果用户未通过 --host/--port 指定，则使用旧变量
     if start_serve:
-        if args.host == '0.0.0.0' and os.getenv('WEBUI_HOST'):
-            args.host = os.getenv('WEBUI_HOST')
-        if args.port == 8000 and os.getenv('WEBUI_PORT'):
-            args.port = int(os.getenv('WEBUI_PORT'))
+        args.host, args.port = resolve_main_server_host_port(args)
 
     bot_clients_started = False
     if start_serve:

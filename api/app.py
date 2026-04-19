@@ -61,11 +61,15 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
     app = FastAPI(
         title="Daily Stock Analysis API",
         description=(
-            "A股/港股/美股自选股智能分析系统 API\n\n"
+            "ASX-first 自选股分析系统 API（面向人工决策辅助，不做自动交易）\n\n"
             "## 功能模块\n"
             "- 股票分析：触发 AI 智能分析\n"
             "- 历史记录：查询历史分析报告\n"
             "- 股票数据：获取行情数据\n\n"
+            "## 产品定位\n"
+            "- 默认按 ASX/AU 交易日历与时区运行\n"
+            "- 兼容 AU/US 标的统一报告流程\n"
+            "- 重点保证报告口径一致、时间基准清楚、避免误导用户\n\n"
             "## 认证方式\n"
             "当前版本暂无认证要求"
         ),
