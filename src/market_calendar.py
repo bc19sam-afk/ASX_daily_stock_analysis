@@ -11,13 +11,14 @@ from zoneinfo import ZoneInfo
 @dataclass(frozen=True)
 class MarketRules:
     timezone: str
+    open_time: time
     close_time: time
 
 
 _RULES = {
-    "ASX": MarketRules(timezone="Australia/Sydney", close_time=time(16, 0)),
-    "NYSE": MarketRules(timezone="America/New_York", close_time=time(16, 0)),
-    "US": MarketRules(timezone="America/New_York", close_time=time(16, 0)),
+    "ASX": MarketRules(timezone="Australia/Sydney", open_time=time(10, 0), close_time=time(16, 0)),
+    "NYSE": MarketRules(timezone="America/New_York", open_time=time(9, 30), close_time=time(16, 0)),
+    "US": MarketRules(timezone="America/New_York", open_time=time(9, 30), close_time=time(16, 0)),
 }
 
 
@@ -37,7 +38,7 @@ def _rules(calendar: str | None, configured_timezone: str | None = None) -> Mark
     key = _calendar_key(calendar)
     base = _RULES.get(key, _RULES["ASX"])
     tz = resolve_market_timezone(calendar, configured_timezone)
-    return MarketRules(timezone=tz, close_time=base.close_time)
+    return MarketRules(timezone=tz, open_time=base.open_time, close_time=base.close_time)
 
 
 def _to_market_now(now: datetime | None, tz_name: str) -> datetime:
@@ -66,6 +67,20 @@ def is_market_closed(
     if not is_trading_day(local_now.date(), calendar):
         return False
     return local_now.time() >= rules.close_time
+
+
+def is_pre_market_open(
+    now: datetime | None = None,
+    *,
+    calendar: str | None = "ASX",
+    market_timezone: str | None = None,
+) -> bool:
+    """Return True when the market-local time is before the open on a trading day."""
+    rules = _rules(calendar, market_timezone)
+    local_now = _to_market_now(now, rules.timezone)
+    if not is_trading_day(local_now.date(), calendar):
+        return False
+    return local_now.time() < rules.open_time
 
 
 def get_last_closed_trading_date(
