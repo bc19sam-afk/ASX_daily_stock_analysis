@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-Daily Stock Analysis - FastAPI 后端服务入口
+Daily Stock Analysis - canonical FastAPI 后端服务入口
 ===================================
 
 职责：
@@ -22,6 +22,7 @@ import logging
 
 from src.config import setup_env, get_config
 from src.logging_config import setup_logging
+from src.server_runtime import CANONICAL_API_APP_IMPORT
 
 # 初始化环境变量与日志
 setup_env()
@@ -47,7 +48,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "server:app",
+        CANONICAL_API_APP_IMPORT,
         host="0.0.0.0",
         port=8000,
         reload=True,

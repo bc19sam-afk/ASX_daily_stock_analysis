@@ -1,18 +1,18 @@
 #!/bin/bash
 # ===================================
-# A股/港股/美股 智能分析系统 - 测试脚本
+# ASX/AU/US 智能分析系统 - 测试脚本
 # ===================================
 #
 # 使用方法：
 #   ./test.sh [测试场景]
 #
 # 测试场景：
-#   market      - 仅大盘复盘
-#   a-stock     - A股个股分析（茅台、平安银行）
-#   etf         - etf分析(卫星etf 563230)
-#   hk-stock    - 港股分析（腾讯、阿里）
-#   us-stock    - 美股分析（苹果、特斯拉）
-#   mixed       - 混合市场分析
+#   market      - 仅大盘复盘（ASX-first）
+#   a-stock     - 兼容别名：当前默认跑 ASX 个股分析
+#   etf         - ETF 分析
+#   hk-stock    - 港股兼容分析
+#   us-stock    - 美股兼容分析
+#   mixed       - 混合市场分析（AU/US）
 #   single      - 单股模式测试
 #   dry-run     - 仅获取数据不分析
 #   full        - 完整流程测试
@@ -20,9 +20,9 @@
 #   all         - 运行所有测试
 #
 # 示例：
-#   ./test.sh market      # 测试大盘复盘
-#   ./test.sh us-stock    # 测试美股分析
-#   ./test.sh quick       # 快速测试
+#   ./test.sh market      # 测试 ASX 大盘复盘
+#   ./test.sh us-stock    # 测试美股兼容路径
+#   ./test.sh quick       # 快速测试（默认 ASX）
 #
 
 set -e
@@ -72,7 +72,7 @@ check_python() {
 check_deps() {
     info "检查依赖..."
     python3 -c "import yfinance" 2>/dev/null || { warn "yfinance 未安装，美股测试可能失败"; }
-    python3 -c "import akshare" 2>/dev/null || { warn "akshare 未安装，A股/港股测试可能失败"; }
+    python3 -c "import akshare" 2>/dev/null || { warn "akshare 未安装，A股/港股兼容测试可能失败"; }
     success "依赖检查完成"
 }
 
@@ -86,19 +86,19 @@ test_market() {
     success "大盘复盘测试完成"
 }
 
-# 测试2: A股分析
+# 测试2: ASX 分析（保留 a-stock 兼容别名）
 test_a_stock() {
-    header "测试场景: A股分析"
-    info "分析A股: 600519(茅台), 000001(平安银行)"
-    python3 main.py --stocks 600519,000001  --no-market-review "$@"
-    success "A股分析测试完成"
+    header "测试场景: ASX 个股分析"
+    info "分析 ASX: BHP.AX, CBA.AX"
+    python3 main.py --stocks BHP.AX,CBA.AX --no-market-review "$@"
+    success "ASX 个股分析测试完成"
 }
 
 # 测试2.5: ETF分析
 test_etf() {
     header "测试场景: ETF分析"
-    info "分析ETF: 563230(卫星ETF)"
-    python3 main.py --stocks 563230,512400 --no-market-review "$@"
+    info "分析 ETF: VAS.AX, IVV.AX"
+    python3 main.py --stocks VAS.AX,IVV.AX --no-market-review "$@"
     success "ETF分析测试完成"
 }
 
@@ -122,8 +122,8 @@ test_us_stock() {
 # 测试5: 混合市场
 test_mixed() {
     header "测试场景: 混合市场分析"
-    info "分析混合市场: 600519(A股), hk00700(港股), AAPL(美股)"
-    python3 main.py --stocks 600519,hk00700,AAPL --no-market-review
+    info "分析混合市场: BHP.AX(澳股), CSL.AX(澳股), AAPL(美股)"
+    python3 main.py --stocks BHP.AX,CSL.AX,AAPL --no-market-review
     success "混合市场测试完成"
 }
 
@@ -131,7 +131,7 @@ test_mixed() {
 test_single() {
     header "测试场景: 单股推送模式"
     info "测试单股推送模式..."
-    python3 main.py --stocks 600519 --single-notify --no-market-review
+    python3 main.py --stocks BHP.AX --single-notify --no-market-review
     success "单股推送模式测试完成"
 }
 
@@ -139,7 +139,7 @@ test_single() {
 test_dry_run() {
     header "测试场景: Dry-Run 模式"
     info "仅获取数据，不进行AI分析..."
-    python3 main.py --stocks 600519,AAPL --dry-run --no-notify
+    python3 main.py --stocks BHP.AX,AAPL --dry-run --no-notify
     success "Dry-Run 测试完成"
 }
 
@@ -147,15 +147,15 @@ test_dry_run() {
 test_full() {
     header "测试场景: 完整流程"
     info "运行完整分析流程（个股+大盘）..."
-    python3 main.py --stocks 600519 --no-notify
+    python3 main.py --stocks BHP.AX --no-notify
     success "完整流程测试完成"
 }
 
 # 测试9: 快速测试
 test_quick() {
     header "测试场景: 快速测试"
-    info "单只股票快速测试..."
-    python3 main.py --stocks 600519 --no-market-review
+    info "单只 ASX 股票快速测试..."
+    python3 main.py --stocks BHP.AX --no-market-review
     success "快速测试完成"
 }
 
@@ -288,7 +288,7 @@ test_all() {
 # ==================== 主程序 ====================
 
 main() {
-    header "A股/港股/美股 智能分析系统 - 测试"
+    header "ASX/AU/US 智能分析系统 - 测试"
 
     check_python
     check_deps
@@ -359,11 +359,11 @@ main() {
             echo ""
             echo "测试场景:"
             echo "  market      - 仅大盘复盘"
-            echo "  a-stock     - A股个股分析"
+            echo "  a-stock     - ASX 个股分析（兼容旧命名）"
             echo "  etf         - ETF分析"
-            echo "  hk-stock    - 港股分析"
-            echo "  us-stock    - 美股分析"
-            echo "  mixed       - 混合市场分析"
+            echo "  hk-stock    - 港股兼容分析"
+            echo "  us-stock    - 美股兼容分析"
+            echo "  mixed       - 混合市场分析（AU/US）"
             echo "  single      - 单股推送模式"
             echo "  dry-run     - 仅获取数据"
             echo "  full        - 完整流程"
@@ -376,7 +376,7 @@ main() {
             echo ""
             echo "示例:"
             echo "  $0 quick     # 快速测试"
-            echo "  $0 us-stock  # 测试美股"
+            echo "  $0 us-stock  # 测试美股兼容路径"
             echo "  $0 code      # 测试代码识别"
             echo "  $0 all       # 运行所有测试"
             ;;

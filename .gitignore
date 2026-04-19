@@ -62,6 +62,8 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+/.tmp/
+/.tmp_codex_review/
 
 local/
 

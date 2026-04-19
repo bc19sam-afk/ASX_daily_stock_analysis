@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useEffectEvent, useRef } from 'react';
 import type { HistoryItem, AnalysisReport, TaskInfo } from '../types/analysis';
 import { historyApi } from '../api/history';
 import { analysisApi, DuplicateTaskError } from '../api/analysis';
@@ -147,9 +147,13 @@ const HomePage: React.FC = () => {
     }
   }, [fetchHistory, isLoadingMore, hasMore]);
 
+  const runInitialHistoryLoad = useEffectEvent(() => {
+    void fetchHistory(true);
+  });
+
   // 初始加载 - 自动选择第一条
   useEffect(() => {
-    fetchHistory(true);
+    runInitialHistoryLoad();
   }, []);
 
   // 点击历史项加载报告

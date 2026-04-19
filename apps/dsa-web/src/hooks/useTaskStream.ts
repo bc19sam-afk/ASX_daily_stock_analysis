@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { analysisApi } from '../api/analysis';
 import type { TaskInfo } from '../types/analysis';
 
@@ -89,8 +89,9 @@ export function useTaskStream(options: UseTaskStreamOptions = {}): UseTaskStream
   } = options;
 
   const eventSourceRef = useRef<EventSource | null>(null);
-  const isConnectedRef = useRef(false);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectRef = useRef<(() => void) | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
 
   // 使用 ref 存储回调，避免 SSE 连接因回调变化而频繁重连
   const callbacksRef = useRef({
@@ -154,7 +155,7 @@ export function useTaskStream(options: UseTaskStreamOptions = {}): UseTaskStream
 
     // 连接成功
     eventSource.addEventListener('connected', () => {
-      isConnectedRef.current = true;
+      setIsConnected(true);
       callbacksRef.current.onConnected?.();
     });
 
@@ -189,14 +190,14 @@ export function useTaskStream(options: UseTaskStreamOptions = {}): UseTaskStream
 
     // 错误处理
     eventSource.onerror = (error) => {
-      isConnectedRef.current = false;
+      setIsConnected(false);
       callbacksRef.current.onError?.(error);
 
       // 自动重连
       if (autoReconnect && enabled) {
         eventSource.close();
         reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
+          connectRef.current?.();
         }, reconnectDelay);
       }
     };
@@ -206,6 +207,10 @@ export function useTaskStream(options: UseTaskStreamOptions = {}): UseTaskStream
     enabled,
     parseEventData,
   ]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   // 断开连接
   const disconnect = useCallback(() => {
@@ -217,7 +222,7 @@ export function useTaskStream(options: UseTaskStreamOptions = {}): UseTaskStream
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
-    isConnectedRef.current = false;
+    setIsConnected(false);
   }, []);
 
   // 重连
@@ -228,11 +233,11 @@ export function useTaskStream(options: UseTaskStreamOptions = {}): UseTaskStream
 
   // 启用/禁用时连接/断开
   useEffect(() => {
-    if (enabled) {
-      connect();
-    } else {
-      disconnect();
+    if (!enabled) {
+      return undefined;
     }
+
+    connect();
 
     return () => {
       disconnect();
@@ -240,7 +245,7 @@ export function useTaskStream(options: UseTaskStreamOptions = {}): UseTaskStream
   }, [enabled, connect, disconnect]);
 
   return {
-    isConnected: isConnectedRef.current,
+    isConnected,
     reconnect,
     disconnect,
   };
