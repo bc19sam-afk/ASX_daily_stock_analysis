@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, date, time, timedelta
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 
@@ -51,9 +52,74 @@ def _to_market_now(now: datetime | None, tz_name: str) -> datetime:
     return now.astimezone(tz)
 
 
+def _easter_sunday(year: int) -> date:
+    """Return Gregorian Easter Sunday for the given year."""
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def _nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> date:
+    current = date(year, month, 1)
+    offset = (weekday - current.weekday()) % 7
+    return current + timedelta(days=offset + (n - 1) * 7)
+
+
+def _add_observed_holiday(holidays: set[date], target: date) -> None:
+    observed = target
+    if target.weekday() == 5:
+        observed = target + timedelta(days=2)
+    elif target.weekday() == 6:
+        observed = target + timedelta(days=1)
+
+    while observed in holidays or observed.weekday() >= 5:
+        observed += timedelta(days=1)
+    holidays.add(observed)
+
+
+@lru_cache(maxsize=None)
+def _asx_cash_market_closed_dates(year: int) -> frozenset[date]:
+    holidays: set[date] = set()
+    easter = _easter_sunday(year)
+
+    for fixed_day in (
+        date(year, 1, 1),   # New Year's Day
+        date(year, 1, 26),  # Australia Day
+        date(year, 12, 25), # Christmas Day
+        date(year, 12, 26), # Boxing Day
+    ):
+        _add_observed_holiday(holidays, fixed_day)
+
+    holidays.update(
+        {
+            easter - timedelta(days=2),              # Good Friday
+            easter + timedelta(days=1),              # Easter Monday
+            date(year, 4, 25),                       # ANZAC Day, actual date only
+            _nth_weekday_of_month(year, 6, 0, 2),    # King's Birthday (NSW)
+        }
+    )
+    return frozenset(holidays)
+
+
 def is_trading_day(target_date: date, calendar: str | None = "ASX") -> bool:
-    """Minimal trading-day check: weekdays only (Mon-Fri)."""
-    return target_date.weekday() < 5
+    """Return whether the date is a trading day for the supported market."""
+    if target_date.weekday() >= 5:
+        return False
+    if _calendar_key(calendar) == "ASX":
+        return target_date not in _asx_cash_market_closed_dates(target_date.year)
+    return True
 
 
 def is_market_closed(

@@ -3,7 +3,10 @@
 
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import src.search_service as search_service_module
 from src.search_service import SearchResponse, SearchResult, SearchService
 
 
@@ -15,6 +18,64 @@ class SearchNewsAgeFilterTestCase(unittest.TestCase):
     @staticmethod
     def _response(result: SearchResult) -> SearchResponse:
         return SearchResponse(query="test", results=[result], provider="mock", success=True)
+
+    def test_search_window_uses_sydney_weekday(self) -> None:
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                fixed = datetime(2026, 4, 5, 15, 30, 0, tzinfo=timezone.utc)
+                if tz is None:
+                    return fixed.replace(tzinfo=None)
+                return fixed.astimezone(tz)
+
+        class CaptureProvider:
+            name = "Capture"
+            is_available = True
+
+            def __init__(self):
+                self.days = None
+
+            def search(self, query, max_results, days=7):
+                self.days = days
+                return SearchResponse(query=query, results=[], provider=self.name, success=False)
+
+        service = SearchService(news_max_age_days=3, market_timezone="Australia/Sydney")
+        provider = CaptureProvider()
+        service._providers = [provider]
+
+        with patch.object(search_service_module, "datetime", FixedDateTime):
+            service.search_stock_news("market", "大盘", max_results=3, focus_keywords=["ASX"])
+
+        self.assertEqual(provider.days, 3)
+
+    def test_search_window_invalid_timezone_falls_back_to_sydney(self) -> None:
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                fixed = datetime(2026, 4, 5, 15, 30, 0, tzinfo=timezone.utc)
+                if tz is None:
+                    return fixed.replace(tzinfo=None)
+                return fixed.astimezone(tz)
+
+        service = SearchService(news_max_age_days=3, market_timezone="Invalid/Timezone")
+
+        with patch.object(search_service_module, "datetime", FixedDateTime):
+            self.assertEqual(service._now_in_market_timezone().weekday(), 0)
+
+    def test_search_window_none_timezone_falls_back_to_sydney(self) -> None:
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                fixed = datetime(2026, 4, 5, 15, 30, 0, tzinfo=timezone.utc)
+                if tz is None:
+                    return fixed.replace(tzinfo=None)
+                return fixed.astimezone(tz)
+
+        with patch("src.config.get_config", return_value=SimpleNamespace(market_timezone=None)):
+            service = SearchService(news_max_age_days=3, market_timezone=None)
+
+        with patch.object(search_service_module, "datetime", FixedDateTime):
+            self.assertEqual(service._now_in_market_timezone().weekday(), 0)
 
     def test_keeps_news_within_window(self) -> None:
         result = SearchResult(

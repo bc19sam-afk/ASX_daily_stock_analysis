@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 
@@ -47,6 +47,16 @@ def test_asx_non_trading_day_weekend():
     assert is_trading_day(datetime(2026, 3, 28).date(), "ASX") is False  # Saturday
 
 
+def test_asx_cash_market_holidays_are_non_trading_days():
+    assert is_trading_day(date(2026, 4, 3), "ASX") is False
+    assert is_trading_day(date(2026, 4, 6), "ASX") is False
+    assert is_trading_day(date(2026, 6, 8), "ASX") is False
+
+
+def test_asx_does_not_close_for_every_australian_public_holiday():
+    assert is_trading_day(date(2026, 4, 27), "ASX") is True
+
+
 def test_asx_closed_vs_not_closed_with_timezone_boundary():
     # 2026-03-26 04:30 UTC => 15:30 Sydney (not closed yet)
     not_closed = datetime(2026, 3, 26, 4, 30, 0)
@@ -77,6 +87,17 @@ def test_last_closed_trading_day_on_monday_uses_previous_friday():
         market_timezone="Australia/Sydney",
     )
     assert last_closed.isoformat() == "2026-03-27"
+
+
+def test_last_closed_trading_day_around_easter_tuesday_skips_holidays():
+    # Tuesday 2026-04-07 01:00 UTC => 11:00 Sydney, before ASX close.
+    now_utc = datetime(2026, 4, 7, 1, 0, 0)
+    last_closed = get_last_closed_trading_date(
+        now_utc,
+        calendar="ASX",
+        market_timezone="Australia/Sydney",
+    )
+    assert last_closed.isoformat() == "2026-04-02"
 
 
 def test_base_fetcher_end_date_uses_last_closed_trading_day(monkeypatch):

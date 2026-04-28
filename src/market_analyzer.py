@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -102,6 +103,14 @@ class MarketAnalyzer:
         self.analyzer = analyzer
         self.data_manager = DataFetcherManager()
 
+    def _now_in_market_timezone(self) -> datetime:
+        market_tz = getattr(self.config, "market_timezone", "Australia/Sydney")
+        try:
+            return datetime.now(ZoneInfo(market_tz))
+        except Exception as exc:
+            logger.warning("无效市场时区 %s，已回退到 Australia/Sydney: %s", market_tz, exc)
+            return datetime.now(ZoneInfo("Australia/Sydney"))
+
     def get_market_overview(self) -> MarketOverview:
         """
         获取市场概览数据
@@ -109,7 +118,7 @@ class MarketAnalyzer:
         Returns:
             MarketOverview: 市场概览数据对象
         """
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = self._now_in_market_timezone().strftime('%Y-%m-%d')
         overview = MarketOverview(date=today)
         
         # 1. 获取主要指数行情
@@ -270,8 +279,6 @@ class MarketAnalyzer:
             return []
         
         all_news = []
-        today = datetime.now()
-        date_str = today.strftime('%Y年%m月%d日')
 
         # 多维度搜索
         # 针对澳洲和全球宏观的英文搜索词
@@ -565,6 +572,7 @@ class MarketAnalyzer:
         else:
             sector_section = "⚠️ 板块涨跌榜暂不可用，已隐藏领涨/领跌结论以避免误导。"
         
+        review_time = self._now_in_market_timezone().strftime('%H:%M')
         report = f"""## 📊 {overview.date} 大盘复盘
 
 ### 一、市场总结
@@ -583,7 +591,7 @@ class MarketAnalyzer:
 市场有风险，投资需谨慎。以上数据仅供参考，不构成投资建议。
 
 ---
-*复盘时间: {datetime.now().strftime('%H:%M')}*
+*复盘时间: {review_time}*
 """
         return report
     

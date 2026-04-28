@@ -13,6 +13,15 @@ class FixedDateTime(datetime):
         return fixed.astimezone(tz)
 
 
+class FixedAsxHolidayDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        fixed = datetime(2026, 4, 3, 0, 30, 0, tzinfo=timezone.utc)
+        if tz is None:
+            return fixed.replace(tzinfo=None)
+        return fixed.astimezone(tz)
+
+
 def _make_config(require_market_closed: bool) -> Config:
     return Config(
         market_calendar="ASX",
@@ -24,6 +33,21 @@ def _make_config(require_market_closed: bool) -> Config:
 def test_should_skip_non_trading_day(monkeypatch):
     monkeypatch.setattr(main, "datetime", FixedDateTime)
     monkeypatch.setattr(main, "is_trading_day", lambda _d, _c: False)
+
+    called = {"market_closed": 0}
+
+    def _is_market_closed(*args, **kwargs):
+        called["market_closed"] += 1
+        return True
+
+    monkeypatch.setattr(main, "is_market_closed", _is_market_closed)
+
+    assert main._should_skip_for_market_window(_make_config(require_market_closed=False)) is True
+    assert called["market_closed"] == 0
+
+
+def test_should_skip_real_asx_holiday(monkeypatch):
+    monkeypatch.setattr(main, "datetime", FixedAsxHolidayDateTime)
 
     called = {"market_closed": 0}
 
