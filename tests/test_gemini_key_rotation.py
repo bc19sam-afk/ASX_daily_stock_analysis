@@ -212,7 +212,7 @@ def test_main_market_review_uses_default_analyzer_init_for_multi_key_config(monk
     monkeypatch.setattr("src.notification.NotificationService", lambda: object())
     monkeypatch.setattr(
         "src.core.market_review.run_market_review",
-        lambda **kwargs: review_call.update(kwargs),
+        lambda **kwargs: review_call.update(kwargs) or "market report",
     )
 
     assert main_module.main() == 0

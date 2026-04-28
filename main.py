@@ -247,16 +247,20 @@ def run_full_analysis(
     config: Config,
     args: argparse.Namespace,
     stock_codes: Optional[List[str]] = None
-):
+) -> bool:
     """
     执行完整的分析流程（个股 + 大盘复盘）
 
     这是定时任务调用的主函数
+
+    Returns:
+        True if at least one usable report was produced, or the run was
+        intentionally skipped; False when the run produced no usable output.
     """
     try:
         # 交易日与收盘检查：避免依赖机器本地时间（GitHub Actions 真实入口）
         if _should_skip_for_market_window(config):
-            return
+            return True
 
         # 命令行参数 --single-notify 覆盖配置（#55）
         if getattr(args, 'single_notify', False):
@@ -361,6 +365,10 @@ def run_full_analysis(
                     f"评分 {r.sentiment_score} | {r.trend_prediction}"
                 )
 
+        produced_report = bool(results or market_report)
+        if not produced_report and not args.dry_run:
+            logger.error("本次执行未生成任何可用个股报告或大盘复盘，标记为失败")
+            return False
         logger.info("\n任务执行完成")
 
         # === 新增：生成飞书云文档 ===
@@ -419,8 +427,11 @@ def run_full_analysis(
         except Exception as e:
             logger.warning(f"自动回测失败（已忽略）: {e}")
 
+        return True
+
     except Exception as e:
         logger.exception(f"分析流程执行失败: {e}")
+        return False
 
 
 def start_api_server(host: str, port: int, config: Config) -> None:
@@ -601,12 +612,15 @@ def main() -> int:
             else:
                 logger.warning("未检测到 API Key (Gemini/OpenAI)，将仅使用模板生成报告")
 
-            run_market_review(
+            market_report = run_market_review(
                 notifier=notifier,
                 analyzer=analyzer,
                 search_service=search_service,
                 send_notification=not args.no_notify,
             )
+            if not market_report:
+                logger.error("大盘复盘未生成可用报告，标记为失败")
+                return 1
             return 0
 
         # 模式2: 定时任务模式
@@ -636,7 +650,8 @@ def main() -> int:
             return 0
 
         # 模式3: 正常单次运行
-        run_full_analysis(config, args, stock_codes)
+        if not run_full_analysis(config, args, stock_codes):
+            return 1
 
         logger.info("\n程序执行完成")
 
