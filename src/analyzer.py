@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from src.config import get_config
 from src.gemini_key_manager import (
     GeminiKeyManager,
+    is_key_specific_gemini_error,
     is_transient_gemini_error,
     is_valid_gemini_api_key,
 )
@@ -749,13 +750,15 @@ class GeminiAnalyzer:
             return False
 
     def _rotate_to_next_gemini_key(self, error: Exception) -> bool:
-        if not is_transient_gemini_error(error):
+        is_key_specific = is_key_specific_gemini_error(error)
+        if not is_transient_gemini_error(error) and not is_key_specific:
             return False
         if not self._gemini_key_manager.rotate_to_next_key():
             return False
 
         logger.warning(
-            "[Gemini] Transient error detected, switching to next API key: %s",
+            "[Gemini] %s detected, switching to next API key: %s",
+            "Key-specific error" if is_key_specific else "Transient error",
             self._gemini_key_manager.current_key_label(),
         )
         if not self._activate_current_gemini_key():
@@ -992,7 +995,7 @@ class GeminiAnalyzer:
             return self._call_openai_api(prompt, generation_config)
 
         config = get_config()
-        max_retries = config.gemini_max_retries
+        max_retries = max(config.gemini_max_retries, self._gemini_key_manager.total_keys)
         base_delay = config.gemini_retry_delay
         
         last_error = None
@@ -1014,9 +1017,20 @@ class GeminiAnalyzer:
                 error_str = str(e)
                 error_lower = error_str.lower()
                 is_transient = is_transient_gemini_error(e)
-                if not is_transient:
+                is_key_specific = is_key_specific_gemini_error(e)
+                if not is_transient and not is_key_specific:
                     logger.warning(
                         "[Gemini] Non-transient error detected, stop Gemini retries without rotating key: %s",
+                        error_str[:100],
+                    )
+                    break
+
+                if is_key_specific and not is_transient:
+                    if self._rotate_to_next_gemini_key(e):
+                        logger.info("[Gemini] 已切换到下一个 API key，继续重试")
+                        continue
+                    logger.warning(
+                        "[Gemini] Key-specific error and no remaining API key, stop Gemini retries: %s",
                         error_str[:100],
                     )
                     break
