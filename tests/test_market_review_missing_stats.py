@@ -1,4 +1,17 @@
+from datetime import datetime as real_datetime, timezone
+from types import SimpleNamespace
+
+import src.market_analyzer as market_analyzer_module
 from src.market_analyzer import MarketAnalyzer, MarketOverview, MarketIndex
+
+
+class _FixedSydneyBoundaryDateTime(real_datetime):
+    @classmethod
+    def now(cls, tz=None):
+        fixed = real_datetime(2026, 4, 2, 15, 30, 0, tzinfo=timezone.utc)
+        if tz is None:
+            return fixed.replace(tzinfo=None)
+        return fixed.astimezone(tz)
 
 
 class _DummyAnalyzer:
@@ -20,6 +33,54 @@ class _DummyAnalyzer:
 ### 四、后市展望
 测试内容
 """
+
+
+def test_market_overview_date_uses_configured_market_timezone(monkeypatch):
+    monkeypatch.setattr(market_analyzer_module, "datetime", _FixedSydneyBoundaryDateTime)
+
+    analyzer = MarketAnalyzer()
+    analyzer.config = SimpleNamespace(market_timezone="Australia/Sydney")
+    analyzer._get_main_indices = lambda: []
+
+    overview = analyzer.get_market_overview()
+
+    assert overview.date == "2026-04-03"
+
+
+def test_market_overview_invalid_timezone_falls_back_to_sydney(monkeypatch):
+    monkeypatch.setattr(market_analyzer_module, "datetime", _FixedSydneyBoundaryDateTime)
+
+    analyzer = MarketAnalyzer()
+    analyzer.config = SimpleNamespace(market_timezone="Invalid/Timezone")
+    analyzer._get_main_indices = lambda: []
+
+    overview = analyzer.get_market_overview()
+
+    assert overview.date == "2026-04-03"
+
+
+def test_template_review_time_uses_configured_market_timezone(monkeypatch):
+    monkeypatch.setattr(market_analyzer_module, "datetime", _FixedSydneyBoundaryDateTime)
+
+    analyzer = MarketAnalyzer()
+    analyzer.config = SimpleNamespace(market_timezone="Australia/Sydney")
+    overview = MarketOverview(date="2026-04-03")
+
+    report = analyzer._generate_template_review(overview, news=[])
+
+    assert "*复盘时间: 02:30*" in report
+
+
+def test_template_review_none_timezone_falls_back_to_sydney(monkeypatch):
+    monkeypatch.setattr(market_analyzer_module, "datetime", _FixedSydneyBoundaryDateTime)
+
+    analyzer = MarketAnalyzer()
+    analyzer.config = SimpleNamespace(market_timezone=None)
+    overview = MarketOverview(date="2026-04-03")
+
+    report = analyzer._generate_template_review(overview, news=[])
+
+    assert "*复盘时间: 02:30*" in report
 
 
 def test_template_review_hides_zero_like_placeholder_when_stats_missing():

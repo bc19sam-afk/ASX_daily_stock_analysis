@@ -26,6 +26,49 @@ _TRANSIENT_ERROR_TOKENS = (
     "network error",
     "socket error",
 )
+_API_KEY_TOKENS = ("api key", "api_key", "apikey")
+_KEY_SPECIFIC_ERROR_TOKENS = (
+    "api_key_invalid",
+    "api key invalid",
+    "invalid api key",
+    "invalid api_key",
+    "api key not valid",
+    "api key is invalid",
+    "api key has been blocked",
+    "api key was blocked",
+    "api key blocked",
+    "blocked api key",
+    "api key has been revoked",
+    "api key was revoked",
+    "api key revoked",
+    "revoked api key",
+    "api key has been leaked",
+    "api key was leaked",
+    "api key leaked",
+    "leaked api key",
+)
+_PERMISSION_STATUS_TOKENS = ("403", "permission_denied", "permission denied")
+_PERMISSION_REASON_TOKENS = (
+    "permission",
+    "access",
+    "not authorized",
+    "not allowed",
+    "forbidden",
+    "denied",
+)
+_FAILED_PRECONDITION_STATUS_TOKENS = (
+    "failed_precondition",
+    "failed precondition",
+)
+_FAILED_PRECONDITION_REASON_TOKENS = (
+    "billing",
+    "free-tier",
+    "free tier",
+    "project",
+    "entitlement",
+    "eligible",
+    "eligibility",
+)
 
 
 def is_valid_gemini_api_key(key: Optional[str]) -> bool:
@@ -62,6 +105,31 @@ def is_transient_gemini_error(error: Exception | str) -> bool:
     if _TRANSIENT_STATUS_RE.search(message):
         return True
     return any(token in message for token in _TRANSIENT_ERROR_TOKENS)
+
+
+def is_key_specific_gemini_error(error: Exception | str) -> bool:
+    """Return True for narrow Gemini credential/entitlement failures."""
+    message = str(error or "").lower()
+    if not message:
+        return False
+    if any(token in message for token in _KEY_SPECIFIC_ERROR_TOKENS):
+        return True
+
+    mentions_api_key = any(token in message for token in _API_KEY_TOKENS)
+    if (
+        mentions_api_key
+        and any(token in message for token in _PERMISSION_STATUS_TOKENS)
+        and any(token in message for token in _PERMISSION_REASON_TOKENS)
+    ):
+        return True
+
+    if (
+        any(token in message for token in _FAILED_PRECONDITION_STATUS_TOKENS)
+        and any(token in message for token in _FAILED_PRECONDITION_REASON_TOKENS)
+    ):
+        return True
+
+    return False
 
 
 @dataclass

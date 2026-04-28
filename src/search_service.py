@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from typing import List, Dict, Any, Optional, Tuple
 from itertools import cycle
+from zoneinfo import ZoneInfo
 import requests
 from newspaper import Article, Config
 
@@ -411,13 +412,15 @@ class SearchService:
         tavily_keys: Optional[List[str]] = None,
         brave_keys: Optional[List[str]] = None,
         serpapi_keys: Optional[List[str]] = None,
-        news_max_age_days: int = 3
+        news_max_age_days: int = 3,
+        market_timezone: Optional[str] = None
         
     ):
         """初始化搜索服务（已针对澳洲股票优化：Tavily 优先）"""
         self._providers: List[BaseSearchProvider] = []
         
         self.news_max_age_days = max(1, news_max_age_days)  # <--- 插入这句
+        self.market_timezone = self._resolve_market_timezone(market_timezone)
 
         # 1. Tavily 优先（针对 ASX 澳洲股票搜索能力强）
         if tavily_keys:
@@ -438,12 +441,32 @@ class SearchService:
         if bocha_keys:
             self._providers.append(BochaSearchProvider(bocha_keys))
             logger.info(f"已配置 Bocha 搜索，共 {len(bocha_keys)} 个 API Key")
-        
+
         if not self._providers:
             logger.warning("未配置任何搜索引擎 API Key，新闻搜索功能将不可用")
 
         self._cache: Dict[str, Tuple[float, 'SearchResponse']] = {}
         self._cache_ttl: int = 600
+
+    @staticmethod
+    def _resolve_market_timezone(market_timezone: Optional[str]) -> str:
+        if market_timezone and market_timezone.strip():
+            return market_timezone.strip()
+        try:
+            from src.config import get_config
+
+            configured = getattr(get_config(), "market_timezone", "Australia/Sydney")
+            return str(configured or "Australia/Sydney").strip() or "Australia/Sydney"
+        except Exception as exc:
+            logger.debug("读取市场时区配置失败，使用 Australia/Sydney: %s", exc)
+            return "Australia/Sydney"
+
+    def _now_in_market_timezone(self) -> datetime:
+        try:
+            return datetime.now(ZoneInfo(self.market_timezone))
+        except Exception as exc:
+            logger.warning("无效市场时区 %s，已回退到 Australia/Sydney: %s", self.market_timezone, exc)
+            return datetime.now(ZoneInfo("Australia/Sydney"))
 
     @property
     def is_available(self) -> bool:
@@ -778,7 +801,7 @@ class SearchService:
         )
     
     def search_stock_news(self, stock_code: str, stock_name: str, max_results: int = 5, focus_keywords: Optional[List[str]] = None) -> SearchResponse:
-        today_weekday = datetime.now().weekday()
+        today_weekday = self._now_in_market_timezone().weekday()
     
         # 1. 先计算常规情况下的建议天数
         weekday_days = 3 if today_weekday == 0 else (2 if today_weekday >= 5 else 1)

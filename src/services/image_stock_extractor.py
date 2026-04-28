@@ -17,7 +17,11 @@ import re
 from typing import List, Optional, Tuple
 
 from src.config import get_config
-from src.gemini_key_manager import GeminiKeyManager, is_transient_gemini_error
+from src.gemini_key_manager import (
+    GeminiKeyManager,
+    is_key_specific_gemini_error,
+    is_transient_gemini_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,10 +170,13 @@ def _call_gemini(image_b64: str, mime_type: str) -> str:
             raise ValueError("Gemini returned empty response")
         except Exception as e:
             last_error = e
-            if not is_transient_gemini_error(e) or not key_manager.rotate_to_next_key():
+            if (
+                not is_transient_gemini_error(e)
+                and not is_key_specific_gemini_error(e)
+            ) or not key_manager.rotate_to_next_key():
                 raise
             logger.warning(
-                "[ImageExtractor] Gemini transient error, switching API key: %s",
+                "[ImageExtractor] Gemini rotatable error, switching API key: %s",
                 key_manager.current_key_label(),
             )
 

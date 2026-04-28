@@ -97,6 +97,48 @@ def test_gemini_rotates_to_second_key_on_429(monkeypatch):
     assert analyzer._api_key == second_key
 
 
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "400 API_KEY_INVALID: API key not valid. Please pass a valid API key.",
+        "403 PERMISSION_DENIED: API key doesn't have required permissions.",
+        "API key was blocked because it was leaked.",
+        "API key has been revoked by the project owner.",
+        "400 FAILED_PRECONDITION: Gemini API free tier is not available for this project; enable billing.",
+    ],
+)
+def test_gemini_rotates_on_key_specific_permanent_errors(monkeypatch, error_message):
+    first_key = "first-key-1234567890"
+    second_key = "second-key-1234567890"
+    analyzer = _make_test_analyzer([first_key, second_key])
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        "src.analyzer.get_config",
+        lambda: SimpleNamespace(
+            gemini_max_retries=1,
+            gemini_retry_delay=0.0,
+            anthropic_api_key=None,
+            openai_api_key=None,
+        ),
+    )
+    monkeypatch.setattr("src.analyzer.time.sleep", lambda *_args, **_kwargs: None)
+
+    def _fake_generate(_prompt: str, _generation_config: dict) -> str:
+        calls.append(analyzer._api_key)
+        if analyzer._api_key == first_key:
+            raise RuntimeError(error_message)
+        return "ok"
+
+    monkeypatch.setattr(analyzer, "_generate_gemini_content", _fake_generate)
+
+    result = analyzer._call_api_with_retry("prompt", {})
+
+    assert result == "ok"
+    assert calls == [first_key, second_key]
+    assert analyzer._api_key == second_key
+
+
 def test_gemini_does_not_rotate_keys_on_permanent_error(monkeypatch):
     first_key = "first-key-1234567890"
     second_key = "second-key-1234567890"
@@ -124,6 +166,76 @@ def test_gemini_does_not_rotate_keys_on_permanent_error(monkeypatch):
 
     assert calls == [first_key]
     assert analyzer._api_key == first_key
+
+
+def test_gemini_key_specific_errors_exhaust_keys_before_provider_fallback(monkeypatch):
+    first_key = "first-key-1234567890"
+    second_key = "second-key-1234567890"
+    analyzer = _make_test_analyzer([first_key, second_key])
+    analyzer._anthropic_client = object()
+    gemini_calls: list[str] = []
+    anthropic_calls: list[str] = []
+
+    monkeypatch.setattr(
+        "src.analyzer.get_config",
+        lambda: SimpleNamespace(
+            gemini_max_retries=1,
+            gemini_retry_delay=0.0,
+            anthropic_api_key="anthropic-key-1234567890",
+            openai_api_key=None,
+        ),
+    )
+    monkeypatch.setattr("src.analyzer.time.sleep", lambda *_args, **_kwargs: None)
+
+    def _fake_generate(_prompt: str, _generation_config: dict) -> str:
+        gemini_calls.append(analyzer._api_key)
+        raise RuntimeError("403 PERMISSION_DENIED: API key doesn't have required permissions.")
+
+    def _fake_anthropic(_prompt: str, _generation_config: dict) -> str:
+        anthropic_calls.append("anthropic")
+        return "anthropic-ok"
+
+    monkeypatch.setattr(analyzer, "_generate_gemini_content", _fake_generate)
+    monkeypatch.setattr(analyzer, "_call_anthropic_api", _fake_anthropic)
+
+    result = analyzer._call_api_with_retry("prompt", {})
+
+    assert result == "anthropic-ok"
+    assert gemini_calls == [first_key, second_key]
+    assert anthropic_calls == ["anthropic"]
+    assert analyzer._api_key == second_key
+
+
+def test_gemini_only_key_specific_errors_raise_last_key_error(monkeypatch):
+    first_key = "first-key-1234567890"
+    second_key = "second-key-1234567890"
+    analyzer = _make_test_analyzer([first_key, second_key])
+    gemini_calls: list[str] = []
+
+    monkeypatch.setattr(
+        "src.analyzer.get_config",
+        lambda: SimpleNamespace(
+            gemini_max_retries=1,
+            gemini_retry_delay=0.0,
+            anthropic_api_key=None,
+            openai_api_key=None,
+        ),
+    )
+    monkeypatch.setattr("src.analyzer.time.sleep", lambda *_args, **_kwargs: None)
+
+    def _fake_generate(_prompt: str, _generation_config: dict) -> str:
+        gemini_calls.append(analyzer._api_key)
+        if analyzer._api_key == first_key:
+            raise RuntimeError("API_KEY_INVALID: first key is invalid")
+        raise RuntimeError("API_KEY_INVALID: second key is invalid")
+
+    monkeypatch.setattr(analyzer, "_generate_gemini_content", _fake_generate)
+
+    with pytest.raises(RuntimeError, match="second key is invalid"):
+        analyzer._call_api_with_retry("prompt", {})
+
+    assert gemini_calls == [first_key, second_key]
+    assert analyzer._api_key == second_key
 
 
 def test_gemini_permanent_error_still_uses_existing_provider_fallback(monkeypatch):
@@ -212,7 +324,7 @@ def test_main_market_review_uses_default_analyzer_init_for_multi_key_config(monk
     monkeypatch.setattr("src.notification.NotificationService", lambda: object())
     monkeypatch.setattr(
         "src.core.market_review.run_market_review",
-        lambda **kwargs: review_call.update(kwargs),
+        lambda **kwargs: review_call.update(kwargs) or "market report",
     )
 
     assert main_module.main() == 0
