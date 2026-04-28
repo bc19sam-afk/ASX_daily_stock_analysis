@@ -4,6 +4,7 @@
 import unittest
 from unittest.mock import patch
 from datetime import datetime as real_datetime
+from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
 from src.formatters import format_feishu_markdown, markdown_to_html_document
@@ -358,6 +359,45 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("价格口径披露：**0/1** 只使用实时价格，**1/1** 只使用最新收盘，**0/1** 只按收盘口径。", report)
         self.assertIn("**价格基准**：最新收盘", report)
 
+    @patch("src.notification.datetime")
+    def test_data_baseline_adds_pre_open_tip_for_close_only_reports(self, mock_datetime) -> None:
+        mock_datetime.now.return_value = real_datetime(2026, 4, 29, 8, 31, 28)
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            execution_price_source="close_only",
+            market_snapshot={"date": "2026-04-28", "close": "10.00"},
+        )
+
+        report = service.generate_daily_report([result], report_date="2026-04-29")
+
+        self.assertIn("价格口径披露：**0/1** 只使用实时价格，**0/1** 只使用最新收盘，**1/1** 只按收盘口径。", report)
+        self.assertIn("开盘前阅读提示：本报告按上一交易日收盘后的计划口径生成；开盘后执行前请二次确认最新价格。", report)
+
+    @patch("src.notification.smtplib.SMTP")
+    def test_email_subject_uses_report_timezone_date(self, mock_smtp) -> None:
+        class FixedDateTime(real_datetime):
+            @classmethod
+            def now(cls, tz=None):
+                utc_now = real_datetime(2026, 4, 28, 22, 31, 0, tzinfo=ZoneInfo("UTC"))
+                return utc_now.astimezone(tz) if tz else utc_now.replace(tzinfo=None)
+
+        service = NotificationService.__new__(NotificationService)
+        service._report_timezone = "Australia/Sydney"
+        service._email_config = {
+            "sender": "sender@gmail.com",
+            "sender_name": "daily_stock_analysis股票分析助手",
+            "password": "secret",
+            "receivers": ["receiver@example.com"],
+        }
+        mock_server = mock_smtp.return_value
+
+        with patch("src.notification.datetime", FixedDateTime):
+            self.assertTrue(service.send_to_email("body"))
+
+        sent_msg = mock_server.send_message.call_args.args[0]
+        self.assertIn("2026-04-29", str(sent_msg["Subject"]))
+
     def test_single_stock_report_labels_sniper_points_as_ai_reference_only(self) -> None:
         service = self._build_service()
         result = self._build_result(
@@ -700,8 +740,41 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("| 当前价 | 量比 | 换手率 | 行情来源 |", report)
+        self.assertIn("| 收盘基准价 | 量比 | 换手率 | 行情来源 |", report)
         self.assertIn("| 50.10 | N/A | N/A | Yahoo Finance |", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_price_tables_label_close_only_values_as_close_basis(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            execution_price_source="close_only",
+            market_snapshot={
+                "date": "2026-04-28",
+                "close": "10.00",
+                "price": "10.00",
+                "source": "yfinance",
+            },
+            dashboard={
+                "data_perspective": {
+                    "price_position": {
+                        "current_price": "10.00",
+                        "ma5": "9.90",
+                        "ma10": "9.80",
+                        "ma20": "9.70",
+                        "bias_ma5": "1.0",
+                        "bias_status": "安全",
+                    }
+                }
+            },
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-04-29")
+
+        self.assertIn("| 收盘基准价 | 量比 | 换手率 | 行情来源 |", report)
+        self.assertIn("| 收盘基准价 | 10.00 |", report)
+        self.assertNotIn("| 当前价 |", report)
 
     @patch("src.notification.get_db")
     def test_dashboard_report_generation_is_read_only_against_db(self, mock_get_db) -> None:

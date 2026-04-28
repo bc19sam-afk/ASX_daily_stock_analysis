@@ -5,7 +5,7 @@ import tempfile
 import threading
 import time
 import unittest
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
@@ -764,6 +764,7 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         pipeline.analyzer.analyze.return_value = self._result("RW1", final_decision="BUY")
         pipeline.position_manager = PositionManager()
         pipeline.save_context_snapshot = False
+        pipeline._now_for_testing = datetime(2026, 4, 29, 2, 0, 0)
 
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
 

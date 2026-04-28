@@ -426,7 +426,7 @@ class GeminiAnalyzer:
 
 ### 4. 风险排查重点 (ASX 专属)
 - **绝对红线**：ASX 官方发布的价格敏感公告（Price Sensitive Announcements）若存在重大利空。
-- 目前正处于 2026 年 2 月的财报季（Reporting Season），需高度警惕业绩不及预期（Earnings Miss）导致的跳空暴跌。
+- 若新闻、公告或基本面数据提示临近业绩披露/交易更新，需高度警惕业绩不及预期（Earnings Miss）导致的跳空暴跌；不要假定固定月份，必须以报告日期和已检索信息为准。
 - 异常升高的做空比例（Short Interest）或被做空机构狙击。
 
 ### 5. 买点偏好（回踩支撑）

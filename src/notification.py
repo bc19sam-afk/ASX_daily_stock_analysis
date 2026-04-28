@@ -628,12 +628,25 @@ class NotificationService:
             lines.append(
                 f"- 说明：当前报告存在“旧日线信号 + 新实时价格”混用（实时 {realtime_count} 只，非实时 {latest_close_count + close_only_count} 只），已在此披露。"
             )
+        elif total_count > 0 and close_only_count == total_count:
+            lines.append(
+                "- 开盘前阅读提示：本报告按上一交易日收盘后的计划口径生成；开盘后执行前请二次确认最新价格。"
+            )
         lines.append("")
         return lines
 
     def _get_price_basis_label(self, result: AnalysisResult) -> str:
         """返回单只股票的价格口径标签（仅用于展示层披露）。"""
         return self._format_price_basis_label(self._classify_price_basis(result))
+
+    def _get_price_metric_label(self, result: AnalysisResult) -> str:
+        """返回价格字段在当前口径下的用户可读标签。"""
+        basis = self._classify_price_basis(result)
+        if basis == "realtime":
+            return "实时参考价"
+        if basis == "latest_close":
+            return "最新收盘价"
+        return "收盘基准价"
     
     def generate_daily_report(
         self,
@@ -1664,10 +1677,11 @@ class NotificationService:
                     if price_data:
                         bias_status = price_data.get('bias_status', 'N/A')
                         bias_emoji = "✅" if bias_status == "安全" else ("⚠️" if bias_status == "警戒" else "🚨")
+                        price_metric_label = self._get_price_metric_label(result)
                         report_lines.extend([
                             "| 价格指标 | 数值 |",
                             "|---------|------|",
-                            f"| 当前价 | {price_data.get('current_price', 'N/A')} |",
+                            f"| {price_metric_label} | {price_data.get('current_price', 'N/A')} |",
                             f"| MA5 | {price_data.get('ma5', 'N/A')} |",
                             f"| MA10 | {price_data.get('ma10', 'N/A')} |",
                             f"| MA20 | {price_data.get('ma20', 'N/A')} |",
@@ -2290,9 +2304,10 @@ class NotificationService:
         if "price" in snapshot:
             raw_source = snapshot.get('source', 'N/A')
             display_source = self._SOURCE_DISPLAY_NAMES.get(raw_source, raw_source)
+            price_metric_label = self._get_price_metric_label(result)
             lines.extend([
                 "",
-                "| 当前价 | 量比 | 换手率 | 行情来源 |",
+                f"| {price_metric_label} | 量比 | 换手率 | 行情来源 |",
                 "|-------|------|--------|----------|",
                 f"| {snapshot.get('price', 'N/A')} | {snapshot.get('volume_ratio', 'N/A')} | "
                 f"{snapshot.get('turnover_rate', 'N/A')} | {display_source} |",
@@ -2894,7 +2909,7 @@ class NotificationService:
         try:
             # 生成主题
             if subject is None:
-                date_str = datetime.now().strftime('%Y-%m-%d')
+                date_str = self._now_in_report_tz().strftime('%Y-%m-%d')
                 subject = f"📈 股票智能分析报告 - {date_str}"
             
             # 将 Markdown 转换为简单 HTML
@@ -2964,7 +2979,7 @@ class NotificationService:
         password = self._email_config['password']
         receivers = receivers or self._email_config['receivers']
         try:
-            date_str = datetime.now().strftime('%Y-%m-%d')
+            date_str = self._now_in_report_tz().strftime('%Y-%m-%d')
             subject = f"📈 股票智能分析报告 - {date_str}"
             msg = MIMEMultipart('related')
             msg['Subject'] = Header(subject, 'utf-8')

@@ -371,6 +371,7 @@ class YfinanceFetcher(BaseFetcher):
             ticker_symbol = self._convert_stock_code(stock_code)
             logger.info(f"[{stock_code}] 正在从 Yahoo Finance 获取数据...")
             ticker = yf.Ticker(ticker_symbol)
+            daily_cutoff = end_date or self._resolve_default_daily_cutoff()
             if start_date and end_date:
                 df = ticker.history(start=start_date, end=end_date)
             else:
@@ -444,6 +445,11 @@ class YfinanceFetcher(BaseFetcher):
             # 格式化日期
             if "date" in df.columns:
                 df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.strftime("%Y-%m-%d")
+                if daily_cutoff:
+                    cutoff = pd.to_datetime(daily_cutoff).date()
+                    df = df[pd.to_datetime(df["date"]).dt.date <= cutoff].copy()
+                    if df.empty:
+                        raise DataFetchError(f"[{stock_code}] 未获取到 {daily_cutoff} 及以前的已收盘日线数据")
 
             # 确保按日期升序排列（旧→新），pct_change() 依赖此顺序
             if "date" in df.columns:
@@ -475,6 +481,22 @@ class YfinanceFetcher(BaseFetcher):
         except Exception as e:
             logger.error(f"[{stock_code}] 获取数据失败：{e}")
             raise DataFetchError(f"Yahoo Finance 获取数据失败：{e}")
+
+    @staticmethod
+    def _resolve_default_daily_cutoff() -> Optional[str]:
+        """Resolve the latest market-closed daily date for default Yahoo pulls."""
+        try:
+            from src.config import get_config
+            from src.market_calendar import get_last_closed_trading_date
+
+            cfg = get_config()
+            return get_last_closed_trading_date(
+                calendar=getattr(cfg, "market_calendar", "ASX"),
+                market_timezone=getattr(cfg, "market_timezone", "Australia/Sydney"),
+            ).isoformat()
+        except Exception as exc:
+            logger.debug("无法解析 Yahoo 日线默认截止日，保留原始返回范围: %s", exc)
+            return None
 
     def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:
         """

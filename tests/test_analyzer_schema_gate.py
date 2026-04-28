@@ -39,6 +39,11 @@ def test_top_level_valid_without_dashboard_still_passes_as_success():
     assert result.analysis_summary == payload["analysis_summary"]
 
 
+def test_system_prompt_does_not_pin_stale_reporting_season_date():
+    assert "2026 年 2 月" not in GeminiAnalyzer.SYSTEM_PROMPT
+    assert "不要假定固定月份" in GeminiAnalyzer.SYSTEM_PROMPT
+
+
 def test_schema_fails_when_dashboard_exists_but_structure_invalid():
     analyzer = GeminiAnalyzer(api_key=None)
     payload = _valid_payload()
