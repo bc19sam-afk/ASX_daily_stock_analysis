@@ -28,6 +28,7 @@ class PipelineSummaryDateFilterTestCase(unittest.TestCase):
         pipeline.notifier = MagicMock()
         pipeline.notifier.generate_dashboard_report.return_value = "dashboard-body"
         pipeline.notifier.save_report_to_file.return_value = "/tmp/report.md"
+        pipeline.notifier.get_last_daily_decision_summary.return_value = None
 
         results = [
             self._build_result(None),
@@ -39,9 +40,9 @@ class PipelineSummaryDateFilterTestCase(unittest.TestCase):
 
         pipeline._send_notifications(results, skip_push=True)
 
-        saved_report = pipeline.notifier.save_report_to_file.call_args[0][0]
-        self.assertIn("## 🎯 组合决策总结（报告日 2026-04-07）", saved_report)
-        self.assertNotIn("技术基准日 None", saved_report)
+        portfolio_section = pipeline.notifier.generate_dashboard_report.call_args.kwargs["portfolio_summary_section"]
+        self.assertIn("## 🎯 组合决策总结（报告日 2026-04-07）", portfolio_section)
+        self.assertNotIn("技术基准日 None", portfolio_section)
 
     @patch("src.core.pipeline._now_in_timezone_safe")
     def test_summary_prefix_keeps_valid_snapshot_date(self, mock_now) -> None:
@@ -53,11 +54,12 @@ class PipelineSummaryDateFilterTestCase(unittest.TestCase):
         pipeline.notifier = MagicMock()
         pipeline.notifier.generate_dashboard_report.return_value = "dashboard-body"
         pipeline.notifier.save_report_to_file.return_value = "/tmp/report.md"
+        pipeline.notifier.get_last_daily_decision_summary.return_value = None
 
         pipeline._send_notifications([self._build_result("2026-04-06")], skip_push=True)
 
-        saved_report = pipeline.notifier.save_report_to_file.call_args[0][0]
-        self.assertIn("## 🎯 组合决策总结（技术基准日 2026-04-06｜报告日 2026-04-07）", saved_report)
+        portfolio_section = pipeline.notifier.generate_dashboard_report.call_args.kwargs["portfolio_summary_section"]
+        self.assertIn("## 🎯 组合决策总结（技术基准日 2026-04-06｜报告日 2026-04-07）", portfolio_section)
 
 
 if __name__ == "__main__":

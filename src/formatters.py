@@ -143,6 +143,149 @@ def markdown_to_html_document(markdown_text: str) -> str:
         """
 
 
+def markdown_to_archive_html_document(markdown_text: str) -> str:
+    """
+    Convert Markdown to a standalone, print-friendly HTML archive document.
+
+    The archive stays text-based (copyable/selectable) and avoids fixed-height
+    containers so future HTML -> PDF conversion does not create blank tail pages.
+    """
+    html_content = markdown2.markdown(
+        markdown_text,
+        extras=["tables", "fenced-code-blocks", "break-on-newline", "cuddled-lists"],
+    )
+
+    css_style = """
+            @page {
+                margin: 14mm;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+                line-height: 1.45;
+                color: #1f2933;
+                font-size: 14px;
+                max-width: 980px;
+                margin: 0 auto;
+                padding: 20px;
+                background: #ffffff;
+            }
+            h1 {
+                font-size: 24px;
+                margin: 0 0 14px 0;
+                padding-bottom: 8px;
+                border-bottom: 2px solid #111827;
+                color: #111827;
+            }
+            h2 {
+                font-size: 19px;
+                margin: 24px 0 10px 0;
+                padding-bottom: 6px;
+                border-bottom: 1px solid #d8dee4;
+                color: #111827;
+                break-after: avoid;
+            }
+            h3 {
+                font-size: 16px;
+                margin: 18px 0 8px 0;
+                break-after: avoid;
+            }
+            p {
+                margin: 0 0 8px 0;
+            }
+            blockquote {
+                margin: 8px 0 12px 0;
+                padding: 8px 12px;
+                color: #334155;
+                background: #f8fafc;
+                border-left: 4px solid #2563eb;
+            }
+            table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 10px 0 14px 0;
+                font-size: 13px;
+                break-inside: avoid;
+            }
+            th, td {
+                border: 1px solid #d0d7de;
+                padding: 7px 9px;
+                text-align: left;
+                vertical-align: top;
+            }
+            th {
+                background: #f3f4f6;
+                font-weight: 700;
+            }
+            tr:nth-child(2n) {
+                background: #fafafa;
+            }
+            ul, ol {
+                margin: 6px 0 12px 0;
+                padding-left: 22px;
+            }
+            li {
+                margin: 3px 0;
+            }
+            hr {
+                border: 0;
+                border-top: 1px solid #e5e7eb;
+                margin: 18px 0;
+                height: 0;
+            }
+            code {
+                font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+                font-size: 90%;
+                background: #f3f4f6;
+                padding: 1px 4px;
+                border-radius: 3px;
+            }
+            pre {
+                white-space: pre-wrap;
+                word-break: break-word;
+                padding: 12px;
+                background: #f6f8fa;
+                border: 1px solid #d0d7de;
+                border-radius: 4px;
+            }
+            img {
+                max-width: 100%;
+                height: auto;
+            }
+            @media print {
+                body {
+                    max-width: none;
+                    padding: 0;
+                }
+                a {
+                    color: inherit;
+                    text-decoration: none;
+                }
+                table, blockquote, pre {
+                    break-inside: avoid;
+                }
+            }
+        """
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ASX Daily Decision Report</title>
+    <style>
+{css_style}
+    </style>
+</head>
+<body>
+{html_content}
+</body>
+</html>
+"""
+
+
 def format_feishu_markdown(content: str) -> str:
     """
     将通用 Markdown 转换为飞书 lark_md 更友好的格式

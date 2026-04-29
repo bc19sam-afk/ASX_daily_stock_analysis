@@ -43,7 +43,15 @@ except ImportError:
 from src.config import get_config
 from src.analyzer import AnalysisResult
 from src.core.validator import normalize_validation_status
-from src.formatters import format_feishu_markdown, markdown_to_html_document
+from src.daily_decision_summary import (
+    build_daily_decision_summary,
+    render_preopen_decision_dashboard,
+)
+from src.formatters import (
+    format_feishu_markdown,
+    markdown_to_archive_html_document,
+    markdown_to_html_document,
+)
 from src.notification_formatting import (
     format_position_action_label as _format_position_action_label_helper,
     format_price_basis_label as _format_price_basis_label_helper,
@@ -250,6 +258,7 @@ class NotificationService:
         self._report_timezone = getattr(config, "market_timezone", "Australia/Sydney")
         self._source_message = source_message
         self._context_channels: List[str] = []
+        self._last_daily_decision_summary: Optional[Dict[str, Any]] = None
         
         # 各渠道的 Webhook URL
         self._wechat_url = config.wechat_webhook_url
@@ -1038,6 +1047,43 @@ class NotificationService:
             get_conflict_safe_ai_commentary=self._get_conflict_safe_ai_commentary,
         )
 
+    def build_daily_decision_summary(
+        self,
+        results: List[AnalysisResult],
+        *,
+        report_date: Optional[str] = None,
+        generated_at: Optional[datetime] = None,
+        overview: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Build the stable deterministic summary used by reports and archives."""
+        if generated_at is None:
+            generated_at = self._now_in_report_tz()
+        if report_date is None:
+            report_date = generated_at.strftime("%Y-%m-%d")
+        if overview is None:
+            try:
+                overview = get_db().get_portfolio_overview()
+            except Exception:
+                overview = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
+            overview = self._build_report_time_portfolio_overview(
+                overview=overview,
+                results=results,
+            )
+        return build_daily_decision_summary(
+            results=results,
+            report_date=report_date,
+            generated_at=generated_at,
+            overview=overview,
+            get_primary_action_model=self._get_primary_action_model,
+            classify_price_basis=self._classify_price_basis,
+            format_stock_display_name=self._format_stock_display_name,
+            format_validation_issue_text=self._format_validation_issue_text,
+        )
+
+    def get_last_daily_decision_summary(self) -> Optional[Dict[str, Any]]:
+        """Return the last summary generated as part of report rendering."""
+        return self._last_daily_decision_summary
+
     def _is_actionable_today(self, result: AnalysisResult) -> bool:
         """Return True when deterministic action implies execution-worthy change."""
         action = self._get_primary_action_model(result)["position_action"]
@@ -1323,7 +1369,8 @@ class NotificationService:
     def generate_dashboard_report(
         self,
         results: List[AnalysisResult],
-        report_date: Optional[str] = None
+        report_date: Optional[str] = None,
+        portfolio_summary_section: Optional[str] = None,
     ) -> str:
         """
         生成决策仪表盘格式的日报（详细版）
@@ -1344,6 +1391,24 @@ class NotificationService:
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
 
+        try:
+            overview = get_db().get_portfolio_overview()
+        except Exception:
+            overview = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
+
+        overview = self._build_report_time_portfolio_overview(
+            overview=overview,
+            results=results,
+        )
+
+        daily_summary = self.build_daily_decision_summary(
+            results=sorted_results,
+            report_date=report_date,
+            generated_at=generated_at,
+            overview=overview,
+        )
+        self._last_daily_decision_summary = daily_summary
+
         successful_results_for_summary, actionable_results_for_summary, blocked_results_for_summary = self._split_completed_results(sorted_results)
         failed_results_for_summary = [r for r in sorted_results if _is_failed_analysis(r)]
 
@@ -1356,30 +1421,18 @@ class NotificationService:
         report_lines = [
             f"# 🎯 {report_date} 决策仪表盘",
             "",
-            (
-                f"> 成功分析 **{len(successful_results_for_summary)}** 只 | "
-                f"失败 **{len(failed_results_for_summary)}** 只 | "
-                f"🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}"
-            ),
-            "",
         ]
-        report_lines[2] = (
+        report_lines.extend(render_preopen_decision_dashboard(daily_summary))
+        report_lines.extend([
             f"> 成功分析 **{len(successful_results_for_summary)}** 只 | "
             f"失败 **{len(failed_results_for_summary)}** 只 | "
             f"BLOCK **{len(blocked_results_for_summary)}** 只 | "
-            f"🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}"
-        )
+            f"🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
+            "",
+        ])
         report_lines.extend(self._build_data_baseline_lines(results, generated_at))
-
-        try:
-            overview = get_db().get_portfolio_overview()
-        except Exception:
-            overview = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
-
-        overview = self._build_report_time_portfolio_overview(
-            overview=overview,
-            results=results,
-        )
+        if portfolio_summary_section:
+            report_lines.extend([portfolio_summary_section.rstrip(), "", "---", ""])
 
         holdings = overview.get("holdings") or []
         holding_codes = {
@@ -1833,6 +1886,23 @@ class NotificationService:
         normal_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
         failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
 
+        try:
+            overview = get_db().get_portfolio_overview()
+        except Exception:
+            overview = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
+
+        overview = self._build_report_time_portfolio_overview(
+            overview=overview,
+            results=results,
+        )
+        daily_summary = self.build_daily_decision_summary(
+            results=sorted_results,
+            report_date=report_date,
+            generated_at=generated_at,
+            overview=overview,
+        )
+        self._last_daily_decision_summary = daily_summary
+
         # 统计 - 使用主决策（优先 final_decision）
         decision_counts = self._count_primary_decisions(actionable_results)
         buy_count = decision_counts['BUY']
@@ -1845,22 +1915,13 @@ class NotificationService:
             f"> 成功 {len(normal_results)} 只 | 失败 {len(failed_results)} 只 | BLOCK {len(blocked_results)} 只 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
             "",
         ]
+        lines.extend(render_preopen_decision_dashboard(daily_summary))
         if blocked_results:
             lines.extend([
                 f"> ⚠️ 有 {len(blocked_results)} 只触发验证阻断，统一按不可决策/仅观察输出",
                 "",
             ])
         lines.extend(self._build_data_baseline_lines(results, generated_at, title="**🕒 数据时间基准**"))
-
-        try:
-            overview = get_db().get_portfolio_overview()
-        except Exception:
-            overview = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
-
-        overview = self._build_report_time_portfolio_overview(
-            overview=overview,
-            results=results,
-        )
         executed_weight_by_code = {
             str(item.get("code", "")).strip(): float(item.get("weight") or 0.0)
             for item in (overview.get("holdings") or [])
@@ -4354,7 +4415,8 @@ class NotificationService:
     def save_report_to_file(
         self, 
         content: str, 
-        filename: Optional[str] = None
+        filename: Optional[str] = None,
+        reports_dir: Optional[Any] = None,
     ) -> str:
         """
         保存日报到本地文件
@@ -4372,8 +4434,8 @@ class NotificationService:
             date_str = datetime.now().strftime('%Y%m%d')
             filename = f"report_{date_str}.md"
         
-        # 确保 reports 目录存在（使用项目根目录下的 reports）
-        reports_dir = Path(__file__).parent.parent / 'reports'
+        # 确保 reports 目录存在（默认使用项目根目录下的 reports）
+        reports_dir = Path(reports_dir) if reports_dir is not None else Path(__file__).parent.parent / 'reports'
         reports_dir.mkdir(parents=True, exist_ok=True)
         
         filepath = reports_dir / filename
@@ -4382,6 +4444,56 @@ class NotificationService:
             f.write(content)
         
         logger.info(f"日报已保存到: {filepath}")
+        return str(filepath)
+
+    def save_report_archive_html(
+        self,
+        content: str,
+        filename: Optional[str] = None,
+        *,
+        markdown_filepath: Optional[str] = None,
+        reports_dir: Optional[Any] = None,
+    ) -> str:
+        """Save a text-based, print-friendly HTML archive for the daily report."""
+        from pathlib import Path
+
+        if filename is None and markdown_filepath:
+            filename = Path(markdown_filepath).with_suffix(".html").name
+        if filename is None:
+            date_str = datetime.now().strftime("%Y%m%d")
+            filename = f"report_{date_str}.html"
+        if not filename.endswith(".html"):
+            filename = f"{Path(filename).stem}.html"
+
+        reports_path = Path(reports_dir) if reports_dir is not None else Path(__file__).parent.parent / "reports"
+        reports_path.mkdir(parents=True, exist_ok=True)
+        filepath = reports_path / filename
+        html = markdown_to_archive_html_document(content)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(html)
+        logger.info(f"HTML归档报告已保存到: {filepath}")
+        return str(filepath)
+
+    def save_daily_decision_summary_to_file(
+        self,
+        summary: Dict[str, Any],
+        filename: Optional[str] = None,
+        *,
+        reports_dir: Optional[Any] = None,
+    ) -> str:
+        """Save the stable daily_decision_summary JSON artifact."""
+        from pathlib import Path
+
+        if filename is None:
+            report_date = str(summary.get("report_date") or datetime.now().strftime("%Y-%m-%d"))
+            filename = f"daily_decision_summary_{report_date.replace('-', '')}.json"
+        reports_path = Path(reports_dir) if reports_dir is not None else Path(__file__).parent.parent / "reports"
+        reports_path.mkdir(parents=True, exist_ok=True)
+        filepath = reports_path / filename
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2, sort_keys=True)
+            f.write("\n")
+        logger.info(f"daily_decision_summary 已保存到: {filepath}")
         return str(filepath)
 
 

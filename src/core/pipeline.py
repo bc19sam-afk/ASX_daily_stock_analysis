@@ -1572,7 +1572,7 @@ class StockAnalysisPipeline:
             logger.info("生成决策仪表盘日报...")
 
             # 生成组合层面 AI 总结（在个股报告前面）
-            portfolio_prefix = ""
+            portfolio_summary_section = ""
             try:
                 logger.info("生成组合决策总结...")
                 portfolio_summary = self.analyzer.generate_portfolio_summary(results)
@@ -1606,17 +1606,32 @@ class StockAnalysisPipeline:
                         date_label = f"技术基准日 {snapshot_dates[0]}~{snapshot_dates[-1]}｜报告日 {report_day}"
                     else:
                         date_label = f"报告日 {report_day}"
-                    portfolio_prefix = "## 🎯 组合决策总结（" + date_label + "）\n\n" + portfolio_summary + "\n\n---\n\n"
+                    portfolio_summary_section = "## 🎯 组合决策总结（" + date_label + "）\n\n" + portfolio_summary
                     logger.info("组合决策总结生成成功")
             except Exception as e:
                 logger.warning(f"组合决策总结生成失败（已跳过）: {e}")
 
             # 生成决策仪表盘格式的详细日报
-            report = portfolio_prefix + self.notifier.generate_dashboard_report(results)
+            report = self.notifier.generate_dashboard_report(
+                results,
+                portfolio_summary_section=portfolio_summary_section,
+            )
             
             # 保存到本地
             filepath = self.notifier.save_report_to_file(report)
             logger.info(f"决策仪表盘日报已保存: {filepath}")
+            try:
+                html_path = self.notifier.save_report_archive_html(
+                    report,
+                    markdown_filepath=filepath,
+                )
+                logger.info(f"HTML归档日报已保存: {html_path}")
+                daily_summary = self.notifier.get_last_daily_decision_summary()
+                if daily_summary:
+                    summary_path = self.notifier.save_daily_decision_summary_to_file(daily_summary)
+                    logger.info(f"daily_decision_summary 已保存: {summary_path}")
+            except Exception as e:
+                logger.warning(f"日报归档输出生成失败（Markdown 已保存）: {e}")
             
             # 跳过推送（单股推送模式）
             if skip_push:
