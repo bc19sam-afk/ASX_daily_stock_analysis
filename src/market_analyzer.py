@@ -41,6 +41,8 @@ class MarketIndex:
     volume: float = 0.0          # 成交量（手）
     amount: float = 0.0          # 成交额（元）
     amplitude: float = 0.0       # 振幅(%)
+    data_date: str = ""          # 数据所属交易日
+    source_basis: str = ""       # 数据口径/来源说明
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -55,6 +57,8 @@ class MarketIndex:
             'volume': self.volume,
             'amount': self.amount,
             'amplitude': self.amplitude,
+            'data_date': self.data_date,
+            'source_basis': self.source_basis,
         }
 
 
@@ -111,6 +115,16 @@ class MarketAnalyzer:
             logger.warning("无效市场时区 %s，已回退到 Australia/Sydney: %s", market_tz, exc)
             return datetime.now(ZoneInfo("Australia/Sydney"))
 
+    @staticmethod
+    def _format_bar_date(index_value: Any) -> str:
+        try:
+            timestamp = pd.to_datetime(index_value)
+            if pd.isna(timestamp):
+                return ""
+            return timestamp.date().isoformat()
+        except Exception:
+            return ""
+
     def get_market_overview(self) -> MarketOverview:
         """
         获取市场概览数据
@@ -155,6 +169,8 @@ class MarketAnalyzer:
                     ticker = yf.Ticker(code)
                     hist = ticker.history(period="2d")
                     if len(hist) >= 1:
+                        latest_row = hist.iloc[-1]
+                        data_date = self._format_bar_date(hist.index[-1])
                         current = float(hist['Close'].iloc[-1])
                         prev_close = float(hist['Close'].iloc[-2]) if len(hist) >= 2 else current
                         change = current - prev_close
@@ -162,9 +178,12 @@ class MarketAnalyzer:
                         
                         indices.append(MarketIndex(
                             code=code, name=name, current=current, change=change,
-                            change_pct=change_pct, open=float(hist['Open'].iloc[-1]),
-                            high=float(hist['High'].iloc[-1]), low=float(hist['Low'].iloc[-1]),
-                            prev_close=prev_close, volume=float(hist['Volume'].iloc[-1]) if 'Volume' in hist else 0.0
+                            change_pct=change_pct, open=float(latest_row['Open']),
+                            high=float(latest_row['High']), low=float(latest_row['Low']),
+                            prev_close=prev_close,
+                            volume=float(latest_row['Volume']) if 'Volume' in hist else 0.0,
+                            data_date=data_date,
+                            source_basis="latest_yfinance_bar",
                         ))
                 except Exception as e:
                     logger.warning(f"[大盘] 获取 {name} 行情失败: {e}")
@@ -410,14 +429,17 @@ class MarketAnalyzer:
         if not overview.indices:
             return ""
         lines = [
-            "| 指数/商品 | 最新价 | 涨跌幅 | 日内振幅 |",
-            "|-----------|--------|--------|----------|"]
+            "| 指数/商品 | 最新价 | 涨跌幅 | 日内振幅 | 数据日期 | 口径 |",
+            "|-----------|--------|--------|----------|----------|------|"]
         for idx in overview.indices:
             arrow = "🔴" if idx.change_pct < 0 else "🟢" if idx.change_pct > 0 else "⚪"
             # 计算真实的日内振幅 (最高价 - 最低价) / 昨收
             amplitude = ((idx.high - idx.low) / idx.prev_close * 100) if idx.prev_close else 0.0
             
-            lines.append(f"| {idx.name} | {idx.current:.2f} | {arrow} {idx.change_pct:+.2f}% | {amplitude:.2f}% |")
+            lines.append(
+                f"| {idx.name} | {idx.current:.2f} | {arrow} {idx.change_pct:+.2f}% | "
+                f"{amplitude:.2f}% | {idx.data_date or 'unknown'} | {idx.source_basis or 'unknown'} |"
+            )
         return "\n".join(lines)
 
     def _build_sector_block(self, overview: MarketOverview) -> str:
@@ -446,7 +468,18 @@ class MarketAnalyzer:
         for idx in overview.indices:
             direction = "↑" if idx.change_pct > 0 else "↓" if idx.change_pct < 0 else "-"
             amplitude = ((idx.high - idx.low) / idx.prev_close * 100) if idx.prev_close else 0.0
-            indices_text += f"- {idx.name}: 最新 {idx.current:.2f} | 涨跌 {direction}{abs(idx.change_pct):.2f}% | 振幅 {amplitude:.2f}%\n"
+            indices_text += (
+                f"- {idx.name}: 最新 {idx.current:.2f} | 涨跌 {direction}{abs(idx.change_pct):.2f}% | "
+                f"振幅 {amplitude:.2f}% | 数据日期 {idx.data_date or 'unknown'} | "
+                f"口径 {idx.source_basis or 'unknown'}\n"
+            )
+        index_dates = sorted({idx.data_date for idx in overview.indices if idx.data_date})
+        basis_notice = (
+            f"核心指数与商品来自不同交易市场，数据日期分别为：{', '.join(index_dates)}。"
+            "请按各自数据日期解读，不要表述为同一交易日口径。"
+            if len(index_dates) > 1
+            else "核心指数与商品使用各自最新可用行情 bar，请按数据日期解读。"
+        )
         
         # 板块信息
         top_sectors_text = ", ".join([f"{s['name']}({s['change_pct']:+.2f}%)" for s in overview.top_sectors[:3]])
@@ -490,6 +523,8 @@ class MarketAnalyzer:
 {overview.date}
 
 ## 核心指数与大宗商品
+{basis_notice}
+
 {indices_text if indices_text else "暂无行情数据"}
 
 ## 市场广度与成交额统计

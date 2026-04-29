@@ -3342,7 +3342,7 @@ class NotificationService:
         
         # 处理消息标题
         if title is None:
-            date_str = datetime.now().strftime('%Y-%m-%d')
+            date_str = self._now_in_report_tz().strftime('%Y-%m-%d')
             title = f"📈 股票分析报告 - {date_str}"
         
         # Pushover 消息限制 1024 字符
@@ -3979,7 +3979,7 @@ class NotificationService:
 
         # 处理消息标题
         if title is None:
-            date_str = datetime.now().strftime('%Y-%m-%d')
+            date_str = self._now_in_report_tz().strftime('%Y-%m-%d')
             title = f"📈 股票分析报告 - {date_str}"
 
         try:
@@ -4028,7 +4028,7 @@ class NotificationService:
 
         # 处理消息标题
         if title is None:
-            date_str = datetime.now().strftime('%Y-%m-%d')
+            date_str = self._now_in_report_tz().strftime('%Y-%m-%d')
             display_title = f"📈 股票分析报告 - {date_str}"
         else:
             display_title = title
@@ -4431,7 +4431,7 @@ class NotificationService:
         from pathlib import Path
         
         if filename is None:
-            date_str = datetime.now().strftime('%Y%m%d')
+            date_str = self._now_in_report_tz().strftime('%Y%m%d')
             filename = f"report_{date_str}.md"
         
         # 确保 reports 目录存在（默认使用项目根目录下的 reports）
@@ -4460,7 +4460,7 @@ class NotificationService:
         if filename is None and markdown_filepath:
             filename = Path(markdown_filepath).with_suffix(".html").name
         if filename is None:
-            date_str = datetime.now().strftime("%Y%m%d")
+            date_str = self._now_in_report_tz().strftime("%Y%m%d")
             filename = f"report_{date_str}.html"
         if not filename.endswith(".html"):
             filename = f"{Path(filename).stem}.html"
@@ -4485,7 +4485,7 @@ class NotificationService:
         from pathlib import Path
 
         if filename is None:
-            report_date = str(summary.get("report_date") or datetime.now().strftime("%Y-%m-%d"))
+            report_date = str(summary.get("report_date") or self._now_in_report_tz().strftime("%Y-%m-%d"))
             filename = f"daily_decision_summary_{report_date.replace('-', '')}.json"
         reports_path = Path(reports_dir) if reports_dir is not None else Path(__file__).parent.parent / "reports"
         reports_path.mkdir(parents=True, exist_ok=True)

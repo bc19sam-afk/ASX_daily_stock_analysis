@@ -20,8 +20,11 @@ import time
 import threading
 from datetime import datetime
 from typing import Callable, Optional
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MARKET_TIMEZONE = "Australia/Sydney"
 
 
 class GracefulShutdown:
@@ -63,12 +66,13 @@ class Scheduler:
     - 优雅退出
     """
     
-    def __init__(self, schedule_time: str = "08:00"):
+    def __init__(self, schedule_time: str = "08:00", market_timezone: str = DEFAULT_MARKET_TIMEZONE):
         """
         初始化调度器
         
         Args:
             schedule_time: 每日执行时间，格式 "HH:MM"
+            market_timezone: 定时任务使用的市场时区
         """
         try:
             import schedule
@@ -78,9 +82,34 @@ class Scheduler:
             raise ImportError("请安装 schedule 库: pip install schedule")
         
         self.schedule_time = schedule_time
+        self.market_timezone = self._normalize_market_timezone(market_timezone)
         self.shutdown_handler = GracefulShutdown()
         self._task_callback: Optional[Callable] = None
         self._running = False
+
+    @staticmethod
+    def _normalize_market_timezone(market_timezone: Optional[str]) -> str:
+        timezone_name = market_timezone or DEFAULT_MARKET_TIMEZONE
+        try:
+            ZoneInfo(timezone_name)
+            return timezone_name
+        except Exception as exc:
+            logger.warning(
+                "无效市场时区 %s，定时任务已回退到 %s: %s",
+                timezone_name,
+                DEFAULT_MARKET_TIMEZONE,
+                exc,
+            )
+            return DEFAULT_MARKET_TIMEZONE
+
+    def _now_in_market_timezone(self) -> datetime:
+        return datetime.now(ZoneInfo(self.market_timezone))
+
+    def _format_in_market_timezone(self, value: datetime) -> str:
+        if value.tzinfo is None:
+            value = value.astimezone()
+        market_value = value.astimezone(ZoneInfo(self.market_timezone))
+        return f"{market_value.strftime('%Y-%m-%d %H:%M:%S')} {self.market_timezone}"
         
     def set_daily_task(self, task: Callable, run_immediately: bool = True):
         """
@@ -93,8 +122,8 @@ class Scheduler:
         self._task_callback = task
         
         # 设置每日定时任务
-        self.schedule.every().day.at(self.schedule_time).do(self._safe_run_task)
-        logger.info(f"已设置每日定时任务，执行时间: {self.schedule_time}")
+        self.schedule.every().day.at(self.schedule_time, self.market_timezone).do(self._safe_run_task)
+        logger.info(f"已设置每日定时任务，执行时间: {self.schedule_time} ({self.market_timezone})")
         
         if run_immediately:
             logger.info("立即执行一次任务...")
@@ -107,12 +136,12 @@ class Scheduler:
         
         try:
             logger.info("=" * 50)
-            logger.info(f"定时任务开始执行 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"定时任务开始执行 - {self._format_in_market_timezone(self._now_in_market_timezone())}")
             logger.info("=" * 50)
             
             self._task_callback()
             
-            logger.info(f"定时任务执行完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"定时任务执行完成 - {self._format_in_market_timezone(self._now_in_market_timezone())}")
             
         except Exception as e:
             logger.exception(f"定时任务执行失败: {e}")
@@ -132,7 +161,8 @@ class Scheduler:
             time.sleep(30)  # 每30秒检查一次
             
             # 每小时打印一次心跳
-            if datetime.now().minute == 0 and datetime.now().second < 30:
+            market_now = self._now_in_market_timezone()
+            if market_now.minute == 0 and market_now.second < 30:
                 logger.info(f"调度器运行中... 下次执行: {self._get_next_run_time()}")
         
         logger.info("调度器已停止")
@@ -142,7 +172,7 @@ class Scheduler:
         jobs = self.schedule.get_jobs()
         if jobs:
             next_run = min(job.next_run for job in jobs)
-            return next_run.strftime('%Y-%m-%d %H:%M:%S')
+            return self._format_in_market_timezone(next_run)
         return "未设置"
     
     def stop(self):
@@ -153,7 +183,8 @@ class Scheduler:
 def run_with_schedule(
     task: Callable,
     schedule_time: str = "08:00",
-    run_immediately: bool = True
+    run_immediately: bool = True,
+    market_timezone: str = DEFAULT_MARKET_TIMEZONE,
 ):
     """
     便捷函数：使用定时调度运行任务
@@ -162,8 +193,9 @@ def run_with_schedule(
         task: 要执行的任务函数
         schedule_time: 每日执行时间
         run_immediately: 是否立即执行一次
+        market_timezone: 定时任务使用的市场时区
     """
-    scheduler = Scheduler(schedule_time=schedule_time)
+    scheduler = Scheduler(schedule_time=schedule_time, market_timezone=market_timezone)
     scheduler.set_daily_task(task, run_immediately=run_immediately)
     scheduler.run()
 

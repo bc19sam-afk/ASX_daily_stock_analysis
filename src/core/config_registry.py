@@ -430,7 +430,7 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "category": "notification",
         "data_type": "array",
         "ui_control": "textarea",
-        "is_sensitive": False,
+        "is_sensitive": True,
         "is_required": False,
         "is_editable": True,
         "default_value": None,
@@ -676,6 +676,10 @@ def build_schema_response() -> Dict[str, Any]:
 
 
 def _is_sensitive_key(key: str) -> bool:
+    if key == "WEBHOOK_VERIFY_SSL":
+        return False
+    if "WEBHOOK" in key:
+        return True
     markers = ("KEY", "TOKEN", "SECRET", "PASSWORD")
     return any(marker in key for marker in markers)
 

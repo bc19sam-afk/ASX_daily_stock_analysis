@@ -25,6 +25,7 @@ function serializeMultiValues(values: string[]): string {
 interface SettingsFieldProps {
   item: SystemConfigItem;
   value: string;
+  maskToken?: string;
   disabled?: boolean;
   onChange: (key: string, value: string) => void;
   issues?: ConfigValidationIssue[];
@@ -37,17 +38,20 @@ function renderFieldControl(
   onChange: (nextValue: string) => void,
   isSecretVisible: boolean,
   onToggleSecretVisible: () => void,
+  maskToken: string,
 ) {
   const schema = item.schema;
   const commonClass = 'input-terminal';
   const controlType = schema?.uiControl ?? 'text';
   const isMultiValue = isMultiValueField(item);
+  const isMaskedPlaceholder = item.isMasked && value === maskToken;
 
   if (controlType === 'textarea') {
     return (
       <textarea
         className={`${commonClass} min-h-[92px] resize-y`}
-        value={value}
+        value={isMaskedPlaceholder ? '' : value}
+        placeholder={isMaskedPlaceholder ? '已配置，输入新值替换' : undefined}
         disabled={disabled || !schema?.isEditable}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -82,6 +86,19 @@ function renderFieldControl(
   }
 
   if (controlType === 'password') {
+    if (isMaskedPlaceholder) {
+      return (
+        <input
+          type="password"
+          className={commonClass}
+          value=""
+          placeholder="已配置，输入新值替换"
+          disabled={disabled || !schema?.isEditable}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      );
+    }
+
     if (isMultiValue) {
       const values = parseMultiValues(value);
 
@@ -173,6 +190,7 @@ function renderFieldControl(
 export const SettingsField: React.FC<SettingsFieldProps> = ({
   item,
   value,
+  maskToken = '******',
   disabled = false,
   onChange,
   issues = [],
@@ -183,6 +201,13 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
   const description = getFieldDescriptionZh(item.key);
   const hasError = issues.some((issue) => issue.severity === 'error');
   const [isSecretVisible, setIsSecretVisible] = useState(false);
+  const isMaskedPlaceholder = Boolean(schema?.isSensitive && item.isMasked && value === maskToken);
+  const isTextarea = schema?.uiControl === 'textarea';
+  const sensitiveHelpText = isMaskedPlaceholder
+    ? '敏感值已配置，当前不显示明文；输入新值后保存会替换。'
+    : isTextarea
+      ? '敏感值会显示正在输入的新值；保存后将再次隐藏。'
+      : '密钥默认隐藏，可点击“显示”查看当前输入。';
 
   return (
     <div className={`rounded-xl border p-4 ${hasError ? 'border-red-500/35' : 'border-white/8'} bg-elevated/50`}>
@@ -209,13 +234,14 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
           (nextValue) => onChange(item.key, nextValue),
           isSecretVisible,
           () => setIsSecretVisible((previous) => !previous),
+          maskToken,
         )}
       </div>
 
       {schema?.isSensitive ? (
         <p className="mt-2 text-[11px] text-secondary">
-          密钥默认隐藏，可点击“显示”查看明文。
-          {isMultiValue ? ' 支持添加多个输入框进行增删。' : ''}
+          {sensitiveHelpText}
+          {!isMaskedPlaceholder && isMultiValue ? ' 支持添加多个输入框进行增删。' : ''}
         </p>
       ) : null}
 

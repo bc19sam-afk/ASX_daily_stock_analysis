@@ -3,6 +3,8 @@
 
 from pathlib import Path
 from unittest.mock import patch
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
 from src.notification import NotificationService
@@ -275,3 +277,64 @@ def test_html_archive_is_text_based_and_contains_dashboard(mock_get_db, tmp_path
     assert "<table>" in html
     assert "<img" not in html.lower()
     assert "image placeholder" not in html.lower()
+
+
+def test_report_archive_filenames_use_report_timezone(monkeypatch, tmp_path: Path):
+    service = _service()
+    monkeypatch.setattr(
+        service,
+        "_now_in_report_tz",
+        lambda: datetime(2026, 4, 30, 1, 15, tzinfo=ZoneInfo("Australia/Sydney")),
+    )
+
+    md_path = Path(service.save_report_to_file("report", reports_dir=tmp_path))
+    html_path = Path(service.save_report_archive_html("report", reports_dir=tmp_path))
+    summary_path = Path(service.save_daily_decision_summary_to_file({}, reports_dir=tmp_path))
+
+    assert md_path.name == "report_20260430.md"
+    assert html_path.name == "report_20260430.html"
+    assert summary_path.name == "daily_decision_summary_20260430.json"
+
+
+def test_default_push_titles_use_report_timezone(monkeypatch):
+    service = _service()
+    monkeypatch.setattr(
+        service,
+        "_now_in_report_tz",
+        lambda: datetime(2026, 4, 30, 1, 15, tzinfo=ZoneInfo("Australia/Sydney")),
+    )
+    monkeypatch.setattr(service, "_markdown_to_plain_text", lambda content: content)
+
+    captured = {}
+    service._pushover_config = {"user_key": "user", "api_token": "token"}
+
+    def fake_send_pushover_message(api_url, user_key, api_token, content, title):
+        captured["pushover"] = title
+        return True
+
+    monkeypatch.setattr(service, "_send_pushover_message", fake_send_pushover_message)
+    assert service.send_to_pushover("content") is True
+    assert captured["pushover"] == "📈 股票分析报告 - 2026-04-30"
+
+    class _Response:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"code": 200}
+
+    posts = []
+
+    def fake_post(url, **kwargs):
+        posts.append((url, kwargs))
+        return _Response()
+
+    monkeypatch.setattr("src.notification.requests.post", fake_post)
+    service._pushplus_token = "token"
+    assert service.send_to_pushplus("content") is True
+    assert posts[-1][1]["json"]["title"] == "📈 股票分析报告 - 2026-04-30"
+
+    service._serverchan3_sendkey = "SCTKEY"
+    service._serverchan3_sendkey_2 = None
+    assert service.send_to_serverchan3("content") is True
+    assert posts[-1][1]["json"]["title"] == "📈 股票分析报告 - 2026-04-30"

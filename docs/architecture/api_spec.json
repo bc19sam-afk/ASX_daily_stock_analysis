@@ -636,7 +636,7 @@
           },
           "force_refresh": {
             "type": "boolean",
-            "default": false,
+            "default": true,
             "description": "是否强制刷新（忽略缓存）"
           },
           "async_mode": {
@@ -651,7 +651,7 @@
             "BHP.AX"
           ],
           "report_type": "full",
-          "force_refresh": false,
+          "force_refresh": true,
           "async_mode": false
         }
       },

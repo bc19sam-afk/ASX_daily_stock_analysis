@@ -22,6 +22,12 @@ class SystemConfigServiceTestCase(unittest.TestCase):
                 [
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
+                    (
+                        "CUSTOM_WEBHOOK_URLS=https://oapi.dingtalk.com/robot/send?access_token=secret,"
+                        "https://hooks.slack.com/services/secret"
+                    ),
+                    "FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/secret",
+                    "WEBHOOK_VERIFY_SSL=false",
                     "SCHEDULE_TIME=08:00",
                     "LOG_LEVEL=INFO",
                 ]
@@ -40,14 +46,23 @@ class SystemConfigServiceTestCase(unittest.TestCase):
         os.environ.pop("ENV_FILE", None)
         self.temp_dir.cleanup()
 
-    def test_get_config_returns_raw_sensitive_values(self) -> None:
+    def test_get_config_masks_sensitive_values_by_default(self) -> None:
         payload = self.service.get_config(include_schema=True)
         items = {item["key"]: item for item in payload["items"]}
 
         self.assertIn("GEMINI_API_KEY", items)
-        self.assertEqual(items["GEMINI_API_KEY"]["value"], "secret-key-value")
-        self.assertFalse(items["GEMINI_API_KEY"]["is_masked"])
+        self.assertEqual(items["GEMINI_API_KEY"]["value"], "******")
+        self.assertTrue(items["GEMINI_API_KEY"]["is_masked"])
         self.assertTrue(items["GEMINI_API_KEY"]["raw_value_exists"])
+        self.assertEqual(items["CUSTOM_WEBHOOK_URLS"]["value"], "******")
+        self.assertTrue(items["CUSTOM_WEBHOOK_URLS"]["is_masked"])
+        self.assertTrue(items["CUSTOM_WEBHOOK_URLS"]["raw_value_exists"])
+        self.assertEqual(items["FEISHU_WEBHOOK_URL"]["value"], "******")
+        self.assertTrue(items["FEISHU_WEBHOOK_URL"]["is_masked"])
+        self.assertTrue(items["FEISHU_WEBHOOK_URL"]["raw_value_exists"])
+        self.assertEqual(items["WEBHOOK_VERIFY_SSL"]["value"], "false")
+        self.assertFalse(items["WEBHOOK_VERIFY_SSL"]["is_masked"])
+        self.assertTrue(items["WEBHOOK_VERIFY_SSL"]["raw_value_exists"])
 
     def test_update_preserves_masked_secret(self) -> None:
         old_version = self.manager.get_config_version()
@@ -55,6 +70,7 @@ class SystemConfigServiceTestCase(unittest.TestCase):
             config_version=old_version,
             items=[
                 {"key": "GEMINI_API_KEY", "value": "******"},
+                {"key": "CUSTOM_WEBHOOK_URLS", "value": "******"},
                 {"key": "STOCK_LIST", "value": "600519,300750"},
             ],
             mask_token="******",
@@ -63,12 +79,13 @@ class SystemConfigServiceTestCase(unittest.TestCase):
 
         self.assertTrue(response["success"])
         self.assertEqual(response["applied_count"], 1)
-        self.assertEqual(response["skipped_masked_count"], 1)
+        self.assertEqual(response["skipped_masked_count"], 2)
         self.assertIn("STOCK_LIST", response["updated_keys"])
 
         current_map = self.manager.read_config_map()
         self.assertEqual(current_map["STOCK_LIST"], "600519,300750")
         self.assertEqual(current_map["GEMINI_API_KEY"], "secret-key-value")
+        self.assertIn("access_token=secret", current_map["CUSTOM_WEBHOOK_URLS"])
 
     def test_update_without_reload_reports_runtime_and_restart_scopes(self) -> None:
         old_version = self.manager.get_config_version()

@@ -1,5 +1,8 @@
+import sys
 from datetime import datetime as real_datetime, timezone
 from types import SimpleNamespace
+
+import pandas as pd
 
 import src.market_analyzer as market_analyzer_module
 from src.market_analyzer import MarketAnalyzer, MarketOverview, MarketIndex
@@ -142,6 +145,71 @@ def test_market_review_prompt_is_dedicated_markdown_prompt():
     assert "禁止输出 JSON 格式" in prompt
     assert "市场广度与成交额统计" in prompt
     assert "关键统计缺失" in prompt
+
+
+class _FakeYfinanceTicker:
+    def history(self, *args, **kwargs):
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 101.0],
+                "High": [102.0, 104.0],
+                "Low": [99.0, 100.0],
+                "Close": [101.0, 103.0],
+                "Volume": [1000, 1200],
+            },
+            index=pd.to_datetime(["2026-04-27", "2026-04-28"]),
+        )
+        df.index.name = "Date"
+        return df
+
+
+def test_market_indices_include_data_date_and_source_basis(monkeypatch):
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _code: _FakeYfinanceTicker()))
+
+    analyzer = MarketAnalyzer()
+    indices = analyzer._get_main_indices()
+
+    assert indices
+    assert {idx.data_date for idx in indices} == {"2026-04-28"}
+    assert {idx.source_basis for idx in indices} == {"latest_yfinance_bar"}
+    assert indices[0].to_dict()["data_date"] == "2026-04-28"
+
+
+def test_market_review_prompt_labels_mixed_macro_dates():
+    analyzer = MarketAnalyzer()
+    overview = MarketOverview(
+        date="2026-04-29",
+        indices=[
+            MarketIndex(
+                code="^AXJO",
+                name="ASX 200",
+                current=7700,
+                prev_close=7680,
+                high=7710,
+                low=7670,
+                data_date="2026-04-29",
+                source_basis="latest_yfinance_bar",
+            ),
+            MarketIndex(
+                code="^GSPC",
+                name="标普 500 (美股)",
+                current=5200,
+                prev_close=5150,
+                high=5220,
+                low=5130,
+                data_date="2026-04-28",
+                source_basis="latest_yfinance_bar",
+            ),
+        ],
+    )
+
+    prompt = analyzer._build_review_prompt(overview, news=[])
+    table = analyzer._build_indices_block(overview)
+
+    assert "数据日期分别为：2026-04-28, 2026-04-29" in prompt
+    assert "不要表述为同一交易日口径" in prompt
+    assert "| 指数/商品 | 最新价 | 涨跌幅 | 日内振幅 | 数据日期 | 口径 |" in table
+    assert "latest_yfinance_bar" in table
 
 
 class _SectorRankingFetcher:

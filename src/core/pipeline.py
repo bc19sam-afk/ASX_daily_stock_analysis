@@ -139,7 +139,8 @@ class StockAnalysisPipeline:
             Tuple[是否成功, 错误信息]
         """
         try:
-            today = date.today()
+            market_timezone = getattr(self.config, "market_timezone", "Australia/Sydney")
+            today = _now_in_timezone_safe(market_timezone).date()
             
             # 断点续传检查：如果今日数据已存在，跳过
             if not force_refresh and self.db.has_today_data(code, today):
@@ -1335,6 +1336,7 @@ class StockAnalysisPipeline:
         report_type: ReportType = ReportType.SIMPLE,
         analysis_query_id: Optional[str] = None,
         market_overview: Optional[dict] = None,
+        force_refresh: bool = False,
     ) -> Optional[AnalysisResult]:
         """
         处理单只股票的完整流程
@@ -1353,6 +1355,7 @@ class StockAnalysisPipeline:
             skip_analysis: 是否跳过 AI 分析
             single_stock_notify: 是否启用单股推送模式（每分析完一只立即推送）
             report_type: 报告类型枚举（从配置读取，Issue #119）
+            force_refresh: 是否强制刷新行情缓存
 
         Returns:
             AnalysisResult 或 None
@@ -1361,7 +1364,7 @@ class StockAnalysisPipeline:
         
         try:
             # Step 1: 获取并保存数据
-            success, error, df_attrs = self.fetch_and_save_stock_data(code)
+            success, error, df_attrs = self.fetch_and_save_stock_data(code, force_refresh=force_refresh)
             
             if not success:
                 logger.warning(f"[{code}] 数据获取失败: {error}")
@@ -1419,7 +1422,9 @@ class StockAnalysisPipeline:
                 overview[idx.name] = {
                     'close': round(idx.current, 2),
                     'pct_chg': pct,
-                    'trend': '📈' if (pct or 0) > 0 else ('📉' if (pct or 0) < 0 else '➡️')
+                    'trend': '📈' if (pct or 0) > 0 else ('📉' if (pct or 0) < 0 else '➡️'),
+                    'data_date': getattr(idx, 'data_date', ''),
+                    'source_basis': getattr(idx, 'source_basis', ''),
                 }
             if overview:
                 logger.info(f"[大盘] 已获取 {len(overview)} 个指标（复用 MarketAnalyzer）")

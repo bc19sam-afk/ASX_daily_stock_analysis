@@ -155,6 +155,7 @@ const SettingsPage: React.FC = () => {
                   key={item.key}
                   item={item}
                   value={item.value}
+                  maskToken={maskToken}
                   disabled={isSaving}
                   onChange={setDraftValue}
                   issues={issueByKey[item.key] || []}

@@ -32,7 +32,7 @@ import logging
 import sys
 import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 from zoneinfo import ZoneInfo
@@ -379,9 +379,13 @@ def run_full_analysis(
             if feishu_doc.is_configured() and (results or market_report):
                 logger.info("正在创建飞书云文档...")
 
-                # 1. 准备标题 "01-01 13:01大盘复盘"
-                tz_cn = timezone(timedelta(hours=8))
-                now = datetime.now(tz_cn)
+                # 1. 准备标题（使用配置的市场时区）
+                market_timezone = getattr(config, 'market_timezone', 'Australia/Sydney')
+                try:
+                    now = datetime.now(ZoneInfo(market_timezone))
+                except Exception as exc:
+                    logger.warning("无效市场时区 %s，飞书标题已回退到 Australia/Sydney: %s", market_timezone, exc)
+                    now = datetime.now(ZoneInfo('Australia/Sydney'))
                 doc_title = f"{now.strftime('%Y-%m-%d %H:%M')} 大盘复盘"
 
                 # 2. 准备内容 (拼接个股分析和大盘复盘)
@@ -647,7 +651,8 @@ def main() -> int:
             run_with_schedule(
                 task=scheduled_task,
                 schedule_time=config.schedule_time,
-                run_immediately=should_run_immediately
+                run_immediately=should_run_immediately,
+                market_timezone=config.market_timezone,
             )
             return 0
 

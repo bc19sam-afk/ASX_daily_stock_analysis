@@ -21,6 +21,12 @@ class SystemConfigApiTestCase(unittest.TestCase):
                 [
                     "STOCK_LIST=600519,000001",
                     "GEMINI_API_KEY=secret-key-value",
+                    (
+                        "CUSTOM_WEBHOOK_URLS=https://oapi.dingtalk.com/robot/send?access_token=secret,"
+                        "https://hooks.slack.com/services/secret"
+                    ),
+                    "FEISHU_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/secret",
+                    "WEBHOOK_VERIFY_SSL=false",
                     "SCHEDULE_TIME=08:00",
                     "LOG_LEVEL=INFO",
                 ]
@@ -39,14 +45,20 @@ class SystemConfigApiTestCase(unittest.TestCase):
         os.environ.pop("ENV_FILE", None)
         self.temp_dir.cleanup()
 
-    def test_get_config_returns_raw_secret_value(self) -> None:
+    def test_get_config_masks_secret_value(self) -> None:
         response = self.client.get("/api/v1/system/config")
         self.assertEqual(response.status_code, 200)
 
         payload = response.json()
         item_map = {item["key"]: item for item in payload["items"]}
-        self.assertEqual(item_map["GEMINI_API_KEY"]["value"], "secret-key-value")
-        self.assertFalse(item_map["GEMINI_API_KEY"]["is_masked"])
+        self.assertEqual(item_map["GEMINI_API_KEY"]["value"], "******")
+        self.assertTrue(item_map["GEMINI_API_KEY"]["is_masked"])
+        self.assertEqual(item_map["CUSTOM_WEBHOOK_URLS"]["value"], "******")
+        self.assertTrue(item_map["CUSTOM_WEBHOOK_URLS"]["is_masked"])
+        self.assertEqual(item_map["FEISHU_WEBHOOK_URL"]["value"], "******")
+        self.assertTrue(item_map["FEISHU_WEBHOOK_URL"]["is_masked"])
+        self.assertEqual(item_map["WEBHOOK_VERIFY_SSL"]["value"], "false")
+        self.assertFalse(item_map["WEBHOOK_VERIFY_SSL"]["is_masked"])
         self.assertEqual(item_map["STOCK_LIST"]["schema"]["reload_scope"], "runtime_refreshable")
 
     def test_put_config_updates_secret_and_plain_field(self) -> None:

@@ -35,7 +35,7 @@ class AnalyzeRequest(BaseModel):
                 "stock_code": "BHP.AX",
                 "stock_codes": ["BHP.AX"],
                 "report_type": "full",
-                "force_refresh": False,
+                "force_refresh": True,
                 "async_mode": False,
             }
         }
