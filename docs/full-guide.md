@@ -1,6 +1,6 @@
 # 📖 完整配置与部署指南
 
-本文档包含 A股智能分析系统的完整配置说明，适合需要高级功能或特殊部署方式的用户。
+本文档包含 ASX-first 智能分析系统的完整配置说明，适合需要高级功能或特殊部署方式的用户。
 
 > 💡 快速上手请参考 [README.md](../README.md)，本文档为进阶配置。
 
@@ -113,7 +113,7 @@ daily_stock_analysis/
 
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
-| `STOCK_LIST` | 自选股代码，如 `600519,300750,002594` | ✅ |
+| `STOCK_LIST` | 自选股代码，如 `BHP.AX,CBA.AX,CSL.AX` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API（新闻搜索） | 推荐 |
 | `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索优化，支持AI摘要，多个key用逗号分隔） | 可选 |
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
@@ -147,7 +147,7 @@ daily_stock_analysis/
 
 ### 5. 完成！
 
-默认每个工作日 **18:00（北京时间）** 自动执行。
+GitHub Actions 默认每个工作日 **08:00（Australia/Sydney）** 自动执行，用于 ASX 开盘前报告。
 
 ---
 
@@ -186,7 +186,7 @@ daily_stock_analysis/
 | `EMAIL_PASSWORD` | 邮箱授权码（非登录密码） | 可选 |
 | `EMAIL_RECEIVERS` | 收件人邮箱（逗号分隔，留空发给自己） | 可选 |
 | `EMAIL_SENDER_NAME` | 发件人显示名称 | 可选 |
-| `STOCK_GROUP_N` / `EMAIL_GROUP_N` | 股票分组发往不同邮箱（Issue #268），如 `STOCK_GROUP_1=600519,300750` 与 `EMAIL_GROUP_1=user1@example.com` 配对 | 可选 |
+| `STOCK_GROUP_N` / `EMAIL_GROUP_N` | 股票分组发往不同邮箱（Issue #268），如 `STOCK_GROUP_1=BHP.AX,CBA.AX` 与 `EMAIL_GROUP_1=user1@example.com` 配对 | 可选 |
 | `CUSTOM_WEBHOOK_URLS` | 自定义 Webhook（逗号分隔） | 可选 |
 | `CUSTOM_WEBHOOK_BEARER_TOKEN` | 自定义 Webhook Bearer Token | 可选 |
 | `WEBHOOK_VERIFY_SSL` | Webhook HTTPS 证书校验（默认 true）。设为 false 可支持自签名。警告：关闭有严重安全风险 | 可选 |
@@ -233,7 +233,7 @@ daily_stock_analysis/
 | `MAX_WORKERS` | 并发线程数 | `3` |
 | `MARKET_REVIEW_ENABLED` | 启用大盘复盘 | `true` |
 | `SCHEDULE_ENABLED` | 启用定时任务 | `false` |
-| `SCHEDULE_TIME` | 定时执行时间 | `18:00` |
+| `SCHEDULE_TIME` | 定时执行时间 | `08:00` |
 | `LOG_DIR` | 日志目录 | `./logs` |
 
 ---
@@ -289,7 +289,7 @@ x-common: &common
   env_file:
     - ../.env
   environment:
-    - TZ=Asia/Shanghai
+    - TZ=Australia/Sydney
   volumes:
     - ../data:/app/data
     - ../logs:/app/logs
@@ -357,7 +357,7 @@ pip install -r requirements.txt
 python main.py                        # 完整分析（个股 + 大盘复盘）
 python main.py --market-review        # 仅大盘复盘
 python main.py --no-market-review     # 仅个股分析
-python main.py --stocks 600519,300750 # 指定股票
+python main.py --stocks BHP.AX,CBA.AX # 指定股票
 python main.py --dry-run              # 仅获取数据，不 AI 分析
 python main.py --no-notify            # 不发送推送
 python main.py --schedule             # 定时任务模式
@@ -375,28 +375,27 @@ python main.py --workers 5            # 指定并发数
 
 ```yaml
 schedule:
-  # UTC 时间，北京时间 = UTC + 8
-  - cron: '0 10 * * 1-5'   # 周一到周五 18:00（北京时间）
+  # 直接按 Australia/Sydney 本地时间调度，交给 GitHub 处理 DST
+  - cron: '0 8 * * 1-5'    # 周一到周五 08:00（ASX 开盘前）
+    timezone: 'Australia/Sydney'
 ```
 
-常用时间对照：
+常用 ASX/Sydney 时间对照：
 
-| 北京时间 | UTC cron 表达式 |
+| Australia/Sydney 时间 | cron 表达式 |
 |---------|----------------|
-| 09:30 | `'30 1 * * 1-5'` |
-| 12:00 | `'0 4 * * 1-5'` |
-| 15:00 | `'0 7 * * 1-5'` |
-| 18:00 | `'0 10 * * 1-5'` |
-| 21:00 | `'0 13 * * 1-5'` |
+| 08:00 | `'0 8 * * 1-5'` |
+| 16:30 | `'30 16 * * 1-5'` |
+| 18:00 | `'0 18 * * 1-5'` |
 
 ### 本地定时任务
 
-内建的定时任务调度器支持每天在指定时间（默认 18:00）运行分析。
+内建的定时任务调度器支持每天在指定时间运行分析；时间按本地进程/容器时区解释，Docker 默认时区为 `Australia/Sydney`。
 
 #### 命令行方式
 
 ```bash
-# 启动定时模式（启动时立即执行一次，随后每天 18:00 执行）
+# 启动定时模式（启动时立即执行一次，随后按 SCHEDULE_TIME 执行）
 python main.py --schedule
 
 # 启动定时模式（启动时不执行，仅等待下次定时触发）
@@ -410,7 +409,7 @@ python main.py --schedule --no-run-immediately
 | 变量名 | 说明 | 默认值 | 示例 |
 |--------|------|:-------:|:-----:|
 | `SCHEDULE_ENABLED` | 是否启用定时任务 | `false` | `true` |
-| `SCHEDULE_TIME` | 每日执行时间 (HH:MM) | `18:00` | `09:30` |
+| `SCHEDULE_TIME` | 每日执行时间 (HH:MM) | `08:00` | `09:30` |
 | `SCHEDULE_RUN_IMMEDIATELY` | 启动服务时是否立即运行一次 | `true` | `false` |
 
 例如在 Docker 中配置：
@@ -468,7 +467,7 @@ crontab -e
 配置 `STOCK_GROUP_N` 与 `EMAIL_GROUP_N` 可实现不同股票组的报告发送到不同邮箱，例如多人共享分析时互不干扰。大盘复盘会发往所有配置的邮箱。
 
 ```bash
-STOCK_GROUP_1=600519,300750
+STOCK_GROUP_1=BHP.AX,CBA.AX
 EMAIL_GROUP_1=user1@example.com
 STOCK_GROUP_2=002594,AAPL
 EMAIL_GROUP_2=user2@example.com
@@ -577,7 +576,7 @@ PUSHOVER_API_TOKEN=your_api_token
 使用 `hk` 前缀指定港股代码：
 
 ```bash
-STOCK_LIST=600519,hk00700,hk01810
+STOCK_LIST=BHP.AX,hk00700,hk01810
 ```
 
 ### 多模型切换
@@ -700,7 +699,7 @@ curl http://127.0.0.1:8000/api/health
 # 触发分析（A股）
 curl -X POST http://127.0.0.1:8000/api/v1/analysis/analyze \
   -H 'Content-Type: application/json' \
-  -d '{"stock_code": "600519"}'
+  -d '{"stock_code": "BHP.AX"}'
 
 # 查询任务状态
 curl http://127.0.0.1:8000/api/v1/analysis/status/<task_id>
@@ -713,13 +712,13 @@ curl -X POST http://127.0.0.1:8000/api/v1/backtest/run \
 # 触发回测（指定股票）
 curl -X POST http://127.0.0.1:8000/api/v1/backtest/run \
   -H 'Content-Type: application/json' \
-  -d '{"code": "600519", "force": false}'
+  -d '{"code": "BHP.AX", "force": false}'
 
 # 查询整体回测表现
 curl http://127.0.0.1:8000/api/v1/backtest/performance
 
 # 查询单股回测表现
-curl http://127.0.0.1:8000/api/v1/backtest/performance/600519
+curl http://127.0.0.1:8000/api/v1/backtest/performance/BHP.AX
 
 # 分页查询回测结果
 curl "http://127.0.0.1:8000/api/v1/backtest/results?page=1&limit=20"

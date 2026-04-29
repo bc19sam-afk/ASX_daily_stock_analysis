@@ -240,7 +240,7 @@ const HomePage: React.FC = () => {
                 setInputError(undefined);
               }}
               onKeyDown={handleKeyDown}
-              placeholder="输入股票代码，如 600519、00700、AAPL"
+              placeholder="输入股票代码，如 BHP.AX、CBA.AX、AAPL"
               disabled={isAnalyzing}
               className={`input-terminal w-full ${inputError ? 'border-danger/50' : ''}`}
             />

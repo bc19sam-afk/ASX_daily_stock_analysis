@@ -185,7 +185,7 @@ class CommandDispatcher:
 
 |------|------|------|------|
 
-| /analyze | /a, 分析 | 分析指定股票 | `/analyze 600519` |
+| /analyze | /a, 分析 | 分析指定股票 | `/analyze BHP.AX` |
 
 | /market | /m, 大盘 | 大盘复盘 | `/market` |
 

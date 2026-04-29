@@ -20,18 +20,18 @@ class StockQuote(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "stock_code": "600519",
-                "stock_name": "贵州茅台",
-                "current_price": 1800.00,
-                "change": 15.00,
-                "change_percent": 0.84,
-                "open": 1785.00,
-                "high": 1810.00,
-                "low": 1780.00,
-                "prev_close": 1785.00,
+                "stock_code": "BHP.AX",
+                "stock_name": "BHP Group",
+                "current_price": 44.20,
+                "change": 0.35,
+                "change_percent": 0.80,
+                "open": 43.85,
+                "high": 44.50,
+                "low": 43.60,
+                "prev_close": 43.85,
                 "volume": 10000000,
-                "amount": 18000000000,
-                "update_time": "2024-01-01T15:00:00",
+                "amount": 442000000,
+                "update_time": "2024-01-01T15:00:00+11:00",
             }
         }
     )
@@ -91,8 +91,8 @@ class StockHistoryResponse(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "stock_code": "600519",
-                "stock_name": "贵州茅台",
+                "stock_code": "BHP.AX",
+                "stock_name": "BHP Group",
                 "period": "daily",
                 "data": [],
             }

@@ -1,5 +1,5 @@
 # ===================================
-# A股自选股智能分析系统 - Docker 镜像
+# ASX-first 自选股智能分析系统 - Docker 镜像
 # ===================================
 # 多阶段构建：前端打包 + 后端运行
 
@@ -19,8 +19,8 @@ FROM python:3.11-slim-bookworm
 # 设置工作目录
 WORKDIR /app
 
-# 设置时区为上海
-ENV TZ=Asia/Shanghai
+# 设置默认市场时区为 Australia/Sydney
+ENV TZ=Australia/Sydney
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # 安装系统依赖（wkhtmltopdf 含 wkhtmltoimage，用于 Markdown 转图片 Issue #289）

@@ -116,7 +116,7 @@
 
 | Secret 名稱 | 說明 | 必填 |
 |------------|------|:----:|
-| `STOCK_LIST` | 自選股代碼，如 `600519,hk00700,AAPL,TSLA` | ✅ |
+| `STOCK_LIST` | 自選股代碼，如 `BHP.AX,CBA.AX,AAPL` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API（新聞搜索） | 推薦 |
 | `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索優化，支持AI摘要，多個key用逗號分隔） | 可選 |
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隱私優先，美股優化，多個key用逗號分隔） | 可選 |
@@ -146,13 +146,13 @@
 📊 2026-01-10 決策儀表盤
 3隻股票 | 🟢買入:1 🟡觀望:2 🔴賣出:0
 
-🟢 買入 | 貴州茅台(600519)
-📌 縮量回踩MA5支撐，乖離率1.2%處於最佳買點
-💰 狙擊: 買入1800 | 止損1750 | 目標1900
+🟢 買入 | BHP Group(BHP.AX)
+📌 回踩MA10後企穩，股息與商品價格支撐仍在
+💰 參考: 買入44.20 | 止損41.80 | 目標48.00
 ✅多頭排列 ✅乖離安全 ✅量能配合
 
-🟡 觀望 | 寧德時代(300750)
-📌 乖離率7.8%超過5%警戒線，嚴禁追高
+🟡 觀望 | Commonwealth Bank(CBA.AX)
+📌 價格接近短線壓力位，等待回調後再評估
 ⚠️ 等待回調至MA5附近再考慮
 
 ---

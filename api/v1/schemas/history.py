@@ -21,8 +21,8 @@ class HistoryItem(BaseModel):
         json_schema_extra={
             "example": {
                 "query_id": "abc123",
-                "stock_code": "600519",
-                "stock_name": "贵州茅台",
+                "stock_code": "BHP.AX",
+                "stock_name": "BHP Group",
                 "report_type": "detailed",
                 "sentiment_score": 75,
                 "operation_advice": "持有",
@@ -167,8 +167,8 @@ class AnalysisReport(BaseModel):
             "example": {
                 "meta": {
                     "query_id": "abc123",
-                    "stock_code": "600519",
-                    "stock_name": "贵州茅台",
+                    "stock_code": "BHP.AX",
+                    "stock_name": "BHP Group",
                     "report_type": "detailed",
                     "created_at": "2024-01-01T12:00:00",
                     "validation_status": "PASS",

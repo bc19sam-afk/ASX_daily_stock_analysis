@@ -109,7 +109,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 
 | Secret Name | Description | Required |
 |------------|------|:----:|
-| `STOCK_LIST` | Watchlist codes, e.g., `600519,300750,002594` | ✅ |
+| `STOCK_LIST` | Watchlist codes, e.g., `BHP.AX,CBA.AX,CSL.AX` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API (for news search) | Recommended |
 | `BOCHA_API_KEYS` | [Bocha Search](https://open.bocha.cn/) Web Search API (Chinese search optimized, supports AI summaries, multiple keys comma-separated) | Optional |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) Backup search | Optional |
@@ -142,7 +142,7 @@ To get started quickly, you need at minimum:
 
 ### 5. Done!
 
-Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
+GitHub Actions default schedule: every weekday at **08:00 Australia/Sydney** for the ASX pre-open report.
 
 ---
 
@@ -220,7 +220,7 @@ Default schedule: Every weekday at **18:00 (Beijing Time)** automatic execution.
 | `MAX_WORKERS` | Concurrent threads | `3` |
 | `MARKET_REVIEW_ENABLED` | Enable market review | `true` |
 | `SCHEDULE_ENABLED` | Enable scheduled tasks | `false` |
-| `SCHEDULE_TIME` | Scheduled execution time | `18:00` |
+| `SCHEDULE_TIME` | Scheduled execution time | `08:00` |
 | `LOG_DIR` | Log directory | `./logs` |
 
 ---
@@ -271,7 +271,7 @@ x-common: &common
   env_file:
     - .env
   environment:
-    - TZ=Asia/Shanghai
+    - TZ=Australia/Sydney
   volumes:
     - ./data:/app/data
     - ./logs:/app/logs
@@ -339,7 +339,7 @@ pip install -r requirements.txt
 python main.py                        # Full analysis (stocks + market review)
 python main.py --market-review        # Market review only
 python main.py --no-market-review     # Stock analysis only
-python main.py --stocks 600519,300750 # Specify stocks
+python main.py --stocks BHP.AX,CBA.AX # Specify stocks
 python main.py --dry-run              # Fetch data only, no AI analysis
 python main.py --no-notify            # Don't send notifications
 python main.py --schedule             # Scheduled task mode
@@ -357,24 +357,23 @@ Edit `.github/workflows/daily_analysis.yml`:
 
 ```yaml
 schedule:
-  # UTC time, Beijing time = UTC + 8
-  - cron: '0 10 * * 1-5'   # Monday to Friday 18:00 (Beijing Time)
+  # Schedule directly in Australia/Sydney local time; GitHub handles DST.
+  - cron: '0 8 * * 1-5'    # Monday to Friday 08:00 (ASX pre-open)
+    timezone: 'Australia/Sydney'
 ```
 
 Common time reference:
 
-| Beijing Time | UTC cron expression |
+| Australia/Sydney time | cron expression |
 |---------|----------------|
-| 09:30 | `'30 1 * * 1-5'` |
-| 12:00 | `'0 4 * * 1-5'` |
-| 15:00 | `'0 7 * * 1-5'` |
-| 18:00 | `'0 10 * * 1-5'` |
-| 21:00 | `'0 13 * * 1-5'` |
+| 08:00 | `'0 8 * * 1-5'` |
+| 16:30 | `'30 16 * * 1-5'` |
+| 18:00 | `'0 18 * * 1-5'` |
 
 ### Local Scheduled Tasks
 
 ```bash
-# Start scheduled mode (default 18:00 execution)
+# Start scheduled mode (uses SCHEDULE_TIME in the local process/container timezone)
 python main.py --schedule
 
 # Or use crontab
@@ -507,7 +506,7 @@ System defaults to AkShare (free), also supports other data sources:
 Use `hk` prefix for HK stock codes:
 
 ```bash
-STOCK_LIST=600519,hk00700,hk01810
+STOCK_LIST=BHP.AX,hk00700,hk01810
 ```
 
 ### Multi-Model Switching
@@ -629,7 +628,7 @@ curl http://127.0.0.1:8000/api/health
 # Trigger analysis (A-shares)
 curl -X POST http://127.0.0.1:8000/api/v1/analysis/analyze \
   -H 'Content-Type: application/json' \
-  -d '{"stock_code": "600519"}'
+  -d '{"stock_code": "BHP.AX"}'
 
 # Query task status
 curl http://127.0.0.1:8000/api/v1/analysis/status/<task_id>
@@ -642,13 +641,13 @@ curl -X POST http://127.0.0.1:8000/api/v1/backtest/run \
 # Trigger backtest (specific stock)
 curl -X POST http://127.0.0.1:8000/api/v1/backtest/run \
   -H 'Content-Type: application/json' \
-  -d '{"code": "600519", "force": false}'
+  -d '{"code": "BHP.AX", "force": false}'
 
 # Query overall backtest performance
 curl http://127.0.0.1:8000/api/v1/backtest/performance
 
 # Query per-stock backtest performance
-curl http://127.0.0.1:8000/api/v1/backtest/performance/600519
+curl http://127.0.0.1:8000/api/v1/backtest/performance/BHP.AX
 
 # Paginated backtest results
 curl "http://127.0.0.1:8000/api/v1/backtest/results?page=1&limit=20"

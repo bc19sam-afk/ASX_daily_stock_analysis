@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Daily Stock Analysis API",
-    "description": "A股/港股/美股自选股智能分析系统 API\n\n## 功能模块\n- 股票分析：触发 AI 智能分析\n- 历史记录：查询历史分析报告\n- 股票数据：获取行情数据\n\n## 认证方式\n当前版本暂无认证要求",
+    "description": "ASX-first 自选股分析系统 API（面向人工决策辅助，不做自动交易）\n\n## 功能模块\n- 股票分析：触发 AI 智能分析\n- 历史记录：查询历史分析报告\n- 股票数据：获取行情数据\n\n## 产品定位\n- 默认按 ASX/AU 交易日历与时区运行\n- 兼容 AU/US 标的统一报告流程\n- 重点保证报告口径一致、时间基准清楚、避免误导用户\n\n## 认证方式\n当前版本暂无认证要求",
     "version": "1.0.0",
     "contact": {
       "name": "Daily Stock Analysis Team"
@@ -208,7 +208,7 @@
               "text/event-stream": {
                 "schema": {
                   "type": "string",
-                  "example": "event: task_created\ndata: {\"task_id\": \"abc123\", \"stock_code\": \"600519\", \"status\": \"pending\"}\n\n"
+                  "example": "event: task_created\ndata: {\"task_id\": \"abc123\", \"stock_code\": \"BHP.AX\", \"status\": \"pending\"}\n\n"
                 }
               }
             }
@@ -612,7 +612,7 @@
           "stock_code": {
             "type": "string",
             "description": "单只股票代码（当前一次只支持一只股票）",
-            "example": "600519"
+            "example": "BHP.AX"
           },
           "stock_codes": {
             "type": "array",
@@ -621,7 +621,7 @@
               "type": "string"
             },
             "example": [
-              "600519"
+              "BHP.AX"
             ]
           },
           "report_type": {
@@ -646,9 +646,9 @@
           }
         },
         "example": {
-          "stock_code": "600519",
+          "stock_code": "BHP.AX",
           "stock_codes": [
-            "600519"
+            "BHP.AX"
           ],
           "report_type": "full",
           "force_refresh": false,
@@ -853,12 +853,12 @@
           },
           "message": {
             "type": "string",
-            "example": "股票 600519 正在分析中",
+            "example": "股票 BHP.AX 正在分析中",
             "description": "错误信息"
           },
           "stock_code": {
             "type": "string",
-            "example": "600519",
+            "example": "BHP.AX",
             "description": "股票代码"
           },
           "existing_task_id": {

@@ -2,9 +2,9 @@ name: 每日股票分析
 
 on:
   # 定时触发（使用 GitHub Actions timezone-aware schedule）
-  # 直接按 Australia/Sydney 本地工作日 07:20 调度，交给 GitHub 处理 DST。
+  # 直接按 Australia/Sydney 本地工作日 08:00 调度，交给 GitHub 处理 DST。
   schedule:
-    - cron: '20 7 * * 1-5'
+    - cron: '0 8 * * 1-5'
       timezone: 'Australia/Sydney'
   
   # 手动触发
@@ -179,7 +179,7 @@ jobs:
           # ==========================================
           # 自选股配置
           # ==========================================
-          STOCK_LIST: ${{ vars.STOCK_LIST || secrets.STOCK_LIST || '600519' }}
+          STOCK_LIST: ${{ vars.STOCK_LIST || secrets.STOCK_LIST || 'BHP.AX,CBA.AX,CSL.AX' }}
           
           # ==========================================
           # 运行配置 ⬅️ 新增！

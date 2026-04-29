@@ -25,7 +25,7 @@ def test_api_spec_analyze_request_no_longer_implies_multi_stock_support():
     report_type = analyze_request["properties"]["report_type"]
 
     assert "仅支持单元素列表" in stock_codes["description"]
-    assert stock_codes["example"] == ["600519"]
+    assert stock_codes["example"] == ["BHP.AX"]
 
     assert report_type["default"] == "full"
     assert report_type["enum"] == ["simple", "full", "detailed"]

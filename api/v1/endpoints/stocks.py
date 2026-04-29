@@ -127,7 +127,7 @@ def get_stock_quote(stock_code: str) -> StockQuote:
     获取指定股票的最新行情数据
     
     Args:
-        stock_code: 股票代码（如 600519、00700、AAPL）
+        stock_code: 股票代码（如 BHP.AX、CBA.AX、AAPL）
         
     Returns:
         StockQuote: 实时行情数据

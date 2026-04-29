@@ -32,8 +32,8 @@ class AnalyzeRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "stock_code": "600519",
-                "stock_codes": ["600519"],
+                "stock_code": "BHP.AX",
+                "stock_codes": ["BHP.AX"],
                 "report_type": "full",
                 "force_refresh": False,
                 "async_mode": False,
@@ -68,8 +68,8 @@ class AnalysisResultResponse(BaseModel):
         json_schema_extra={
             "example": {
                 "query_id": "abc123def456",
-                "stock_code": "600519",
-                "stock_name": "贵州茅台",
+                "stock_code": "BHP.AX",
+                "stock_name": "BHP Group",
                 "report": {
                     "summary": {
                         "sentiment_score": 75,
@@ -158,8 +158,8 @@ class TaskInfo(BaseModel):
         json_schema_extra={
             "example": {
                 "task_id": "abc123def456",
-                "stock_code": "600519",
-                "stock_name": "贵州茅台",
+                "stock_code": "BHP.AX",
+                "stock_name": "BHP Group",
                 "status": "processing",
                 "progress": 50,
                 "message": "正在分析中...",
@@ -212,8 +212,8 @@ class DuplicateTaskErrorResponse(BaseModel):
         json_schema_extra={
             "example": {
                 "error": "duplicate_task",
-                "message": "股票 600519 正在分析中",
-                "stock_code": "600519",
+                "message": "股票 BHP.AX 正在分析中",
+                "stock_code": "BHP.AX",
                 "existing_task_id": "abc123def456",
             }
         }

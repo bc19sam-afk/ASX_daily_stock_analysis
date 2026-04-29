@@ -193,7 +193,7 @@ journalctl -u stock-analyzer -f
 | Config Item | Default | Description |
 |--------|--------|------|
 | `SCHEDULE_ENABLED` | `false` | Enable scheduled tasks |
-| `SCHEDULE_TIME` | `18:00` | Daily execution time |
+| `SCHEDULE_TIME` | `08:00` | Daily execution time |
 | `MARKET_REVIEW_ENABLED` | `true` | Enable market review |
 | `TAVILY_API_KEYS` | - | News search (optional) |
 
@@ -358,7 +358,7 @@ Add these Secrets:
 | `EMAIL_PASSWORD` | Email authorization code | Optional* |
 | `SERVERCHAN3_SENDKEY` | ServerChan v3 Sendkey | Optional* |
 | `CUSTOM_WEBHOOK_URLS` | Custom Webhook (comma-separated for multiple) | Optional* |
-| `STOCK_LIST` | Watchlist, e.g., `600519,300750` | ✅ |
+| `STOCK_LIST` | Watchlist, e.g., `BHP.AX,CBA.AX,CSL.AX` | ✅ |
 | `TAVILY_API_KEYS` | Tavily Search API Key | Recommended |
 | `SERPAPI_API_KEYS` | SerpAPI Key | Optional |
 | `TUSHARE_TOKEN` | Tushare Token | Optional |
@@ -395,22 +395,22 @@ git push
 
 ### Schedule Details
 
-Default configuration: **Monday to Friday, 18:00 Beijing Time** auto-execution
+Default configuration: **Monday to Friday, 08:00 Australia/Sydney** auto-execution for the ASX pre-open report.
 
 Modify time: Edit cron expression in `.github/workflows/daily_analysis.yml`:
 
 ```yaml
 schedule:
-  - cron: '0 10 * * 1-5'  # UTC time, +8 = Beijing time
+  - cron: '0 8 * * 1-5'
+    timezone: 'Australia/Sydney'
 ```
 
 Common cron examples:
 | Expression | Description |
 |--------|------|
-| `'0 10 * * 1-5'` | Mon-Fri 18:00 (Beijing) |
-| `'30 7 * * 1-5'` | Mon-Fri 15:30 (Beijing) |
-| `'0 10 * * *'` | Daily 18:00 (Beijing) |
-| `'0 2 * * 1-5'` | Mon-Fri 10:00 (Beijing) |
+| `'0 8 * * 1-5'` + `Australia/Sydney` | Mon-Fri 08:00 (ASX pre-open) |
+| `'30 16 * * 1-5'` + `Australia/Sydney` | Mon-Fri 16:30 (ASX after close) |
+| `'0 18 * * 1-5'` + `Australia/Sydney` | Mon-Fri 18:00 (local evening review) |
 
 ### Modify Watchlist
 

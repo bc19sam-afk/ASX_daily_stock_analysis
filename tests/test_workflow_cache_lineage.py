@@ -39,15 +39,15 @@ def test_cache_path_is_consistent_for_portfolio_db():
 def test_daily_analysis_uses_timezone_aware_weekday_schedule():
     daily = _read(".github/workflows/daily_analysis.yml")
 
-    assert "cron: '20 7 * * 1-5'" in daily
+    assert "cron: '0 8 * * 1-5'" in daily
     assert "timezone: 'Australia/Sydney'" in daily
     assert "20 20 * * 0-4" not in daily
     assert "20 21 * * 0-4" not in daily
 
 
-def test_daily_analysis_gate_no_longer_requires_exact_0720_match():
+def test_daily_analysis_gate_no_longer_requires_exact_time_match():
     daily = _read(".github/workflows/daily_analysis.yml")
 
     assert 'local_time=$(TZ=\'Australia/Melbourne\' date \'+%H:%M\')' not in daily
-    assert '[ "$local_time" = "07:20" ]' not in daily
+    assert '[ "$local_time" =' not in daily
     assert "matched timezone-aware Australia/Sydney weekday schedule" in daily

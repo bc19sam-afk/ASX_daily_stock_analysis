@@ -1,6 +1,6 @@
 # 🚀 部署指南
 
-本文档介绍如何将 A股自选股智能分析系统部署到服务器。
+本文档介绍如何将 ASX-first 自选股智能分析系统部署到服务器。
 
 ## 📋 部署方案对比
 
@@ -141,7 +141,7 @@ sudo vim /etc/systemd/system/stock-analyzer.service
 内容：
 ```ini
 [Unit]
-Description=A股自选股智能分析系统
+Description=ASX-first 自选股智能分析系统
 After=network.target
 
 [Service]
@@ -194,7 +194,7 @@ journalctl -u stock-analyzer -f
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `SCHEDULE_ENABLED` | `false` | 是否启用定时任务 |
-| `SCHEDULE_TIME` | `18:00` | 每日执行时间 |
+| `SCHEDULE_TIME` | `08:00` | 每日执行时间 |
 | `MARKET_REVIEW_ENABLED` | `true` | 是否启用大盘复盘 |
 | `TAVILY_API_KEYS` | - | 新闻搜索（可选） |
 
@@ -360,7 +360,7 @@ git push -u origin main
 | `EMAIL_PASSWORD` | 邮箱授权码 | 可选* |
 | `SERVERCHAN3_SENDKEY` | Server酱³ Sendkey | 可选* |
 | `CUSTOM_WEBHOOK_URLS` | 自定义 Webhook（多个逗号分隔） | 可选* |
-| `STOCK_LIST` | 自选股列表，如 `600519,300750` | ✅ |
+| `STOCK_LIST` | 自选股列表，如 `BHP.AX,CBA.AX,CSL.AX` | ✅ |
 | `TAVILY_API_KEYS` | Tavily 搜索 API Key（多个 key 用逗号分隔） | 推荐 |
 | `SERPAPI_API_KEYS` | SerpAPI Key | 可选 |
 | `TUSHARE_TOKEN` | Tushare Token | 可选 |
@@ -402,22 +402,22 @@ git push
 
 ### 定时说明
 
-默认配置：**周一到周五，北京时间 18:00** 自动执行
+默认配置：**周一到周五，Australia/Sydney 08:00** 自动执行，用于 ASX 开盘前报告。
 
 修改时间：编辑 `.github/workflows/daily_analysis.yml` 中的 cron 表达式：
 
 ```yaml
 schedule:
-  - cron: '0 10 * * 1-5'  # UTC 时间，+8 = 北京时间
+  - cron: '0 8 * * 1-5'
+    timezone: 'Australia/Sydney'
 ```
 
 常用 cron 示例：
 | 表达式 | 说明 |
 |--------|------|
-| `'0 10 * * 1-5'` | 周一到周五 18:00（北京时间） |
-| `'30 7 * * 1-5'` | 周一到周五 15:30（北京时间） |
-| `'0 10 * * *'` | 每天 18:00（北京时间） |
-| `'0 2 * * 1-5'` | 周一到周五 10:00（北京时间） |
+| `'0 8 * * 1-5'` + `Australia/Sydney` | 周一到周五 08:00（ASX 开盘前） |
+| `'30 16 * * 1-5'` + `Australia/Sydney` | 周一到周五 16:30（ASX 收盘后） |
+| `'0 18 * * 1-5'` + `Australia/Sydney` | 周一到周五 18:00（本地晚间复盘） |
 
 ### 修改自选股
 

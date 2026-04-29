@@ -72,7 +72,7 @@ def _config(**overrides):
         "validate": lambda: [],
         "webui_enabled": False,
         "schedule_enabled": False,
-        "schedule_time": "07:20",
+        "schedule_time": "08:00",
         "schedule_run_immediately": True,
         "market_review_enabled": True,
         "single_stock_notify": False,

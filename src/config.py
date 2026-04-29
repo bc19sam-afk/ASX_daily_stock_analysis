@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 配置管理模块
+ASX-first 自选股智能分析系统 - 配置管理模块
 ===================================
 
 职责：
@@ -226,7 +226,7 @@ class Config:
     
     # === 定时任务配置 ===
     schedule_enabled: bool = False            # 是否启用定时任务
-    schedule_time: str = "18:00"              # 每日推送时间（HH:MM 格式）
+    schedule_time: str = "08:00"              # 每日推送时间（HH:MM 格式）
     schedule_run_immediately: bool = True     # 启动时是否立即执行一次
     market_review_enabled: bool = True        # 是否启用大盘复盘
     market_review_push_enabled: bool = True   # 是否推送大盘复盘（关闭后仅保存/参与合并）
@@ -257,7 +257,7 @@ class Config:
     circuit_breaker_cooldown: int = 300
 
     # Discord 机器人状态
-    discord_bot_status: str = "A股智能分析 | /help"
+    discord_bot_status: str = "ASX 智能分析 | /help"
 
     # === 流控配置（防封禁关键参数）===
     # Akshare 请求间隔范围（秒）
@@ -304,7 +304,7 @@ class Config:
     telegram_webhook_secret: Optional[str] = None   # Webhook 密钥
     
     # Discord 机器人扩展配置
-    discord_bot_status: str = "A股智能分析 | /help"  # 机器人状态信息
+    discord_bot_status: str = "ASX 智能分析 | /help"  # 机器人状态信息
     
     # 单例实例存储
     _instance: Optional['Config'] = None
@@ -314,6 +314,12 @@ class Config:
             "STOCK_LIST",
         }
     )
+    _DEFAULT_STOCK_LIST: ClassVar[Tuple[str, ...]] = ("BHP.AX", "CBA.AX", "CSL.AX")
+
+    @classmethod
+    def default_stock_list_csv(cls) -> str:
+        """Return the ASX-first default watchlist as an env-compatible CSV."""
+        return ",".join(cls._DEFAULT_STOCK_LIST)
     
     @classmethod
     def get_instance(cls) -> 'Config':
@@ -392,9 +398,9 @@ class Config:
             if code.strip()
         ]
         
-        # 如果没有配置，使用默认的示例股票
+        # 如果没有配置，使用 ASX-first 默认示例股票
         if not stock_list:
-            stock_list = ['600519', '000001', '300750']
+            stock_list = list(cls._DEFAULT_STOCK_LIST)
         
         # 解析搜索引擎 API Keys（支持多个 key，逗号分隔）
         bocha_keys_str = os.getenv('BOCHA_API_KEYS', '')
@@ -506,7 +512,7 @@ class Config:
             http_proxy=os.getenv('HTTP_PROXY'),
             https_proxy=os.getenv('HTTPS_PROXY'),
             schedule_enabled=os.getenv('SCHEDULE_ENABLED', 'false').lower() == 'true',
-            schedule_time=os.getenv('SCHEDULE_TIME', '18:00'),
+            schedule_time=os.getenv('SCHEDULE_TIME', '08:00'),
             schedule_run_immediately=os.getenv('SCHEDULE_RUN_IMMEDIATELY', 'true').lower() == 'true',
             market_review_enabled=os.getenv('MARKET_REVIEW_ENABLED', 'true').lower() == 'true',
             market_review_push_enabled=os.getenv('MARKET_REVIEW_PUSH_ENABLED', 'true').lower() == 'true',
@@ -539,7 +545,7 @@ class Config:
             # Telegram
             telegram_webhook_secret=os.getenv('TELEGRAM_WEBHOOK_SECRET'),
             # Discord 机器人扩展配置
-            discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'A股智能分析 | /help'),
+            discord_bot_status=os.getenv('DISCORD_BOT_STATUS', 'ASX 智能分析 | /help'),
             # 实时行情增强数据配置
             enable_realtime_quote=os.getenv('ENABLE_REALTIME_QUOTE', 'true').lower() == 'true',
             execution_price_policy=cls._resolve_execution_price_policy(),
@@ -715,8 +721,8 @@ class Config:
             if code.strip()
         ]
 
-        if not stock_list:        
-            stock_list = ['000001']
+        if not stock_list:
+            stock_list = list(self._DEFAULT_STOCK_LIST)
 
         self.stock_list = stock_list
 

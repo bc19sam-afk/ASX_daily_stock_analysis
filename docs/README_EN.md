@@ -117,7 +117,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 
 | Secret Name | Description | Required |
 |------------|------|:----:|
-| `STOCK_LIST` | Watchlist codes, e.g., `600519,AAPL,hk00700` | ✅ |
+| `STOCK_LIST` | Watchlist codes, e.g., `BHP.AX,CBA.AX,AAPL` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API (for news) | Recommended |
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API (privacy-focused, US stocks optimized) | Optional |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) Backup search | Optional |
@@ -187,7 +187,7 @@ Configure the following:
 GEMINI_API_KEY=your_gemini_api_key_here
 
 # Stock Watchlist (Mixed markets supported)
-STOCK_LIST=600519,AAPL,hk00700
+STOCK_LIST=BHP.AX,CBA.AX,AAPL
 
 # Notification Channel (Choose at least one)
 TELEGRAM_BOT_TOKEN=your_bot_token
@@ -290,13 +290,13 @@ PUSHPLUS_TOKEN=your_token_here
 
 ## 📊 Analysis Summary
 
-🟢 **AAPL(Apple Inc.)**: Buy | Score 85 | Strong Bullish
-🟡 **600519(Kweichow Moutai)**: Hold | Score 65 | Bullish
-🔴 **TSLA(Tesla)**: Sell | Score 35 | Bearish
+🟢 **BHP.AX(BHP Group)**: Buy | Score 85 | Strong Bullish
+🟡 **CBA.AX(Commonwealth Bank)**: Hold | Score 65 | Bullish
+🔴 **AAPL(Apple Inc.)**: Sell | Score 35 | Bearish
 
 ---
 
-## 🟢 AAPL (Apple Inc.)
+## 🟢 BHP.AX (BHP Group)
 
 ### 📰 Key Information
 **💭 Sentiment**: Positive news on iPhone 16 sales
@@ -381,7 +381,7 @@ SINGLE_STOCK_NOTIFY=true       # Push immediately after each stock analysis
 
 # === Schedule ===
 SCHEDULE_ENABLED=true          # Enable scheduled task
-SCHEDULE_TIME=18:00            # Daily run time (HH:MM, 24-hour format)
+SCHEDULE_TIME=08:00            # Daily run time (HH:MM, 24-hour format)
 MARKET_REVIEW_ENABLED=true     # Enable market review
 
 # === Data Source ===

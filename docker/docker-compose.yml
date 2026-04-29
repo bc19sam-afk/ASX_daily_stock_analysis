@@ -1,5 +1,5 @@
 # ===================================
-# A股自选股智能分析系统 - Docker Compose
+# ASX-first 自选股智能分析系统 - Docker Compose
 # ===================================
 # 
 # 使用方式:
@@ -28,9 +28,10 @@ x-common: &common
     # - ../static:/app/static:ro
 
   environment:
-    - TZ=Asia/Shanghai
+    - TZ=Australia/Sydney
 
-    # Web/API service bind address (must be 0.0.0.0 inside container)
+    # Web/API service bind address (must be 0.0.0.0 inside container).
+    # Keep exposed ports on localhost/private networks unless auth/reverse proxy is enabled.
     - WEBUI_HOST=0.0.0.0
     # API_PORT 从 .env 文件读取，无需在此硬编码
 

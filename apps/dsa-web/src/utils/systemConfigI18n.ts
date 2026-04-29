@@ -50,7 +50,7 @@ const fieldTitleMap: Record<string, string> = {
 };
 
 const fieldDescriptionMap: Record<string, string> = {
-  STOCK_LIST: '使用逗号分隔股票代码，例如：600519,300750。',
+  STOCK_LIST: '使用逗号分隔股票代码，例如：BHP.AX,CBA.AX,CSL.AX。',
   TUSHARE_TOKEN: '用于接入 Tushare Pro 数据服务的凭据。',
   TAVILY_API_KEYS: '用于新闻检索的 Tavily 密钥，支持逗号分隔多个。',
   SERPAPI_API_KEYS: '用于新闻检索的 SerpAPI 密钥，支持逗号分隔多个。',
