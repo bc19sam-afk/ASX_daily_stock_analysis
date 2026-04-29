@@ -67,6 +67,8 @@ def _mixed_action_results():
             position_action="OPEN",
             target_weight=0.10,
             delta_amount=5000.0,
+            action_reason="",
+            buy_reason="AI narrative should not enter daily_decision_summary reason",
         ),
         _result(
             code="CSL.AX",
@@ -166,23 +168,90 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         ),
     )
 
-    assert {
+    expected_top_level_keys = {
+        "schema_version",
         "report_date",
         "technical_basis_date",
+        "technical_basis_dates",
         "price_policy",
+        "price_basis_counts",
         "generated_at",
         "stock_count",
+        "successful_count",
+        "failed_count",
         "action_counts",
         "actionable_items",
         "watch_items",
         "blocked_items",
+        "uncovered_holdings",
         "data_quality_flags",
         "execution_checklist",
-    }.issubset(summary.keys())
+        "watch_trigger_rule",
+    }
+    assert set(summary.keys()) == expected_top_level_keys
     assert summary["schema_version"] == "daily_decision_summary.v1"
-    assert isinstance(summary["actionable_items"], list)
-    assert isinstance(summary["watch_items"], list)
-    assert isinstance(summary["blocked_items"], list)
+    assert set(summary["action_counts"].keys()) == {
+        "buy",
+        "add",
+        "reduce",
+        "close",
+        "hold_watch",
+        "blocked",
+        "total_actions",
+    }
+    assert summary["action_counts"] == {
+        "buy": 1,
+        "add": 1,
+        "reduce": 1,
+        "close": 1,
+        "hold_watch": 1,
+        "blocked": 1,
+        "total_actions": 4,
+    }
+
+    assert [item["code"] for item in summary["actionable_items"]] == [
+        "BHP.AX",
+        "CBA.AX",
+        "CSL.AX",
+        "TLS.AX",
+    ]
+    assert set(summary["actionable_items"][0].keys()) == {
+        "code",
+        "name",
+        "position_action",
+        "target_weight",
+        "current_weight",
+        "delta_amount",
+        "is_current_holding",
+        "price_basis",
+        "reason",
+    }
+    cba_item = next(item for item in summary["actionable_items"] if item["code"] == "CBA.AX")
+    assert cba_item["reason"] == ""
+
+    assert [item["code"] for item in summary["watch_items"]] == ["WES.AX"]
+    assert set(summary["watch_items"][0].keys()) == {
+        "code",
+        "name",
+        "position_action",
+        "target_weight",
+        "current_weight",
+        "delta_amount",
+        "is_current_holding",
+        "price_basis",
+        "reason",
+        "trigger",
+    }
+
+    assert [item["code"] for item in summary["blocked_items"]] == ["NAB.AX"]
+    assert set(summary["blocked_items"][0].keys()) == {
+        "code",
+        "name",
+        "reason",
+        "current_weight",
+        "target_weight",
+        "price_basis",
+    }
 
 
 @patch("src.notification.get_db")

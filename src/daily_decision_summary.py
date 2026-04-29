@@ -94,7 +94,7 @@ def _build_item(
         "delta_amount": _safe_float(action_model.get("delta_amount")),
         "is_current_holding": is_current_holding,
         "price_basis": classify_price_basis(result),
-        "reason": str(getattr(result, "action_reason", "") or getattr(result, "buy_reason", "") or ""),
+        "reason": str(getattr(result, "action_reason", "") or ""),
     }
 
 
