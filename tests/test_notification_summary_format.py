@@ -166,6 +166,62 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertNotIn("建议卖出并减仓", report)
 
     @patch("src.notification.get_db")
+    def test_reduce_summary_suppresses_ai_buy_share_count_even_with_atr_stop_loss(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+        result = self._build_result(
+            code="BHP.AX",
+            name="BHP",
+            final_decision="SELL",
+            position_action="REDUCE",
+            target_weight=0.2007,
+            delta_amount=-3200.0,
+            operation_advice="观望/持有。建议买入股数：70股；ATR止损价：53.52 AUD",
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertIn("AI解读与确定性主动作存在方向冲突，已转为中性说明", report)
+        self.assertNotIn("建议买入股数", report)
+        self.assertNotIn("70股", report)
+
+    @patch("src.notification.get_db")
+    def test_buy_summary_keeps_buy_direction_when_atr_stop_loss_present_but_hides_share_count(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+        result = self._build_result(
+            final_decision="BUY",
+            position_action="OPEN",
+            target_weight=0.12,
+            delta_amount=2000.0,
+            operation_advice="建议买入70股；ATR止损价：53.52 AUD",
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertNotIn("AI解读与确定性主动作存在方向冲突", report)
+        self.assertNotIn("建议买入70股", report)
+        self.assertNotIn("70股", report)
+        self.assertIn("ATR止损价：53.52 AUD", report)
+
+    @patch("src.notification.get_db")
+    def test_buy_summary_does_not_treat_english_close_below_stop_as_sell_conflict(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+        result = self._build_result(
+            final_decision="BUY",
+            position_action="OPEN",
+            target_weight=0.12,
+            delta_amount=2000.0,
+            operation_advice="buy on breakout; close below 53.52 stop",
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertNotIn("AI解读与确定性主动作存在方向冲突", report)
+        self.assertIn("buy on breakout; close below 53.52 stop", report)
+
+    @patch("src.notification.get_db")
     def test_wechat_dashboard_suppresses_actionable_ai_commentary_when_conflict(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {
             "cash": 120000.0,
@@ -697,20 +753,62 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         }
         service = self._build_service()
         results = [
-            self._build_result(code="BHP.AX", name="BHP", current_price=52.0),
+            self._build_result(code="BHP.AX", name="BHP", current_price=52.0, execution_price_source="close_only"),
             self._build_result(code="LAU.AX", name="LAU", current_price=None),
         ]
 
         report = service.generate_dashboard_report(results, report_date="2026-03-30")
         self.assertIn("| 当前持仓 | 数量 | 权重 | 估值来源 | 今日分析覆盖 |", report)
-        # BHP uses report-time price and is analyzed today
-        self.assertIn("| BHP(BHP.AX) | 66.00 | 58.76% | 报告时点价格 | 是 |", report)
+        # BHP uses close-basis report price and is analyzed today
+        self.assertIn("| BHP(BHP.AX) | 66.00 | 58.76% | 收盘基准价估值 | 是 |", report)
         # LAU falls back to stored market_value and is analyzed today
         self.assertIn("| LAU(LAU.AX) | 2,958.00 | 34.19% | 账户快照市值回退 | 是 |", report)
         # TLS is not in today's analysis results
         self.assertIn("| TLS(TLS.AX) | 100.00 | 5.14% | 账户快照市值回退 | 否 |", report)
         self.assertIn("账户快照市值回退", report)
         self.assertIn("今日分析覆盖：是/否", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_overview_labels_realtime_valuation_source(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 100.0,
+            "holdings": [
+                {"code": "BHP.AX", "name": "BHP", "quantity": 10, "market_value": 400.0},
+            ],
+        }
+        service = self._build_service()
+        result = self._build_result(
+            code="BHP.AX",
+            name="BHP",
+            current_price=50.0,
+            execution_price_source="realtime",
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertIn("| BHP(BHP.AX) | 10.00 | 83.33% | 报告时点实时价估值 | 是 |", report)
+        self.assertIn("估值来源随价格口径变化", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_overview_defaults_legacy_price_source_to_close_basis(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 100.0,
+            "holdings": [
+                {"code": "BHP.AX", "name": "BHP", "quantity": 10, "market_value": 400.0},
+            ],
+        }
+        service = self._build_service()
+        result = self._build_result(
+            code="BHP.AX",
+            name="BHP",
+            current_price=50.0,
+            execution_price_source="legacy_report_time",
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertIn("| BHP(BHP.AX) | 10.00 | 83.33% | 收盘基准价估值 | 是 |", report)
+        self.assertNotIn("报告时点实时价估值 | 是 |", report)
 
     @patch("src.notification.get_db")
     def test_market_snapshot_displays_yfinance_source_name(self, mock_get_db) -> None:
@@ -1065,8 +1163,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
                 "core_conclusion": {
                     "one_sentence": "按计划执行",
                     "position_advice": {
-                        "no_position": "建议买入1000股",
-                        "has_position": "再加仓500股",
+                        "no_position": "建议买入1,000股",
+                        "has_position": "再加仓500股，建议仓位：3成",
                     },
                 }
             },
@@ -1076,7 +1174,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
         self.assertIn("### 持仓指引", report)
         self.assertIn("- 空仓者怎么做：AI仓位建议（非执行）", report)
-        self.assertIn("- 持仓者参考：再加仓500股", report)
+        self.assertNotIn("建议买入1,000股", report)
+        self.assertNotIn("再加仓500股", report)
+        self.assertNotIn("建议仓位：3成", report)
 
     @patch("src.notification.get_db")
     def test_per_stock_ai_sizing_commentary_is_labeled_non_binding_when_target_quantity_missing(self, mock_get_db) -> None:
@@ -1096,6 +1196,39 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("### 持仓指引", report)
         self.assertNotIn("| 🆕 **空仓者** | 建议买入1000股 |", report)
         self.assertIn("- 空仓者怎么做：AI仓位建议（非执行）", report)
+
+    @patch("src.notification.get_db")
+    def test_position_strategy_filters_contradictory_buy_sizing_for_reduce_but_keeps_risk_control(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            code="BHP.AX",
+            name="BHP",
+            final_decision="SELL",
+            position_action="REDUCE",
+            target_weight=0.2007,
+            delta_amount=-3200.0,
+            operation_advice="观望/持有。建议买入股数：70股；ATR止损价：53.52 AUD",
+            dashboard={
+                "battle_plan": {
+                    "position_strategy": {
+                        "suggested_position": "建议仓位：3成",
+                        "entry_plan": "基于1%风险红线，建议买入股数为70股。首批在54.45附近介入。",
+                        "risk_control": "严格执行53.52止损，若跌破则减仓。",
+                    }
+                }
+            },
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertIn("AI仓位测算已降级为非执行参考；执行数量以主动作目标仓位/模拟调仓为准", report)
+        self.assertNotIn("建议仓位：3成", report)
+        self.assertNotIn("建议买入股数", report)
+        self.assertNotIn("70股", report)
+        self.assertNotIn("首批在54.45附近介入", report)
+        self.assertIn("严格执行53.52止损，若跌破则减仓。", report)
 
     def test_wechat_dashboard_redacts_ai_share_count_guidance(self) -> None:
         service = self._build_service()
@@ -1151,6 +1284,27 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_single_stock_report(result)
         self.assertIn("**一句话结论**: AI总结与确定性主动作存在方向冲突，请仅按确定性主动作执行", report)
         self.assertNotIn("**持有/观望**: 必须卖出", report)
+
+    def test_ai_one_sentence_redacts_executable_share_count_across_report_surfaces(self) -> None:
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            final_decision="BUY",
+            position_action="ADD",
+            dashboard={
+                "core_conclusion": {
+                    "one_sentence": "建议买入1,000股并设置止损",
+                }
+            },
+        )
+
+        report = service.generate_single_stock_report(result)
+        wechat = service.generate_wechat_dashboard([result])
+
+        self.assertNotIn("建议买入1,000股", report)
+        self.assertNotIn("建议买入1,000股", wechat)
+        self.assertIn("AI仓位建议（非执行）", report)
+        self.assertIn("AI仓位建议（非执行）", wechat)
 
     @patch("src.notification.get_db")
     def test_per_stock_close_position_renders_zero_target_quantity_as_deterministic(self, mock_get_db) -> None:

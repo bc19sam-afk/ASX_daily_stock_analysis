@@ -247,6 +247,9 @@ class NotificationService:
     
     注意：所有已配置的渠道都会收到推送
     """
+
+    AI_POSITION_REFERENCE_DOWNGRADE = "AI仓位测算已降级为非执行参考；执行数量以主动作目标仓位/模拟调仓为准"
+    AI_NUMERIC_QUANTITY_PATTERN = r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
     
     def __init__(self, source_message: Optional[BotMessage] = None):
         """
@@ -920,21 +923,130 @@ class NotificationService:
         text = text.replace("|", r"\|")
         return text.replace("\n", "<br>")
 
-    @staticmethod
-    def _sanitize_ai_share_count_commentary(text: Any) -> str:
+    @classmethod
+    def _sanitize_ai_share_count_commentary(cls, text: Any) -> str:
         """Remove executable-looking AI share-count instructions from display text."""
         if text is None:
             return ""
         normalized = str(text).strip()
         if not normalized:
             return ""
-        patterns = (
-            r"(建议)?买入\s*\d+(?:\.\d+)?\s*股",
-            r"buy\s*\d+(?:\.\d+)?\s*shares?",
-        )
-        if any(re.search(pattern, normalized, re.IGNORECASE) for pattern in patterns):
+        if cls._contains_ai_position_sizing(normalized):
+            sanitized = cls._strip_ai_position_sizing(normalized)
+            if (
+                sanitized
+                and not cls._contains_ai_position_sizing(sanitized)
+                and any(token in sanitized for token in ("止损", "风险", "观察", "条件", "支撑", "压力", "突破", "回撤", "ATR"))
+                and re.search(r"\d", sanitized)
+            ):
+                return sanitized
             return "AI仓位建议（非执行）"
         return normalized
+
+    @staticmethod
+    def _extract_ai_commentary_directions(text: Any) -> Set[str]:
+        """Extract action directions while keeping risk-control words neutral."""
+        advice = str(text or "").strip().lower()
+        if not advice:
+            return set()
+
+        directions: Set[str] = set()
+        if (
+            re.search(r"(卖出|卖掉|减仓|清仓|离场)", advice)
+            or re.search(
+                r"\b(sell|reduce|exit)\b|\bclose\s+(?:out|position|positions|the\s+position|all)\b",
+                advice,
+                re.IGNORECASE,
+            )
+        ):
+            directions.add("SELL")
+        if (
+            re.search(r"(买入|买进|加仓|建仓|介入)", advice)
+            or re.search(r"\b(buy|open|add)\b", advice, re.IGNORECASE)
+        ):
+            directions.add("BUY")
+        if (
+            re.search(r"(持有|观望)", advice)
+            or re.search(r"\b(hold|watch)\b", advice, re.IGNORECASE)
+        ):
+            directions.add("HOLD")
+        return directions
+
+    @classmethod
+    def _contains_ai_position_sizing(cls, text: Any) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        qty = cls.AI_NUMERIC_QUANTITY_PATTERN
+        patterns = (
+            rf"(?:建议)?买入\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
+            rf"(?:建议)?(?:再|首批|分批)?\s*(?:加仓|建仓|介入)\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
+            rf"(?:建议)?仓位\s*(?:为|:|：)?\s*{qty}\s*(?:股|成)",
+            rf"{qty}\s*成(?:仓|仓位)?",
+            r"\d+(?:\.\d+)?\s*成(?:仓|仓位)?",
+            r"[一二三四五六七八九十]+成(?:仓|仓位)?",
+            rf"\bbuy\s*{qty}\s*shares?\b",
+        )
+        return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in patterns)
+
+    @classmethod
+    def _strip_ai_position_sizing(cls, text: str) -> str:
+        sanitized = str(text or "")
+        qty = cls.AI_NUMERIC_QUANTITY_PATTERN
+        patterns = (
+            rf"(?:建议)?买入\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
+            rf"(?:建议)?(?:再|首批|分批)?\s*(?:加仓|建仓|介入)\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
+            rf"(?:建议)?仓位\s*(?:为|:|：)?\s*{qty}\s*(?:股|成)",
+            rf"\bbuy\s*{qty}\s*shares?(?:\s*now)?\b",
+        )
+        for pattern in patterns:
+            sanitized = re.sub(pattern, "", sanitized, flags=re.IGNORECASE)
+        return re.sub(r"\s+", " ", sanitized).strip(" ；;，,。.")
+
+    def _sanitize_ai_position_strategy_text(self, text: Any, action_model: Dict[str, Any]) -> str:
+        normalized = str(text or "").strip()
+        if not normalized or normalized.upper() == "N/A":
+            return ""
+
+        decision = str(action_model.get("decision") or "").upper()
+        directions = self._extract_ai_commentary_directions(normalized)
+        if decision in {"SELL", "HOLD"} and "BUY" in directions:
+            return self.AI_POSITION_REFERENCE_DOWNGRADE
+
+        if self._contains_ai_position_sizing(normalized):
+            sanitized = self._strip_ai_position_sizing(normalized)
+            if sanitized and not self._contains_ai_position_sizing(sanitized):
+                sanitized_directions = self._extract_ai_commentary_directions(sanitized)
+                if not (decision in {"SELL", "HOLD"} and "BUY" in sanitized_directions):
+                    return sanitized
+            return self.AI_POSITION_REFERENCE_DOWNGRADE
+
+        return normalized
+
+    def _build_ai_position_strategy_lines(
+        self,
+        position: Dict[str, Any],
+        action_model: Dict[str, Any],
+    ) -> List[str]:
+        fields = (
+            ("仓位测算", position.get("suggested_position")),
+            ("建仓策略", position.get("entry_plan")),
+            ("风控策略", position.get("risk_control")),
+        )
+        lines: List[str] = []
+        seen: Set[str] = set()
+        for label, raw_text in fields:
+            sanitized = self._sanitize_ai_position_strategy_text(raw_text, action_model)
+            if not sanitized:
+                continue
+            if sanitized == self.AI_POSITION_REFERENCE_DOWNGRADE:
+                if sanitized in seen:
+                    continue
+                seen.add(sanitized)
+                lines.append(f"- {sanitized}")
+            else:
+                lines.append(f"- {label}: {sanitized}")
+        return lines
 
     @staticmethod
     def _is_missing_snapshot_metric(value: Any) -> bool:
@@ -1091,15 +1203,19 @@ class NotificationService:
 
     def _infer_ai_commentary_decision(self, operation_advice: str) -> Optional[str]:
         """Infer BUY/HOLD/SELL bucket from AI narrative advice text."""
-        advice = str(operation_advice or '').strip().lower()
-        if not advice:
+        directions = self._extract_ai_commentary_directions(operation_advice)
+        if not directions:
             return None
-        if any(token in advice for token in ('卖', '减仓', '止损', 'sell', 'reduce', 'close')):
-            return 'SELL'
-        if any(token in advice for token in ('买', '加仓', 'buy', 'open', 'add')):
-            return 'BUY'
-        if any(token in advice for token in ('持有', '观望', 'hold', 'watch')):
-            return 'HOLD'
+        if directions == {"SELL"}:
+            return "SELL"
+        if directions == {"BUY"}:
+            return "BUY"
+        if directions == {"HOLD"}:
+            return "HOLD"
+        if "BUY" in directions and "SELL" not in directions:
+            return "BUY"
+        if "SELL" in directions and "BUY" not in directions:
+            return "SELL"
         return None
 
     def _get_primary_action_model(self, result: AnalysisResult) -> Dict[str, Any]:
@@ -1126,8 +1242,13 @@ class NotificationService:
 
         target_weight = float(getattr(result, 'target_weight', 0.0) or 0.0)
         delta_amount = float(getattr(result, 'delta_amount', 0.0) or 0.0)
-        ai_decision = self._infer_ai_commentary_decision(self._get_normalized_ai_operation_advice(result))
-        ai_conflict = bool(ai_decision and ai_decision != decision)
+        ai_directions = self._extract_ai_commentary_directions(self._get_normalized_ai_operation_advice(result))
+        opposite_directions = {
+            "BUY": {"SELL"},
+            "SELL": {"BUY"},
+            "HOLD": {"BUY", "SELL"},
+        }.get(decision, set())
+        ai_conflict = bool(ai_directions & opposite_directions)
         return {
             'decision': decision,
             'position_action': position_action,
@@ -1160,7 +1281,8 @@ class NotificationService:
         action_model = self._get_primary_action_model(result)
         if action_model['ai_conflict']:
             return "AI解读与确定性主动作存在方向冲突，已转为中性说明"
-        return self._guard_volume_commentary(result, self._get_normalized_ai_operation_advice(result))
+        safe_advice = self._sanitize_ai_share_count_commentary(self._get_normalized_ai_operation_advice(result))
+        return self._guard_volume_commentary(result, safe_advice)
 
     def _get_conflict_safe_core_conclusion(self, result: AnalysisResult, text: Any) -> str:
         """Return core conclusion text safe for conflict-state presentation."""
@@ -1169,7 +1291,7 @@ class NotificationService:
         if self._get_primary_action_model(result)['ai_conflict']:
             return "AI总结与确定性主动作存在方向冲突，请仅按确定性主动作执行"
         normalized = str(text or '').strip()
-        return normalized
+        return self._sanitize_ai_share_count_commentary(normalized)
 
     def _build_simulated_target_allocation_table(
         self,
@@ -1517,7 +1639,7 @@ class NotificationService:
                 )
             report_lines.extend([
                 "",
-                "注：估值来源“报告时点价格”表示直接按报告时点行情估值；“账户快照市值回退”表示缺少报告时点价格时回退到账户快照。今日分析覆盖：是/否。",
+                "注：估值来源随价格口径变化；“报告时点实时价估值”表示使用实时价格，“收盘基准价估值”表示使用最新收盘口径，“账户快照市值回退”表示缺少报告价时回退到账户快照。今日分析覆盖：是/否。",
                 "",
             ])
 
@@ -1790,12 +1912,13 @@ class NotificationService:
                     # 仓位策略
                     position = battle.get('position_strategy', {})
                     if position:
-                        report_lines.extend([
-                            f"**💰 AI仓位评论（次要评论，非执行指令）**: {position.get('suggested_position', 'N/A')}",
-                            f"- 建仓策略: {position.get('entry_plan', 'N/A')}",
-                            f"- 风控策略: {position.get('risk_control', 'N/A')}",
-                            "",
-                        ])
+                        position_lines = self._build_ai_position_strategy_lines(position, action_model)
+                        if position_lines:
+                            report_lines.extend([
+                                "**💰 AI作战计划（非执行参考）**",
+                                *position_lines,
+                                "",
+                            ])
                     # 检查清单
                     checklist = battle.get('action_checklist', []) if battle else []
                     if checklist:

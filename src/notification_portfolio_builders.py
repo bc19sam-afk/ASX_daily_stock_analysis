@@ -10,6 +10,15 @@ from typing import Any, Callable, Dict, List, Optional, Set
 logger = logging.getLogger(__name__)
 
 
+def _valuation_source_from_execution_price_source(source: Any) -> str:
+    normalized = str(source or "").strip().lower()
+    if normalized == "realtime":
+        return "report_realtime_price"
+    if normalized in {"latest_close", "close_only"}:
+        return "report_close_price"
+    return "report_close_price"
+
+
 def build_simulated_target_allocation_table(
     *,
     results: List[Any],
@@ -99,6 +108,7 @@ def build_report_time_portfolio_overview(
     original_holdings = (overview or {}).get("holdings") or []
 
     report_time_prices: Dict[str, float] = {}
+    report_time_price_sources: Dict[str, str] = {}
     analyzed_codes: Set[str] = set()
     for result in results or []:
         code = normalize_stock_code(getattr(result, "code", ""))
@@ -108,6 +118,9 @@ def build_report_time_portfolio_overview(
         price = to_positive_float(getattr(result, "current_price", None))
         if price is not None:
             report_time_prices[code] = price
+            report_time_price_sources[code] = _valuation_source_from_execution_price_source(
+                getattr(result, "execution_price_source", None)
+            )
 
     holdings: List[Dict[str, Any]] = []
     equity_value = 0.0
@@ -120,7 +133,7 @@ def build_report_time_portfolio_overview(
 
         if report_time_price is not None:
             market_value = round(max(quantity, 0.0) * report_time_price, 2)
-            valuation_source = "report_time_price"
+            valuation_source = report_time_price_sources.get(code, "report_time_price")
         else:
             market_value = round(float(holding.get("market_value") or 0.0), 2)
             valuation_source = "stored_market_value_fallback"

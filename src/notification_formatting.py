@@ -17,7 +17,9 @@ def format_price_basis_label(basis: str) -> str:
 
 def format_valuation_source_label(source: str) -> str:
     return {
-        "report_time_price": "报告时点价格",
+        "report_realtime_price": "报告时点实时价估值",
+        "report_close_price": "收盘基准价估值",
+        "report_time_price": "报告时点价格估值",
         "stored_market_value_fallback": "账户快照市值回退",
     }.get(source, "账户快照市值回退")
 
