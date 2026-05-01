@@ -44,7 +44,9 @@ from src.config import get_config
 from src.analyzer import AnalysisResult
 from src.core.validator import normalize_validation_status
 from src.daily_decision_summary import (
+    DEFAULT_ACTIONABLE_DELTA_AMOUNT,
     build_daily_decision_summary,
+    is_effective_executable_action,
     render_preopen_decision_dashboard,
 )
 from src.formatters import (
@@ -936,7 +938,14 @@ class NotificationService:
             if (
                 sanitized
                 and not cls._contains_ai_position_sizing(sanitized)
-                and any(token in sanitized for token in ("止损", "风险", "观察", "条件", "支撑", "压力", "突破", "回撤", "ATR"))
+                and any(
+                    token in sanitized.lower()
+                    for token in (
+                        "止损", "风险", "观察", "条件", "支撑", "压力", "突破", "回撤", "atr",
+                        "stop", "risk", "watch", "condition", "support", "resistance",
+                        "breakout", "pullback", "below", "above",
+                    )
+                )
                 and re.search(r"\d", sanitized)
             ):
                 return sanitized
@@ -973,33 +982,33 @@ class NotificationService:
         return directions
 
     @classmethod
+    def _ai_position_sizing_patterns(cls) -> tuple[str, ...]:
+        qty = cls.AI_NUMERIC_QUANTITY_PATTERN
+        return (
+            rf"(?:参考|目标|建议|计划|预计|测算)\s*(?:买入|购入|加仓|建仓|持仓|持有)?\s*(?:股数|数量|持仓|持有)?\s*(?:为|:|：)?\s*(?:约|大约)?\s*{qty}\s*(?:万)?\s*股",
+            rf"(?:买入|买进|加仓|建仓|介入)\s*(?:股数|数量)?\s*(?:为|:|：)?\s*(?:约|大约)?\s*{qty}\s*(?:万)?\s*股",
+            rf"(?:首批|分批)\s*(?:买入|买进|加仓|建仓|介入)?\s*(?:股数|数量)?\s*(?:为|:|：)?\s*(?:约|大约)?\s*{qty}\s*(?:万)?\s*股",
+            rf"(?:参考|目标|建议|计划|预计|测算)\s*(?:仓位|持仓比例)\s*(?:为|:|：)?\s*{qty}\s*(?:成|%)",
+            rf"(?:仓位|持仓比例)\s*(?:为|:|：)?\s*{qty}\s*%",
+            rf"{qty}\s*(?:成|%)\s*(?:仓|仓位)",
+            r"[一二三四五六七八九十]+成(?:仓|仓位)?",
+            rf"\b(?:suggested|recommended|target|reference)\s*(?:buy|add|open|position|holding|quantity)?\s*(?:of|:)?\s*{qty}\s*shares?\b",
+            rf"\b(?:buy|add|open|build|accumulate)\s*{qty}\s*shares?\b",
+            rf"\b{qty}\s*shares?\s*(?:to\s*)?(?:buy|add|open|build|accumulate)\b",
+            rf"\b{qty}\s*shares?\b",
+        )
+
+    @classmethod
     def _contains_ai_position_sizing(cls, text: Any) -> bool:
         normalized = str(text or "").strip()
         if not normalized:
             return False
-        qty = cls.AI_NUMERIC_QUANTITY_PATTERN
-        patterns = (
-            rf"(?:建议)?买入\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
-            rf"(?:建议)?(?:再|首批|分批)?\s*(?:加仓|建仓|介入)\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
-            rf"(?:建议)?仓位\s*(?:为|:|：)?\s*{qty}\s*(?:股|成)",
-            rf"{qty}\s*成(?:仓|仓位)?",
-            r"\d+(?:\.\d+)?\s*成(?:仓|仓位)?",
-            r"[一二三四五六七八九十]+成(?:仓|仓位)?",
-            rf"\bbuy\s*{qty}\s*shares?\b",
-        )
-        return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in patterns)
+        return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in cls._ai_position_sizing_patterns())
 
     @classmethod
     def _strip_ai_position_sizing(cls, text: str) -> str:
         sanitized = str(text or "")
-        qty = cls.AI_NUMERIC_QUANTITY_PATTERN
-        patterns = (
-            rf"(?:建议)?买入\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
-            rf"(?:建议)?(?:再|首批|分批)?\s*(?:加仓|建仓|介入)\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
-            rf"(?:建议)?仓位\s*(?:为|:|：)?\s*{qty}\s*(?:股|成)",
-            rf"\bbuy\s*{qty}\s*shares?(?:\s*now)?\b",
-        )
-        for pattern in patterns:
+        for pattern in cls._ai_position_sizing_patterns():
             sanitized = re.sub(pattern, "", sanitized, flags=re.IGNORECASE)
         return re.sub(r"\s+", " ", sanitized).strip(" ；;，,。.")
 
@@ -1190,16 +1199,34 @@ class NotificationService:
             classify_price_basis=self._classify_price_basis,
             format_stock_display_name=self._format_stock_display_name,
             format_validation_issue_text=self._format_validation_issue_text,
+            min_action_delta_amount=self._get_actionable_delta_amount_threshold(),
         )
 
     def get_last_daily_decision_summary(self) -> Optional[Dict[str, Any]]:
         """Return the last summary generated as part of report rendering."""
         return self._last_daily_decision_summary
 
+    @staticmethod
+    def _get_actionable_delta_amount_threshold() -> float:
+        try:
+            config = get_config()
+            min_delta = float(getattr(config, "min_position_delta_amount", DEFAULT_ACTIONABLE_DELTA_AMOUNT) or 0.0)
+            min_notional = float(getattr(config, "min_order_notional", DEFAULT_ACTIONABLE_DELTA_AMOUNT) or 0.0)
+            return max(min_delta, min_notional, 0.0)
+        except Exception:
+            return DEFAULT_ACTIONABLE_DELTA_AMOUNT
+
     def _is_actionable_today(self, result: AnalysisResult) -> bool:
         """Return True when deterministic action implies execution-worthy change."""
-        action = self._get_primary_action_model(result)["position_action"]
-        return action in {"OPEN", "ADD", "REDUCE", "CLOSE"}
+        return is_effective_executable_action(
+            self._get_primary_action_model(result),
+            min_delta_amount=self._get_actionable_delta_amount_threshold(),
+        )
+
+    def _is_suppressed_executable_action_today(self, result: AnalysisResult) -> bool:
+        """Return True when an executable action is intentionally downgraded to watch."""
+        action = str(self._get_primary_action_model(result).get("position_action") or "HOLD").upper()
+        return action in {"OPEN", "ADD", "REDUCE", "CLOSE"} and not self._is_actionable_today(result)
 
     def _infer_ai_commentary_decision(self, operation_advice: str) -> Optional[str]:
         """Infer BUY/HOLD/SELL bucket from AI narrative advice text."""
@@ -1583,6 +1610,11 @@ class NotificationService:
         ]
         actionable_holding_results = [r for r in holding_results if self._is_actionable_today(r)]
         actionable_non_holding_results = [r for r in non_holding_results if self._is_actionable_today(r)]
+        effective_actionable_results = actionable_holding_results + actionable_non_holding_results
+        display_non_holding_results = [
+            r for r in non_holding_results
+            if not self._is_suppressed_executable_action_today(r)
+        ]
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
         for result in results:
             basis_counts[self._classify_price_basis(result)] += 1
@@ -1683,17 +1715,18 @@ class NotificationService:
                     "- 本次包含实时价格与非实时价格混用，执行前请二次确认价格基准。",
                     "",
                 ])
-        if actionable_results or blocked_results:
+        if display_non_holding_results or effective_actionable_results or blocked_results:
             report_lines.extend([
                 "## 非持仓观察名单",
                 "",
             ])
-            if non_holding_results:
-                report_lines.extend(self._build_recommended_actions_table(non_holding_results))
+            if display_non_holding_results:
+                report_lines.extend(self._build_recommended_actions_table(display_non_holding_results))
             else:
                 report_lines.append("- 今日无非持仓观察标的。")
+            report_lines.append("")
+        if effective_actionable_results or blocked_results:
             report_lines.extend([
-                "",
                 "## 目标仓位模拟（计划视图）",
                 "",
                 "> 以下目标仓位仅为模拟计划；“当前持仓总览”始终展示已执行的真实账户状态。",
@@ -1701,13 +1734,13 @@ class NotificationService:
             ])
             report_lines.extend(
                 self._build_simulated_target_allocation_table(
-                    actionable_results,
+                    effective_actionable_results,
                     executed_weight_by_code=executed_weight_by_code,
                 )
             )
             report_lines.extend(
                 self._build_section_c_reconciliation_lines(
-                    results=actionable_results,
+                    results=effective_actionable_results,
                     overview_holdings=holdings,
                 )
             )
@@ -1719,7 +1752,7 @@ class NotificationService:
 
         # 逐个股票的决策仪表盘（Issue #262: summary_only 时跳过详情）
         if not self._report_summary_only:
-            detail_results = holding_results + actionable_non_holding_results
+            detail_results = effective_actionable_results
             detail_seen_codes = set()
             for result in detail_results:
                 code = self._normalize_stock_code(getattr(result, "code", ""))
@@ -1970,6 +2003,7 @@ class NotificationService:
             observation_non_holding_results = [
                 r for r in non_holding_results
                 if self._normalize_stock_code(getattr(r, "code", "")) not in detail_seen_codes
+                and not self._is_suppressed_executable_action_today(r)
             ]
             if observation_non_holding_results:
                 observation_items = []
@@ -2439,12 +2473,23 @@ class NotificationService:
         # 持仓建议
         pos_advice = core.get('position_advice', {}) if core else {}
         if pos_advice and not _is_validation_blocked(result):
+            action_model = self._get_primary_action_model(result)
+            if action_model["ai_conflict"]:
+                no_position_text = self._get_conflict_safe_ai_commentary(result)
+                has_position_text = no_position_text
+            else:
+                no_position_text = self._sanitize_ai_share_count_commentary(
+                    pos_advice.get('no_position', self._get_normalized_ai_operation_advice(result))
+                )
+                has_position_text = self._sanitize_ai_share_count_commentary(
+                    pos_advice.get('has_position', '继续持有')
+                )
             lines.extend([
                 "### 💼 持仓建议",
                 "",
                 f"- 🧮 **确定性仓位指引(主指令)**: {self._format_deterministic_sizing_text(result)}",
-                f"- 💬 **AI空仓者评论(非执行)**: {self._get_conflict_safe_ai_commentary(result) if self._get_primary_action_model(result)['ai_conflict'] else pos_advice.get('no_position', self._get_normalized_ai_operation_advice(result))}",
-                f"- 💬 **AI持仓者评论(非执行)**: {self._get_conflict_safe_ai_commentary(result) if self._get_primary_action_model(result)['ai_conflict'] else pos_advice.get('has_position', '继续持有')}",
+                f"- 💬 **AI空仓者评论(非执行)**: {no_position_text}",
+                f"- 💬 **AI持仓者评论(非执行)**: {has_position_text}",
                 "",
             ])
         
