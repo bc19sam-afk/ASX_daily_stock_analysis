@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 from src.analyzer import AnalysisResult
+from src.config import Config, get_config
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.position_manager import PositionManager
 from src.enums import ReportType
@@ -33,6 +34,7 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         )
 
     def tearDown(self):
+        Config.reset_instance()
         DatabaseManager.reset_instance()
         self.tmp.cleanup()
 
@@ -685,6 +687,78 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertEqual(result.target_quantity, 349)
         self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
         self.assertIn("execution_blocked=min_order_notional", result.action_reason)
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_config_defaults_suppress_noise_sized_delta_amounts(self):
+        Config.reset_instance()
+        self.pipeline.config = get_config()
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=9990, equity_value=10, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="DFD",
+            name="DFD",
+            quantity=1,
+            avg_cost=10,
+            current_price=10,
+            weight=0.001,
+            market_value=10,
+        )
+
+        result = self._result("DFD", final_decision="BUY")
+        with patch.object(
+            self.pipeline.position_manager,
+            "decide",
+            return_value=SimpleNamespace(target_weight=0.002, reason="small target adjustment"),
+        ):
+            self.pipeline._apply_position_management(
+                result=result,
+                query_id="q_default_small_delta",
+                current_price=10,
+                persist=False,
+            )
+
+        self.assertEqual(self.pipeline._get_min_position_delta_amount(), 20.0)
+        self.assertEqual(self.pipeline._get_min_order_notional(), 20.0)
+        self.assertEqual(result.position_action, "HOLD")
+        self.assertEqual(result.target_quantity, 1)
+        self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
+        self.assertIn("execution_blocked=min_delta_amount", result.action_reason)
+
+    @patch.dict(
+        os.environ,
+        {"MIN_POSITION_DELTA_AMOUNT": "0", "MIN_ORDER_NOTIONAL": "0"},
+        clear=True,
+    )
+    def test_env_can_restore_zero_threshold_behavior(self):
+        Config.reset_instance()
+        self.pipeline.config = get_config()
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=9990, equity_value=10, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="ZTH",
+            name="ZTH",
+            quantity=1,
+            avg_cost=10,
+            current_price=10,
+            weight=0.001,
+            market_value=10,
+        )
+
+        result = self._result("ZTH", final_decision="BUY")
+        with patch.object(
+            self.pipeline.position_manager,
+            "decide",
+            return_value=SimpleNamespace(target_weight=0.002, reason="small target adjustment"),
+        ):
+            self.pipeline._apply_position_management(
+                result=result,
+                query_id="q_zero_threshold_small_delta",
+                current_price=10,
+                persist=False,
+            )
+
+        self.assertEqual(self.pipeline._get_min_position_delta_amount(), 0.0)
+        self.assertEqual(self.pipeline._get_min_order_notional(), 0.0)
+        self.assertEqual(result.position_action, "ADD")
+        self.assertAlmostEqual(result.delta_amount, 10.0, places=2)
 
     def test_suppressed_hold_preserves_exact_fractional_legacy_quantity(self):
         calc = StockAnalysisPipeline._calculate_position_transition(

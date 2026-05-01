@@ -44,7 +44,9 @@ from src.config import get_config
 from src.analyzer import AnalysisResult
 from src.core.validator import normalize_validation_status
 from src.daily_decision_summary import (
+    DEFAULT_ACTIONABLE_DELTA_AMOUNT,
     build_daily_decision_summary,
+    is_effective_executable_action,
     render_preopen_decision_dashboard,
 )
 from src.formatters import (
@@ -973,33 +975,32 @@ class NotificationService:
         return directions
 
     @classmethod
+    def _ai_position_sizing_patterns(cls) -> tuple[str, ...]:
+        qty = cls.AI_NUMERIC_QUANTITY_PATTERN
+        return (
+            rf"(?:参考|目标|建议|计划|预计|测算)\s*(?:买入|购入|加仓|建仓|持仓|持有)?\s*(?:股数|数量|持仓|持有)?\s*(?:为|:|：)?\s*(?:约|大约)?\s*{qty}\s*(?:万)?\s*股",
+            rf"(?:买入|买进|加仓|建仓|介入)\s*(?:股数|数量)?\s*(?:为|:|：)?\s*(?:约|大约)?\s*{qty}\s*(?:万)?\s*股",
+            rf"(?:首批|分批)\s*(?:买入|买进|加仓|建仓|介入)?\s*(?:股数|数量)?\s*(?:为|:|：)?\s*(?:约|大约)?\s*{qty}\s*(?:万)?\s*股",
+            rf"(?:参考|目标|建议|计划|预计|测算)\s*(?:仓位|持仓比例)\s*(?:为|:|：)?\s*{qty}\s*(?:成|%)",
+            rf"(?:仓位|持仓比例)\s*(?:为|:|：)?\s*{qty}\s*%",
+            rf"{qty}\s*(?:成|%)\s*(?:仓|仓位)",
+            r"[一二三四五六七八九十]+成(?:仓|仓位)?",
+            rf"\b(?:suggested|recommended|target|reference)\s*(?:buy|add|open|position|holding|quantity)?\s*(?:of|:)?\s*{qty}\s*shares?\b",
+            rf"\b(?:buy|add|open|build|accumulate)\s*{qty}\s*shares?\b",
+            rf"\b{qty}\s*shares?\s*(?:to\s*)?(?:buy|add|open|build|accumulate)\b",
+        )
+
+    @classmethod
     def _contains_ai_position_sizing(cls, text: Any) -> bool:
         normalized = str(text or "").strip()
         if not normalized:
             return False
-        qty = cls.AI_NUMERIC_QUANTITY_PATTERN
-        patterns = (
-            rf"(?:建议)?买入\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
-            rf"(?:建议)?(?:再|首批|分批)?\s*(?:加仓|建仓|介入)\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
-            rf"(?:建议)?仓位\s*(?:为|:|：)?\s*{qty}\s*(?:股|成)",
-            rf"{qty}\s*成(?:仓|仓位)?",
-            r"\d+(?:\.\d+)?\s*成(?:仓|仓位)?",
-            r"[一二三四五六七八九十]+成(?:仓|仓位)?",
-            rf"\bbuy\s*{qty}\s*shares?\b",
-        )
-        return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in patterns)
+        return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in cls._ai_position_sizing_patterns())
 
     @classmethod
     def _strip_ai_position_sizing(cls, text: str) -> str:
         sanitized = str(text or "")
-        qty = cls.AI_NUMERIC_QUANTITY_PATTERN
-        patterns = (
-            rf"(?:建议)?买入\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
-            rf"(?:建议)?(?:再|首批|分批)?\s*(?:加仓|建仓|介入)\s*(?:股数)?\s*(?:为|:|：)?\s*{qty}\s*股",
-            rf"(?:建议)?仓位\s*(?:为|:|：)?\s*{qty}\s*(?:股|成)",
-            rf"\bbuy\s*{qty}\s*shares?(?:\s*now)?\b",
-        )
-        for pattern in patterns:
+        for pattern in cls._ai_position_sizing_patterns():
             sanitized = re.sub(pattern, "", sanitized, flags=re.IGNORECASE)
         return re.sub(r"\s+", " ", sanitized).strip(" ；;，,。.")
 
@@ -1190,16 +1191,29 @@ class NotificationService:
             classify_price_basis=self._classify_price_basis,
             format_stock_display_name=self._format_stock_display_name,
             format_validation_issue_text=self._format_validation_issue_text,
+            min_action_delta_amount=self._get_actionable_delta_amount_threshold(),
         )
 
     def get_last_daily_decision_summary(self) -> Optional[Dict[str, Any]]:
         """Return the last summary generated as part of report rendering."""
         return self._last_daily_decision_summary
 
+    @staticmethod
+    def _get_actionable_delta_amount_threshold() -> float:
+        try:
+            config = get_config()
+            min_delta = float(getattr(config, "min_position_delta_amount", DEFAULT_ACTIONABLE_DELTA_AMOUNT) or 0.0)
+            min_notional = float(getattr(config, "min_order_notional", DEFAULT_ACTIONABLE_DELTA_AMOUNT) or 0.0)
+            return max(min_delta, min_notional, 0.0)
+        except Exception:
+            return DEFAULT_ACTIONABLE_DELTA_AMOUNT
+
     def _is_actionable_today(self, result: AnalysisResult) -> bool:
         """Return True when deterministic action implies execution-worthy change."""
-        action = self._get_primary_action_model(result)["position_action"]
-        return action in {"OPEN", "ADD", "REDUCE", "CLOSE"}
+        return is_effective_executable_action(
+            self._get_primary_action_model(result),
+            min_delta_amount=self._get_actionable_delta_amount_threshold(),
+        )
 
     def _infer_ai_commentary_decision(self, operation_advice: str) -> Optional[str]:
         """Infer BUY/HOLD/SELL bucket from AI narrative advice text."""
@@ -2439,12 +2453,23 @@ class NotificationService:
         # 持仓建议
         pos_advice = core.get('position_advice', {}) if core else {}
         if pos_advice and not _is_validation_blocked(result):
+            action_model = self._get_primary_action_model(result)
+            if action_model["ai_conflict"]:
+                no_position_text = self._get_conflict_safe_ai_commentary(result)
+                has_position_text = no_position_text
+            else:
+                no_position_text = self._sanitize_ai_share_count_commentary(
+                    pos_advice.get('no_position', self._get_normalized_ai_operation_advice(result))
+                )
+                has_position_text = self._sanitize_ai_share_count_commentary(
+                    pos_advice.get('has_position', '继续持有')
+                )
             lines.extend([
                 "### 💼 持仓建议",
                 "",
                 f"- 🧮 **确定性仓位指引(主指令)**: {self._format_deterministic_sizing_text(result)}",
-                f"- 💬 **AI空仓者评论(非执行)**: {self._get_conflict_safe_ai_commentary(result) if self._get_primary_action_model(result)['ai_conflict'] else pos_advice.get('no_position', self._get_normalized_ai_operation_advice(result))}",
-                f"- 💬 **AI持仓者评论(非执行)**: {self._get_conflict_safe_ai_commentary(result) if self._get_primary_action_model(result)['ai_conflict'] else pos_advice.get('has_position', '继续持有')}",
+                f"- 💬 **AI空仓者评论(非执行)**: {no_position_text}",
+                f"- 💬 **AI持仓者评论(非执行)**: {has_position_text}",
                 "",
             ])
         

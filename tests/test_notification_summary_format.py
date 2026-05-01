@@ -1179,6 +1179,68 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertNotIn("建议仓位：3成", report)
 
     @patch("src.notification.get_db")
+    def test_ai_reference_share_count_variants_are_redacted_across_report_surfaces(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            code="RGN.AX",
+            name="REGION GP",
+            operation_advice="买入；参考股数1904股；ATR止损价2.26 AUD",
+            dashboard={
+                "core_conclusion": {
+                    "one_sentence": "回踩确认后建仓，参考买入股数1904股，ATR止损价2.26 AUD",
+                    "position_advice": {
+                        "no_position": "建议在2.30-2.31 AUD建仓，参考股数1904股，ATR止损价2.26 AUD",
+                        "has_position": "继续持有；目标股数2000股",
+                    },
+                },
+                "battle_plan": {
+                    "position_strategy": {
+                        "suggested_position": "目标持仓1904股",
+                        "entry_plan": "建仓股数1904股，分批入场",
+                        "risk_control": "跌破2.26 AUD止损",
+                    }
+                },
+            },
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+        single = service.generate_single_stock_report(result)
+        wechat = service.generate_wechat_dashboard([result])
+
+        combined = "\n".join([report, single, wechat])
+        self.assertNotIn("参考股数", combined)
+        self.assertNotIn("参考买入股数", combined)
+        self.assertNotIn("目标股数", combined)
+        self.assertNotIn("建仓股数", combined)
+        self.assertNotIn("1904股", combined)
+        self.assertNotIn("2000股", combined)
+        self.assertIn("ATR止损价2.26 AUD", combined)
+        self.assertIn("跌破2.26 AUD止损", combined)
+
+    @patch("src.notification.get_db")
+    def test_ai_sizing_sanitizer_does_not_strip_factual_institutional_holding_text(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            dashboard={
+                "core_conclusion": {
+                    "one_sentence": "机构持仓约3083万股，等待价格回踩确认",
+                    "position_advice": {
+                        "no_position": "机构持仓约3083万股，等待价格回踩确认",
+                    },
+                }
+            },
+        )
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertIn("机构持仓约3083万股，等待价格回踩确认", report)
+        self.assertNotIn("AI仓位建议（非执行）", report)
+
+    @patch("src.notification.get_db")
     def test_per_stock_ai_sizing_commentary_is_labeled_non_binding_when_target_quantity_missing(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
         service = self._build_service()

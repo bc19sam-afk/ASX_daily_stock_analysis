@@ -15,6 +15,8 @@ from src.core.validator import normalize_validation_status
 
 
 ACTION_COUNT_KEYS = ("buy", "add", "reduce", "close", "hold_watch", "blocked")
+EXECUTABLE_ACTIONS = {"OPEN", "ADD", "REDUCE", "CLOSE"}
+DEFAULT_ACTIONABLE_DELTA_AMOUNT = 20.0
 EXECUTION_CHECKLIST = [
     "确认报告为昨收计划 / 开盘前计划，技术信号基于已收盘日线。",
     "开盘后执行前复核实时价格、盘口流动性和重大新闻。",
@@ -56,6 +58,21 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def is_effective_executable_action(
+    action_model: Dict[str, Any],
+    *,
+    min_delta_amount: float = DEFAULT_ACTIONABLE_DELTA_AMOUNT,
+) -> bool:
+    """Return True when an action is large enough to present as executable."""
+    action = str(action_model.get("position_action") or "HOLD").upper()
+    if action not in EXECUTABLE_ACTIONS:
+        return False
+    threshold = max(_safe_float(min_delta_amount, DEFAULT_ACTIONABLE_DELTA_AMOUNT), 0.0)
+    if threshold <= 0:
+        return True
+    return abs(_safe_float(action_model.get("delta_amount"))) >= threshold
 
 
 def _basis_counts(results: Iterable[Any], classify_price_basis: Callable[[Any], str]) -> Dict[str, int]:
@@ -108,6 +125,7 @@ def build_daily_decision_summary(
     classify_price_basis: Callable[[Any], str],
     format_stock_display_name: Callable[[Any, Any], str],
     format_validation_issue_text: Callable[[Any], str],
+    min_action_delta_amount: float = DEFAULT_ACTIONABLE_DELTA_AMOUNT,
 ) -> Dict[str, Any]:
     """Build a stable summary for pre-open reporting and future intraday review."""
     successful_results = [r for r in results if not _is_failed_analysis(r)]
@@ -145,7 +163,12 @@ def build_daily_decision_summary(
             format_stock_display_name=format_stock_display_name,
         )
 
-        if action == "OPEN":
+        if not is_effective_executable_action(model, min_delta_amount=min_action_delta_amount):
+            action_counts["hold_watch"] += 1
+            watch_item = dict(item)
+            watch_item["trigger"] = WATCH_TRIGGER_RULE
+            watch_items.append(watch_item)
+        elif action == "OPEN":
             action_counts["buy"] += 1
             action_counts["total_actions"] += 1
             actionable_items.append(item)
