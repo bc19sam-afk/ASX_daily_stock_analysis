@@ -938,7 +938,14 @@ class NotificationService:
             if (
                 sanitized
                 and not cls._contains_ai_position_sizing(sanitized)
-                and any(token in sanitized for token in ("止损", "风险", "观察", "条件", "支撑", "压力", "突破", "回撤", "ATR"))
+                and any(
+                    token in sanitized.lower()
+                    for token in (
+                        "止损", "风险", "观察", "条件", "支撑", "压力", "突破", "回撤", "atr",
+                        "stop", "risk", "watch", "condition", "support", "resistance",
+                        "breakout", "pullback", "below", "above",
+                    )
+                )
                 and re.search(r"\d", sanitized)
             ):
                 return sanitized
@@ -988,6 +995,7 @@ class NotificationService:
             rf"\b(?:suggested|recommended|target|reference)\s*(?:buy|add|open|position|holding|quantity)?\s*(?:of|:)?\s*{qty}\s*shares?\b",
             rf"\b(?:buy|add|open|build|accumulate)\s*{qty}\s*shares?\b",
             rf"\b{qty}\s*shares?\s*(?:to\s*)?(?:buy|add|open|build|accumulate)\b",
+            rf"\b{qty}\s*shares?\b",
         )
 
     @classmethod
@@ -1214,6 +1222,11 @@ class NotificationService:
             self._get_primary_action_model(result),
             min_delta_amount=self._get_actionable_delta_amount_threshold(),
         )
+
+    def _is_suppressed_executable_action_today(self, result: AnalysisResult) -> bool:
+        """Return True when an executable action is intentionally downgraded to watch."""
+        action = str(self._get_primary_action_model(result).get("position_action") or "HOLD").upper()
+        return action in {"OPEN", "ADD", "REDUCE", "CLOSE"} and not self._is_actionable_today(result)
 
     def _infer_ai_commentary_decision(self, operation_advice: str) -> Optional[str]:
         """Infer BUY/HOLD/SELL bucket from AI narrative advice text."""
@@ -1597,6 +1610,11 @@ class NotificationService:
         ]
         actionable_holding_results = [r for r in holding_results if self._is_actionable_today(r)]
         actionable_non_holding_results = [r for r in non_holding_results if self._is_actionable_today(r)]
+        effective_actionable_results = actionable_holding_results + actionable_non_holding_results
+        display_non_holding_results = [
+            r for r in non_holding_results
+            if not self._is_suppressed_executable_action_today(r)
+        ]
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
         for result in results:
             basis_counts[self._classify_price_basis(result)] += 1
@@ -1697,17 +1715,18 @@ class NotificationService:
                     "- 本次包含实时价格与非实时价格混用，执行前请二次确认价格基准。",
                     "",
                 ])
-        if actionable_results or blocked_results:
+        if display_non_holding_results or effective_actionable_results or blocked_results:
             report_lines.extend([
                 "## 非持仓观察名单",
                 "",
             ])
-            if non_holding_results:
-                report_lines.extend(self._build_recommended_actions_table(non_holding_results))
+            if display_non_holding_results:
+                report_lines.extend(self._build_recommended_actions_table(display_non_holding_results))
             else:
                 report_lines.append("- 今日无非持仓观察标的。")
+            report_lines.append("")
+        if effective_actionable_results or blocked_results:
             report_lines.extend([
-                "",
                 "## 目标仓位模拟（计划视图）",
                 "",
                 "> 以下目标仓位仅为模拟计划；“当前持仓总览”始终展示已执行的真实账户状态。",
@@ -1715,13 +1734,13 @@ class NotificationService:
             ])
             report_lines.extend(
                 self._build_simulated_target_allocation_table(
-                    actionable_results,
+                    effective_actionable_results,
                     executed_weight_by_code=executed_weight_by_code,
                 )
             )
             report_lines.extend(
                 self._build_section_c_reconciliation_lines(
-                    results=actionable_results,
+                    results=effective_actionable_results,
                     overview_holdings=holdings,
                 )
             )
@@ -1733,7 +1752,7 @@ class NotificationService:
 
         # 逐个股票的决策仪表盘（Issue #262: summary_only 时跳过详情）
         if not self._report_summary_only:
-            detail_results = holding_results + actionable_non_holding_results
+            detail_results = effective_actionable_results
             detail_seen_codes = set()
             for result in detail_results:
                 code = self._normalize_stock_code(getattr(result, "code", ""))
@@ -1984,6 +2003,7 @@ class NotificationService:
             observation_non_holding_results = [
                 r for r in non_holding_results
                 if self._normalize_stock_code(getattr(r, "code", "")) not in detail_seen_codes
+                and not self._is_suppressed_executable_action_today(r)
             ]
             if observation_non_holding_results:
                 observation_items = []

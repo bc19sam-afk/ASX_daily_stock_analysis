@@ -166,6 +166,12 @@ def build_daily_decision_summary(
         if not is_effective_executable_action(model, min_delta_amount=min_action_delta_amount):
             action_counts["hold_watch"] += 1
             watch_item = dict(item)
+            if action in EXECUTABLE_ACTIONS:
+                watch_item["suppressed_position_action"] = action
+                watch_item["suppressed_delta_amount"] = item["delta_amount"]
+            watch_item["position_action"] = "HOLD"
+            watch_item["target_weight"] = item["current_weight"]
+            watch_item["delta_amount"] = 0.0
             watch_item["trigger"] = WATCH_TRIGGER_RULE
             watch_items.append(watch_item)
         elif action == "OPEN":

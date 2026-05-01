@@ -186,12 +186,22 @@ def test_noise_sized_actions_are_counted_as_watch_not_actionable(mock_get_db):
 
     assert "| 今日总动作数量 | **1** |" in report
     assert "LAU：减仓" not in report
+    assert "LAU (LAU.AX)：减仓" not in report
+    assert "**LAU (LAU.AX)** | 减仓" not in report
+    assert "| 🔴 **LAU (LAU.AX)** | 0.00% | 17.29% | -0.60 |" not in report
+    assert "### 🔴 LAU (LAU.AX)" not in report
     assert "BHP (BHP.AX)：减仓，目标仓位 20.00%，模拟调仓 -1,450.44" in report
     assert summary["action_counts"]["total_actions"] == 1
     assert summary["action_counts"]["reduce"] == 1
     assert summary["action_counts"]["hold_watch"] == 1
     assert {item["code"] for item in summary["actionable_items"]} == {"BHP.AX"}
     assert {item["code"] for item in summary["watch_items"]} == {"LAU.AX"}
+    lau_watch = summary["watch_items"][0]
+    assert lau_watch["position_action"] == "HOLD"
+    assert lau_watch["target_weight"] == lau_watch["current_weight"]
+    assert lau_watch["delta_amount"] == 0.0
+    assert lau_watch["suppressed_position_action"] == "REDUCE"
+    assert lau_watch["suppressed_delta_amount"] == -0.60
 
 
 @patch("src.notification.get_db")
