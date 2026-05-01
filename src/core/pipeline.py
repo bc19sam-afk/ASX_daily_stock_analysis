@@ -494,10 +494,12 @@ class StockAnalysisPipeline:
         sector_tone: str,
         data_quality_flag: str,
     ) -> str:
-        # 第一版保守规则：
+        # 确定性规则：
         # - BUY 可降级到 HOLD
-        # - HOLD 不直接因 overlay 降到 SELL
+        # - HOLD 不直接降到 SELL
         # - SELL 维持 SELL
+        # LLM overlay（news_sentiment/event_risk/sector_tone）只用于解释展示，
+        # 不参与主动作合成。
         if alpha_decision == "SELL":
             return "SELL"
         if alpha_decision == "HOLD":
@@ -507,10 +509,6 @@ class StockAnalysisPipeline:
         if data_quality_flag == "MISSING":
             blocked = True
         if market_regime == "RISK_OFF":
-            blocked = True
-        if event_risk == "HIGH":
-            blocked = True
-        if news_sentiment == "NEG" and sector_tone == "NEG":
             blocked = True
 
         return "HOLD" if blocked else "BUY"

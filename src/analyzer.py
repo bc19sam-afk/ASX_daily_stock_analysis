@@ -254,6 +254,10 @@ class AnalysisResult:
     execution_price_source: str = "close_only"  # realtime | latest_close | close_only
     validation_status: str = "PASS"  # PASS/BLOCK
     validation_issues: List[str] = field(default_factory=list)
+    ideal_buy: Optional[float] = None
+    secondary_buy: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典以便最终推送"""
@@ -310,6 +314,10 @@ class AnalysisResult:
             'execution_price_source': self.execution_price_source,
             'validation_status': self.validation_status,
             'validation_issues': list(self.validation_issues or []),
+            'ideal_buy': self.ideal_buy,
+            'secondary_buy': self.secondary_buy,
+            'stop_loss': self.stop_loss,
+            'take_profit': self.take_profit,
         }
 
     def get_core_conclusion(self) -> str:
@@ -1860,30 +1868,20 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
         """schema gate 失败后的安全降级结果。"""
         safe_data = parsed_data or {}
 
-        def _safe_int_0_100(value: Any) -> Optional[int]:
-            try:
-                score = int(value)
-                return score if 0 <= score <= 100 else None
-            except (TypeError, ValueError):
-                return None
-
         def _safe_text(value: Any) -> Optional[str]:
             text = str(value).strip() if value is not None else ""
             return text if text else None
 
         stock_name = _safe_text(safe_data.get("stock_name")) or name
-        sentiment_score = _safe_int_0_100(safe_data.get("sentiment_score"))
-        trend_prediction = _safe_text(safe_data.get("trend_prediction"))
-        operation_advice = _safe_text(safe_data.get("operation_advice"))
         analysis_summary = _safe_text(safe_data.get("analysis_summary"))
         risk_warning = _safe_text(safe_data.get("risk_warning"))
 
         return AnalysisResult(
             code=code,
             name=stock_name,
-            sentiment_score=sentiment_score if sentiment_score is not None else 50,
-            trend_prediction=trend_prediction if trend_prediction is not None else "震荡",
-            operation_advice=operation_advice if operation_advice is not None else "观望",
+            sentiment_score=50,
+            trend_prediction="震荡",
+            operation_advice="观望",
             decision_type="hold",
             confidence_level="低",
             analysis_summary=analysis_summary if analysis_summary is not None else "结构化输出校验失败，已降级为保守结果。",
@@ -2040,33 +2038,11 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
         code: str, 
         name: str
     ) -> AnalysisResult:
-        """从纯文本响应中尽可能提取分析信息"""
-        # 尝试识别关键词来判断情绪
+        """无法解析结构化 JSON 时保守降级，不从文本关键词推断动作。"""
         sentiment_score = 50
         trend = '震荡'
-        advice = '持有'
-        
-        text_lower = response_text.lower()
-        
-        # 简单的情绪识别
-        positive_keywords = ['看多', '买入', '上涨', '突破', '强势', '利好', '加仓', 'bullish', 'buy']
-        negative_keywords = ['看空', '卖出', '下跌', '跌破', '弱势', '利空', '减仓', 'bearish', 'sell']
-        
-        positive_count = sum(1 for kw in positive_keywords if kw in text_lower)
-        negative_count = sum(1 for kw in negative_keywords if kw in text_lower)
-        
-        if positive_count > negative_count + 1:
-            sentiment_score = 65
-            trend = '看多'
-            advice = '买入'
-            decision_type = 'buy'
-        elif negative_count > positive_count + 1:
-            sentiment_score = 35
-            trend = '看空'
-            advice = '卖出'
-            decision_type = 'sell'
-        else:
-            decision_type = 'hold'
+        advice = '观望'
+        decision_type = 'hold'
         
         # 截取前500字符作为摘要
         summary = response_text[:500] if response_text else '无分析结果'

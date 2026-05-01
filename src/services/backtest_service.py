@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -113,6 +114,7 @@ class BacktestService:
                 if len(forward_bars) < int(eval_window_days):
                     self._try_fill_daily_data(code=analysis.code, analysis_date=start_daily.date, eval_window_days=eval_window_days)
                     forward_bars = self.stock_repo.get_forward_bars(code=analysis.code, analysis_date=start_daily.date, eval_window_days=int(eval_window_days))
+                structured_levels = self._extract_structured_backtest_levels(analysis)
                 evaluation = BacktestEngine.evaluate_single(
                     operation_advice=analysis.operation_advice,
                     alpha_decision=getattr(analysis, "alpha_decision", None),
@@ -123,7 +125,10 @@ class BacktestService:
                     delta_amount=getattr(analysis, "delta_amount", None),
                     analysis_date=start_daily.date,
                     start_price=float(start_daily.close),
-                    forward_bars=forward_bars, stop_loss=analysis.stop_loss, take_profit=analysis.take_profit, config=eval_config,
+                    forward_bars=forward_bars,
+                    stop_loss=structured_levels.get("stop_loss"),
+                    take_profit=structured_levels.get("take_profit"),
+                    config=eval_config,
                 )
                 status = evaluation.get("eval_status")
                 if status == "insufficient_data":
@@ -167,6 +172,35 @@ class BacktestService:
         if saved:
             self._recompute_summaries(touched_codes=sorted(touched_codes), eval_window_days=int(eval_window_days), engine_version=str(engine_version))
         return {"processed": processed, "saved": saved, "completed": completed, "insufficient": insufficient, "errors": errors}
+
+    @classmethod
+    def _extract_structured_backtest_levels(cls, analysis: Any) -> Dict[str, Optional[float]]:
+        raw_result = getattr(analysis, "raw_result", None)
+        if not raw_result:
+            return {"ideal_buy": None, "stop_loss": None, "take_profit": None}
+
+        try:
+            data = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {"ideal_buy": None, "stop_loss": None, "take_profit": None}
+
+        if not isinstance(data, dict):
+            return {"ideal_buy": None, "stop_loss": None, "take_profit": None}
+
+        return {
+            "ideal_buy": cls._coerce_structured_number(data.get("ideal_buy")),
+            "stop_loss": cls._coerce_structured_number(data.get("stop_loss")),
+            "take_profit": cls._coerce_structured_number(data.get("take_profit")),
+        }
+
+    @staticmethod
+    def _coerce_structured_number(value: Any) -> Optional[float]:
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            parsed = float(value)
+            return parsed if math.isfinite(parsed) else None
+        return None
 
     def get_recent_evaluations(self, *, code: Optional[str], eval_window_days: Optional[int] = None, limit: int = 50, page: int = 1) -> Dict[str, Any]:
         offset = max(page - 1, 0) * limit

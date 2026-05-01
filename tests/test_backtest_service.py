@@ -7,6 +7,7 @@ summary creation, and query methods.
 """
 
 import os
+import json
 import tempfile
 import unittest
 from datetime import date, datetime
@@ -15,6 +16,7 @@ from src.config import Config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE
 from src.services.backtest_service import BacktestService
 from src.storage import AnalysisHistory, BacktestResult, BacktestSummary, DatabaseManager, StockDaily
+from src.analyzer import AnalysisResult
 
 
 class BacktestServiceTestCase(unittest.TestCase):
@@ -50,6 +52,7 @@ class BacktestServiceTestCase(unittest.TestCase):
                     delta_amount=2000.0,
                     stop_loss=95.0,
                     take_profit=110.0,
+                    raw_result=json.dumps({"stop_loss": 95.0, "take_profit": 110.0}),
                     created_at=old_created_at,
                     context_snapshot='{"enhanced_context": {"date": "2024-01-01"}}',
                 )
@@ -84,6 +87,16 @@ class BacktestServiceTestCase(unittest.TestCase):
     def _count_results(self) -> int:
         with self.db.get_session() as session:
             return session.query(BacktestResult).count()
+
+    def _add_backtest_bars(self, *, code: str, start_price: float = 100.0) -> None:
+        with self.db.get_session() as session:
+            session.add(StockDaily(code=code, date=date(2024, 1, 1), open=start_price, high=start_price + 1, low=start_price - 1, close=start_price))
+            session.add_all([
+                StockDaily(code=code, date=date(2024, 1, 2), high=111.0, low=94.0, close=105.0),
+                StockDaily(code=code, date=date(2024, 1, 3), high=108.0, low=96.0, close=106.0),
+                StockDaily(code=code, date=date(2024, 1, 4), high=109.0, low=97.0, close=107.0),
+            ])
+            session.commit()
 
     def test_force_semantics(self) -> None:
         service = BacktestService(self.db)
@@ -289,6 +302,131 @@ class BacktestServiceTestCase(unittest.TestCase):
             row = session.query(BacktestResult).filter(BacktestResult.code == "300002").one()
             self.assertEqual(row.decision_source, "position_action")
             self.assertEqual(row.position_recommendation, "cash")
+
+    def test_ai_sniper_text_is_not_saved_as_backtest_parameters(self) -> None:
+        result = AnalysisResult(
+            code="300003",
+            name="东方财富",
+            sentiment_score=70,
+            trend_prediction="看多",
+            operation_advice="持有",
+            analysis_summary="sniper text only",
+        )
+        result.dashboard = {
+            "battle_plan": {
+                "sniper_points": {
+                    "ideal_buy": "MA5 10.1，MA10 9.8，理想买点 12.3 元",
+                    "stop_loss": "若跌破 MA10 或 11.1 元止损",
+                    "take_profit": "第一目标 13.5 元，第二目标 14.2 元",
+                }
+            }
+        }
+
+        saved = self.db.save_analysis_history(
+            result=result,
+            query_id="q_ai_sniper_text",
+            report_type="simple",
+            news_content=None,
+            context_snapshot={"enhanced_context": {"date": "2024-01-01"}},
+        )
+
+        self.assertEqual(saved, 1)
+        with self.db.get_session() as session:
+            row = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == "q_ai_sniper_text").one()
+            self.assertIsNone(row.ideal_buy)
+            self.assertIsNone(row.stop_loss)
+            self.assertIsNone(row.take_profit)
+
+    def test_legacy_prose_derived_levels_are_ignored_without_raw_result_provenance(self) -> None:
+        with self.db.get_session() as session:
+            session.add(
+                AnalysisHistory(
+                    query_id="q_legacy_levels",
+                    code="300004",
+                    name="Legacy",
+                    report_type="simple",
+                    sentiment_score=75,
+                    operation_advice="买入",
+                    trend_prediction="看多",
+                    analysis_summary="legacy levels",
+                    final_decision="BUY",
+                    position_action="OPEN",
+                    target_weight=0.2,
+                    current_weight=0.0,
+                    delta_amount=2000.0,
+                    stop_loss=95.0,
+                    take_profit=110.0,
+                    raw_result=json.dumps(
+                        {
+                            "dashboard": {
+                                "battle_plan": {
+                                    "sniper_points": {
+                                        "stop_loss": "止损位：95元",
+                                        "take_profit": "目标位：110元",
+                                    }
+                                }
+                            }
+                        },
+                        ensure_ascii=False,
+                    ),
+                    created_at=datetime(2024, 1, 1, 0, 0, 0),
+                    context_snapshot='{"enhanced_context": {"date": "2024-01-01"}}',
+                )
+            )
+            session.commit()
+        self._add_backtest_bars(code="300004")
+
+        service = BacktestService(self.db)
+        stats = service.run_backtest(code="300004", force=False, eval_window_days=3, min_age_days=0, limit=10)
+
+        self.assertEqual(stats["saved"], 1)
+        with self.db.get_session() as session:
+            row = session.query(BacktestResult).filter(BacktestResult.code == "300004").one()
+            self.assertIsNone(row.stop_loss)
+            self.assertIsNone(row.take_profit)
+            self.assertIsNone(row.hit_stop_loss)
+            self.assertIsNone(row.hit_take_profit)
+            self.assertEqual(row.first_hit, "neither")
+            self.assertEqual(row.simulated_exit_reason, "window_end")
+
+    def test_structured_raw_result_numeric_levels_are_used_for_backtest(self) -> None:
+        with self.db.get_session() as session:
+            session.add(
+                AnalysisHistory(
+                    query_id="q_structured_levels",
+                    code="300005",
+                    name="Structured",
+                    report_type="simple",
+                    sentiment_score=75,
+                    operation_advice="买入",
+                    trend_prediction="看多",
+                    analysis_summary="structured levels",
+                    final_decision="BUY",
+                    position_action="OPEN",
+                    target_weight=0.2,
+                    current_weight=0.0,
+                    delta_amount=2000.0,
+                    stop_loss=91.0,
+                    take_profit=115.0,
+                    raw_result=json.dumps({"ideal_buy": 99.0, "stop_loss": 95.0, "take_profit": 110.0}),
+                    created_at=datetime(2024, 1, 1, 0, 0, 0),
+                    context_snapshot='{"enhanced_context": {"date": "2024-01-01"}}',
+                )
+            )
+            session.commit()
+        self._add_backtest_bars(code="300005")
+
+        service = BacktestService(self.db)
+        stats = service.run_backtest(code="300005", force=False, eval_window_days=3, min_age_days=0, limit=10)
+
+        self.assertEqual(stats["saved"], 1)
+        with self.db.get_session() as session:
+            row = session.query(BacktestResult).filter(BacktestResult.code == "300005").one()
+            self.assertEqual(row.stop_loss, 95.0)
+            self.assertEqual(row.take_profit, 110.0)
+            self.assertTrue(row.hit_take_profit)
+            self.assertEqual(row.first_hit, "ambiguous")
+            self.assertEqual(row.simulated_exit_reason, "ambiguous_stop_loss")
 
     def test_multi_stock_summaries(self) -> None:
         """Verify separate summaries for multiple stocks + correct overall aggregate."""
