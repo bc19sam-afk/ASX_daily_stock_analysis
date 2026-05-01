@@ -15,7 +15,7 @@ import atexit
 import hashlib
 import json
 import logging
-import re
+import math
 import threading
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple
@@ -2025,62 +2025,27 @@ class DatabaseManager:
     @staticmethod
     def _parse_sniper_value(value: Any) -> Optional[float]:
         """
-        解析狙击点位数值
+        只接受结构化数值字段，不从 AI 自然语言或数字字符串提取价格。
         """
-        if value is None:
+        if value is None or isinstance(value, bool):
             return None
         if isinstance(value, (int, float)):
-            return float(value)
-
-        text = str(value).replace(',', '').strip()
-        if not text:
-            return None
-
-        # 尝试直接解析纯数字字符串
-        try:
-            return float(text)
-        except ValueError:
-            pass
-
-        # 优先截取 "：" 到 "元" 之间的价格，避免误提取 MA5/MA10 等技术指标数字
-        colon_pos = max(text.rfind("："), text.rfind(":"))
-        yuan_pos = text.find("元", colon_pos + 1 if colon_pos != -1 else 0)
-        if yuan_pos != -1:
-            segment_start = colon_pos + 1 if colon_pos != -1 else 0
-            segment = text[segment_start:yuan_pos]
-            
-            # 使用 finditer 并过滤掉 MA 开头的数字
-            matches = list(re.finditer(r"-?\d+(?:\.\d+)?", segment))
-            valid_numbers = []
-            for m in matches:
-                # 检查前面是否是 "MA" (忽略大小写)
-                start_idx = m.start()
-                if start_idx >= 2:
-                    prefix = segment[start_idx-2:start_idx].upper()
-                    if prefix == "MA":
-                        continue
-                valid_numbers.append(m.group())
-            
-            if valid_numbers:
-                try:
-                    return float(valid_numbers[-1])
-                except ValueError:
-                    pass
+            parsed = float(value)
+            return parsed if math.isfinite(parsed) else None
         return None
 
     def _extract_sniper_points(self, result: Any) -> Dict[str, Optional[float]]:
         """
-        抽取狙击点位数据
-        """
-        raw_points = {}
-        if hasattr(result, "get_sniper_points"):
-            raw_points = result.get_sniper_points() or {}
+        抽取结构化狙击点位数据。
 
+        dashboard.battle_plan.sniper_points 属于 AI 展示文本，只保留展示用途；
+        回测参数只能来自 result 上显式的 numeric 字段。
+        """
         return {
-            "ideal_buy": self._parse_sniper_value(raw_points.get("ideal_buy")),
-            "secondary_buy": self._parse_sniper_value(raw_points.get("secondary_buy")),
-            "stop_loss": self._parse_sniper_value(raw_points.get("stop_loss")),
-            "take_profit": self._parse_sniper_value(raw_points.get("take_profit")),
+            "ideal_buy": self._parse_sniper_value(getattr(result, "ideal_buy", None)),
+            "secondary_buy": self._parse_sniper_value(getattr(result, "secondary_buy", None)),
+            "stop_loss": self._parse_sniper_value(getattr(result, "stop_loss", None)),
+            "take_profit": self._parse_sniper_value(getattr(result, "take_profit", None)),
         }
 
     @staticmethod

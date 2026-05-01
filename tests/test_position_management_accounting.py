@@ -145,6 +145,41 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         holdings = self.db.get_portfolio_positions(only_open=True)
         self.assertEqual(len(holdings), 2)
 
+    def test_llm_event_risk_does_not_change_position_decision(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=8000, equity_value=2000, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="LLM",
+            name="LLM",
+            quantity=20,
+            avg_cost=100,
+            current_price=100,
+            weight=0.2,
+            market_value=2000,
+        )
+
+        low_risk = self._result("LLM", final_decision="BUY", market_regime="NEUTRAL")
+        low_risk.event_risk = "LOW"
+        self.pipeline._apply_position_management(
+            result=low_risk,
+            query_id="q_llm_low",
+            current_price=100,
+            persist=False,
+        )
+
+        high_risk = self._result("LLM", final_decision="BUY", market_regime="NEUTRAL")
+        high_risk.event_risk = "HIGH"
+        self.pipeline._apply_position_management(
+            result=high_risk,
+            query_id="q_llm_high",
+            current_price=100,
+            persist=False,
+        )
+
+        self.assertEqual(high_risk.final_decision, low_risk.final_decision)
+        self.assertEqual(high_risk.position_action, low_risk.position_action)
+        self.assertEqual(high_risk.target_weight, low_risk.target_weight)
+        self.assertEqual(high_risk.delta_amount, low_risk.delta_amount)
+
     def test_concurrent_api_updates_are_serialized_and_consistent(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
         self.pipeline.query_source = "api"

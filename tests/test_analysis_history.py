@@ -46,7 +46,7 @@ class AnalysisHistoryTestCase(unittest.TestCase):
             analysis_summary="基本面稳健，短期震荡",
         )
 
-    def test_save_analysis_history_with_snapshot(self) -> None:
+    def test_save_analysis_history_with_snapshot_keeps_sniper_text_display_only(self) -> None:
         result = self._build_result()
         result.dashboard = {
             "battle_plan": {
@@ -83,12 +83,39 @@ class AnalysisHistoryTestCase(unittest.TestCase):
             raw_result = json.loads(row.raw_result)
             self.assertEqual(row.query_id, "query_001")
             self.assertIsNotNone(row.context_snapshot)
+            self.assertIsNone(row.ideal_buy)
+            self.assertIsNone(row.secondary_buy)
+            self.assertIsNone(row.stop_loss)
+            self.assertIsNone(row.take_profit)
+            self.assertEqual(raw_result["validation_status"], "BLOCK")
+            self.assertEqual(raw_result["validation_issues"], ["缺少当日收盘价快照，无法建立稳定的日线信号基准。"])
+
+    def test_save_analysis_history_accepts_structured_numeric_backtest_levels(self) -> None:
+        result = self._build_result()
+        result.ideal_buy = 125.5
+        result.secondary_buy = 120.0
+        result.stop_loss = 110.0
+        result.take_profit = 150.0
+
+        saved = self.db.save_analysis_history(
+            result=result,
+            query_id="query_numeric_levels",
+            report_type="simple",
+            news_content="新闻摘要",
+            context_snapshot=None,
+            save_snapshot=False,
+        )
+
+        self.assertEqual(saved, 1)
+
+        with self.db.get_session() as session:
+            row = session.query(AnalysisHistory).first()
+            if row is None:
+                self.fail("未找到保存的历史记录")
             self.assertEqual(row.ideal_buy, 125.5)
             self.assertEqual(row.secondary_buy, 120.0)
             self.assertEqual(row.stop_loss, 110.0)
             self.assertEqual(row.take_profit, 150.0)
-            self.assertEqual(raw_result["validation_status"], "BLOCK")
-            self.assertEqual(raw_result["validation_issues"], ["缺少当日收盘价快照，无法建立稳定的日线信号基准。"])
 
     def test_save_analysis_history_without_snapshot(self) -> None:
         result = self._build_result()

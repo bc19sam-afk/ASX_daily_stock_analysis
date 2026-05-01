@@ -78,10 +78,6 @@ class PositionManager:
             return 0.0
         if market_regime == "RISK_OFF":
             return 0.10
-        if event_risk == "HIGH":
-            return 0.10
-        if event_risk == "MEDIUM":
-            return 0.20
         return 0.35
 
     @staticmethod
