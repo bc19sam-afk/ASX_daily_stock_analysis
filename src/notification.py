@@ -700,12 +700,25 @@ class NotificationService:
         )
         normal_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
         failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
+        try:
+            overview_source = get_db().get_portfolio_overview()
+        except Exception:
+            overview_source = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
+        overview = self._build_report_time_portfolio_overview(
+            overview=overview_source,
+            results=results,
+        )
+        daily_summary = self.build_daily_decision_summary(
+            results=sorted_results,
+            report_date=report_date,
+            generated_at=generated_at,
+            overview=overview,
+        )
+        self._last_daily_decision_summary = daily_summary
 
-        # 统计信息 - 仅统计非失败结果
-        decision_counts = self._count_primary_decisions(actionable_results)
-        buy_count = decision_counts['BUY']
-        sell_count = decision_counts['SELL']
-        hold_count = decision_counts['HOLD']
+        counts = self._execution_action_counts(daily_summary)
+        effective_actionable_results = self._effective_actionable_results(actionable_results)
+        display_actionable_results = self._display_actionable_results(actionable_results)
         avg_score = sum(r.sentiment_score for r in actionable_results) / len(actionable_results) if actionable_results else 0
         
         report_lines.extend([
@@ -713,10 +726,12 @@ class NotificationService:
             "",
             "| 指标 | 数值 |",
             "|------|------|",
-            f"| 🟢 建议买入/加仓 | **{buy_count}** 只 |",
-            f"| 🟡 建议持有/观望 | **{hold_count}** 只 |",
-            f"| 🔴 建议减仓/卖出 | **{sell_count}** 只 |",
-            f"| ⚠️ 不可决策/仅观察 | **{len(blocked_results)}** 只 |",
+            f"| 执行动作 买入 | **{counts['buy']}** 只 |",
+            f"| 执行动作 加仓 | **{counts['add']}** 只 |",
+            f"| 执行动作 减仓 | **{counts['reduce']}** 只 |",
+            f"| 执行动作 清仓 | **{counts['close']}** 只 |",
+            f"| 持有观察 | **{counts['hold_watch']}** 只 |",
+            f"| 阻塞 | **{counts['blocked']}** 只 |",
             f"| 📈 平均看多评分 | **{avg_score:.1f}** 分 |",
             "",
             "---",
@@ -726,7 +741,7 @@ class NotificationService:
         # Issue #262: summary_only 时仅输出摘要，跳过个股详情
         if self._report_summary_only:
             report_lines.extend(["## 📊 分析结果摘要", ""])
-            for r in actionable_results:
+            for r in display_actionable_results:
                 _, emoji, _ = self._get_signal_level(r)
                 report_lines.append(
                     f"{emoji} **{r.name}({r.code})**: {self._get_canonical_operation_advice(r)} | "
@@ -1216,12 +1231,37 @@ class NotificationService:
         except Exception:
             return DEFAULT_ACTIONABLE_DELTA_AMOUNT
 
+    @staticmethod
+    def _execution_action_counts(summary: Dict[str, Any]) -> Dict[str, int]:
+        counts = summary.get("action_counts") or {}
+        return {
+            key: int(counts.get(key, 0) or 0)
+            for key in ("buy", "add", "reduce", "close", "hold_watch", "blocked", "total_actions")
+        }
+
+    @classmethod
+    def _format_execution_action_counts_text(cls, summary: Dict[str, Any]) -> str:
+        counts = cls._execution_action_counts(summary)
+        return (
+            "执行动作 买入/加仓/减仓/清仓/观察/阻塞："
+            f"{counts['buy']}/{counts['add']}/{counts['reduce']}/{counts['close']}/"
+            f"{counts['hold_watch']}/{counts['blocked']}"
+        )
+
     def _is_actionable_today(self, result: AnalysisResult) -> bool:
         """Return True when deterministic action implies execution-worthy change."""
         return is_effective_executable_action(
             self._get_primary_action_model(result),
             min_delta_amount=self._get_actionable_delta_amount_threshold(),
         )
+
+    def _effective_actionable_results(self, results: List[AnalysisResult]) -> List[AnalysisResult]:
+        """Return non-blocked results that remain executable after tiny-action suppression."""
+        return [result for result in results if self._is_actionable_today(result)]
+
+    def _display_actionable_results(self, results: List[AnalysisResult]) -> List[AnalysisResult]:
+        """Return report-visible non-blocked results, excluding suppressed executable noise."""
+        return [result for result in results if not self._is_suppressed_executable_action_today(result)]
 
     def _is_suppressed_executable_action_today(self, result: AnalysisResult) -> bool:
         """Return True when an executable action is intentionally downgraded to watch."""
@@ -1561,12 +1601,6 @@ class NotificationService:
         successful_results_for_summary, actionable_results_for_summary, blocked_results_for_summary = self._split_completed_results(sorted_results)
         failed_results_for_summary = [r for r in sorted_results if _is_failed_analysis(r)]
 
-        # 统计信息（仅统计成功分析，避免与后续可见区块口径不一致）
-        decision_counts = self._count_primary_decisions(actionable_results_for_summary)
-        buy_count = decision_counts['BUY']
-        sell_count = decision_counts['SELL']
-        hold_count = decision_counts['HOLD']
-
         report_lines = [
             f"# 🎯 {report_date} 决策仪表盘",
             "",
@@ -1576,7 +1610,7 @@ class NotificationService:
             f"> 成功分析 **{len(successful_results_for_summary)}** 只 | "
             f"失败 **{len(failed_results_for_summary)}** 只 | "
             f"BLOCK **{len(blocked_results_for_summary)}** 只 | "
-            f"🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
+            f"{self._format_execution_action_counts_text(daily_summary)}",
             "",
         ])
         report_lines.extend(self._build_data_baseline_lines(results, generated_at))
@@ -1608,8 +1642,8 @@ class NotificationService:
             r for r in actionable_results
             if self._normalize_stock_code(getattr(r, "code", "")) not in holding_codes
         ]
-        actionable_holding_results = [r for r in holding_results if self._is_actionable_today(r)]
-        actionable_non_holding_results = [r for r in non_holding_results if self._is_actionable_today(r)]
+        actionable_holding_results = self._effective_actionable_results(holding_results)
+        actionable_non_holding_results = self._effective_actionable_results(non_holding_results)
         effective_actionable_results = actionable_holding_results + actionable_non_holding_results
         display_non_holding_results = [
             r for r in non_holding_results
@@ -2060,16 +2094,13 @@ class NotificationService:
         )
         self._last_daily_decision_summary = daily_summary
 
-        # 统计 - 使用主决策（优先 final_decision）
-        decision_counts = self._count_primary_decisions(actionable_results)
-        buy_count = decision_counts['BUY']
-        sell_count = decision_counts['SELL']
-        hold_count = decision_counts['HOLD']
+        effective_actionable_results = self._effective_actionable_results(actionable_results)
+        display_actionable_results = self._display_actionable_results(actionable_results)
         
         lines = [
             f"## 🎯 {report_date} 决策仪表盘",
             "",
-            f"> 成功 {len(normal_results)} 只 | 失败 {len(failed_results)} 只 | BLOCK {len(blocked_results)} 只 | 🟢买入:{buy_count} 🟡观望:{hold_count} 🔴卖出:{sell_count}",
+            f"> 成功 {len(normal_results)} 只 | 失败 {len(failed_results)} 只 | BLOCK {len(blocked_results)} 只 | {self._format_execution_action_counts_text(daily_summary)}",
             "",
         ]
         lines.extend(render_preopen_decision_dashboard(daily_summary))
@@ -2097,7 +2128,7 @@ class NotificationService:
         
         # Issue #262: summary_only 时仅输出摘要列表
         if self._report_summary_only:
-            for r in actionable_results:
+            for r in display_actionable_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 action_model = self._get_primary_action_model(r)
@@ -2118,7 +2149,7 @@ class NotificationService:
                 "",
                 "**C) 目标仓位（模拟，不代表已成交）**",
             ])
-            for r in actionable_results:
+            for r in effective_actionable_results:
                 _, signal_emoji, _ = self._get_signal_level(r)
                 stock_name = self._escape_md(r.name if r.name and not r.name.startswith('股票') else f'股票{r.code}')
                 lines.append(
@@ -2127,7 +2158,7 @@ class NotificationService:
                     f"(Δ{getattr(r, 'delta_amount', 0.0):,.2f})"
                 )
         else:
-            for result in actionable_results:
+            for result in display_actionable_results:
                 signal_text, signal_emoji, _ = self._get_signal_level(result)
                 action_model = self._get_primary_action_model(result)
                 dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
@@ -2274,24 +2305,35 @@ class NotificationService:
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
         normal_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
         failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
+        try:
+            overview_source = get_db().get_portfolio_overview()
+        except Exception:
+            overview_source = {"cash": 0.0, "equity_value": 0.0, "total_value": 0.0, "holdings": []}
+        overview = self._build_report_time_portfolio_overview(
+            overview=overview_source,
+            results=results,
+        )
+        daily_summary = self.build_daily_decision_summary(
+            results=sorted_results,
+            report_date=report_date,
+            generated_at=generated_at,
+            overview=overview,
+        )
+        self._last_daily_decision_summary = daily_summary
 
-        # 统计 - 使用主决策（优先 final_decision）
-        decision_counts = self._count_primary_decisions(actionable_results)
-        buy_count = decision_counts['BUY']
-        sell_count = decision_counts['SELL']
-        hold_count = decision_counts['HOLD']
+        display_actionable_results = self._display_actionable_results(actionable_results)
         avg_score = sum(r.sentiment_score for r in actionable_results) / len(actionable_results) if actionable_results else 0
 
         lines = [
             f"## 📅 {report_date} 股票分析报告",
             "",
-            f"> 成功 **{len(normal_results)}** 只 | 失败 **{len(failed_results)}** 只 | BLOCK **{len(blocked_results)}** 只 | 🟢买入:{buy_count} 🟡持有:{hold_count} 🔴卖出:{sell_count} | 均分:{avg_score:.0f}",
+            f"> 成功 **{len(normal_results)}** 只 | 失败 **{len(failed_results)}** 只 | BLOCK **{len(blocked_results)}** 只 | {self._format_execution_action_counts_text(daily_summary)} | 均分:{avg_score:.0f}",
             "",
         ]
         lines.extend(self._build_data_baseline_lines(results, generated_at, title="**🕒 数据时间基准**"))
         
         # 每只股票精简信息（控制长度）
-        for result in actionable_results:
+        for result in display_actionable_results:
             _, emoji, _ = self._get_signal_level(result)
             
             # 核心信息行

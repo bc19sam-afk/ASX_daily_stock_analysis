@@ -66,6 +66,10 @@ class AnalysisOutputSchema(BaseModel):
     analysis_summary: str = Field(min_length=1)
     risk_warning: str = Field(min_length=1)
     dashboard: Optional[DashboardSchema] = None
+    ideal_buy: Optional[float] = None
+    secondary_buy: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit: Optional[float] = None
 
     @field_validator("confidence_level")
     @classmethod
@@ -73,6 +77,16 @@ class AnalysisOutputSchema(BaseModel):
         if value not in {"高", "中", "低"}:
             raise ValueError("confidence_level must be one of: 高/中/低")
         return value
+
+    @field_validator("ideal_buy", "secondary_buy", "stop_loss", "take_profit", mode="before")
+    @classmethod
+    def _validate_structured_price_level(cls, value: Any) -> Optional[float]:
+        if value is None or isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            parsed = float(value)
+            return parsed if math.isfinite(parsed) else None
+        return None
 
 
 # 股票名称映射（常见股票）
@@ -1998,6 +2012,10 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
                 key_points=data.get('key_points', ''),
                 risk_warning=data.get('risk_warning', ''),
                 buy_reason=data.get('buy_reason', ''),
+                ideal_buy=data.get('ideal_buy'),
+                secondary_buy=data.get('secondary_buy'),
+                stop_loss=data.get('stop_loss'),
+                take_profit=data.get('take_profit'),
                 # 元数据
                 search_performed=data.get('search_performed', False),
                 data_sources=data.get('data_sources', '技术面数据'),

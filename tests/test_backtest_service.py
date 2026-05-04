@@ -16,7 +16,7 @@ from src.config import Config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE
 from src.services.backtest_service import BacktestService
 from src.storage import AnalysisHistory, BacktestResult, BacktestSummary, DatabaseManager, StockDaily
-from src.analyzer import AnalysisResult
+from src.analyzer import AnalysisResult, GeminiAnalyzer
 
 
 class BacktestServiceTestCase(unittest.TestCase):
@@ -427,6 +427,93 @@ class BacktestServiceTestCase(unittest.TestCase):
             self.assertTrue(row.hit_take_profit)
             self.assertEqual(row.first_hit, "ambiguous")
             self.assertEqual(row.simulated_exit_reason, "ambiguous_stop_loss")
+
+    def test_parse_save_backtest_uses_numeric_top_level_levels(self) -> None:
+        payload = {
+            "stock_name": "Structured Parse",
+            "sentiment_score": 75,
+            "operation_advice": "观望",
+            "trend_prediction": "看多",
+            "confidence_level": "中",
+            "analysis_summary": "structured parse levels",
+            "risk_warning": "控制风险",
+            "ideal_buy": 99.0,
+            "stop_loss": 95.0,
+            "take_profit": 110.0,
+        }
+        result = GeminiAnalyzer(api_key=None)._parse_response(
+            json.dumps(payload, ensure_ascii=False),
+            "300006",
+            "Structured Parse",
+        )
+        result.final_decision = "BUY"
+        result.position_action = "OPEN"
+        result.target_weight = 0.2
+        result.current_weight = 0.0
+        result.delta_amount = 2000.0
+
+        self.assertEqual(result.ideal_buy, 99.0)
+        self.assertEqual(result.stop_loss, 95.0)
+        self.assertEqual(result.take_profit, 110.0)
+
+        saved = self.db.save_analysis_history(
+            result=result,
+            query_id="q_parse_structured_levels",
+            report_type="simple",
+            news_content=None,
+            context_snapshot={"enhanced_context": {"date": "2024-01-01"}},
+        )
+        self.assertEqual(saved, 1)
+        self._add_backtest_bars(code="300006")
+
+        service = BacktestService(self.db)
+        stats = service.run_backtest(code="300006", force=False, eval_window_days=3, min_age_days=0, limit=10)
+
+        self.assertEqual(stats["saved"], 1)
+        with self.db.get_session() as session:
+            history = session.query(AnalysisHistory).filter(AnalysisHistory.query_id == "q_parse_structured_levels").one()
+            raw_result = json.loads(history.raw_result)
+            self.assertEqual(history.ideal_buy, 99.0)
+            self.assertEqual(history.stop_loss, 95.0)
+            self.assertEqual(history.take_profit, 110.0)
+            self.assertEqual(raw_result["ideal_buy"], 99.0)
+            self.assertEqual(raw_result["stop_loss"], 95.0)
+            self.assertEqual(raw_result["take_profit"], 110.0)
+
+            row = session.query(BacktestResult).filter(BacktestResult.code == "300006").one()
+            self.assertEqual(row.stop_loss, 95.0)
+            self.assertEqual(row.take_profit, 110.0)
+            self.assertTrue(row.hit_take_profit)
+
+    def test_structured_backtest_levels_reject_non_numeric_values(self) -> None:
+        levels = BacktestService._extract_structured_backtest_levels(
+            type(
+                "Analysis",
+                (),
+                {
+                    "raw_result": json.dumps(
+                        {
+                            "ideal_buy": "99.0",
+                            "secondary_buy": True,
+                            "stop_loss": float("nan"),
+                            "take_profit": float("inf"),
+                            "dashboard": {
+                                "battle_plan": {
+                                    "sniper_points": {
+                                        "stop_loss": "止损位：95元",
+                                        "take_profit": "目标位：110元",
+                                    }
+                                }
+                            },
+                        }
+                    )
+                },
+            )()
+        )
+
+        self.assertIsNone(levels["ideal_buy"])
+        self.assertIsNone(levels["stop_loss"])
+        self.assertIsNone(levels["take_profit"])
 
     def test_multi_stock_summaries(self) -> None:
         """Verify separate summaries for multiple stocks + correct overall aggregate."""
