@@ -483,3 +483,27 @@
 - Test result: `python -m pytest tests/test_intraday_review_contract.py tests/test_daily_decision_dashboard_archive.py` passed, 14 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 535 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no daily report changes, realtime quote fetching, data provider calls, AI calls, workflow, `close_only`, broker, automatic trading, account writes, storage, or database migration.
+
+### 2026-05-06 - P2-2a Audit
+
+- Status: missing.
+- Scope: Offline Intraday Review Evaluator only.
+- Forbidden areas: no realtime quote fetching, no data provider/yfinance/external API calls, no AI calls, no broker integration, no automatic trading, no account writes, no workflow change, no `close_only` daily report change, no PositionManager change, no P1-3b-3 risk sizing cap enablement, and no database migration.
+- Finding: P2-1 defined input and decision contracts, but there was no offline evaluator that could consume caller-supplied prices and produce manual-review statuses.
+- Decision: add a pure rules evaluator in `src/intraday_review.py`, extend the contract with offline market/evaluation types, and keep all inputs caller/test supplied.
+
+### 2026-05-06 - P2-2a Implementation
+
+- Status: implemented.
+- Added `IntradayReviewMarketInput` and `IntradayReviewEvaluation` contract types.
+- Added `evaluate_intraday_review_offline()` with conservative thresholds: wait above 2% absolute deviation and cancel above 5% absolute deviation.
+- BLOCK morning items can only produce `observe_only` or `block`; `price_sensitive_risk=True` produces `block`.
+- Missing `last_price` or `previous_close` degrades to `observe_only` without guessing.
+- Liquidity warnings produce `wait` for actionable items or `observe_only` for non-actionable items.
+- PASS/actionable items inside the wait threshold return `still_valid` for manual review only, with `is_trade_instruction=False`.
+- Added `tests/test_intraday_review_offline_evaluator.py` and extended contract serialization coverage.
+- Red test result before implementation: `python -m pytest tests/test_intraday_review_offline_evaluator.py` failed because `src.intraday_review` did not exist.
+- Test result: `python -m pytest tests/test_intraday_review_offline_evaluator.py tests/test_intraday_review_contract.py` passed, 14 tests.
+- Test result: `python -m pytest tests/test_daily_decision_dashboard_archive.py` passed, 9 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 544 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: evaluator imports only contract/typing modules, does not call realtime data, AI, data providers, brokers, storage, workflow, or daily report generation, and does not mutate input summary/action counts.

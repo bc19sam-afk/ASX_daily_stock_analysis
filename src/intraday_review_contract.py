@@ -9,11 +9,90 @@ an already-generated close-only morning summary.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 
 
 INTRADAY_REVIEW_STATUSES = {"still_valid", "wait", "cancel", "observe_only", "block"}
 BLOCKED_ITEM_ALLOWED_STATUSES = {"observe_only", "block"}
+
+
+@dataclass(frozen=True)
+class IntradayReviewMarketInput:
+    code: str
+    last_price: Optional[float]
+    previous_close: Optional[float]
+    price_timestamp: str
+    has_price_sensitive_risk: Optional[bool] = None
+    liquidity_warning: Optional[bool] = None
+    notes: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "code": self.code,
+            "last_price": self.last_price,
+            "previous_close": self.previous_close,
+            "price_timestamp": self.price_timestamp,
+            "has_price_sensitive_risk": self.has_price_sensitive_risk,
+            "liquidity_warning": self.liquidity_warning,
+            "notes": list(self.notes),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "IntradayReviewMarketInput":
+        return cls(
+            code=str(payload.get("code") or ""),
+            last_price=_optional_float(payload.get("last_price")),
+            previous_close=_optional_float(payload.get("previous_close")),
+            price_timestamp=str(payload.get("price_timestamp") or ""),
+            has_price_sensitive_risk=_optional_bool(payload.get("has_price_sensitive_risk")),
+            liquidity_warning=_optional_bool(payload.get("liquidity_warning")),
+            notes=[str(item) for item in (payload.get("notes") or [])],
+        )
+
+
+@dataclass(frozen=True)
+class IntradayReviewEvaluation:
+    code: str
+    morning_action: str
+    review_status: str
+    reason: str
+    price_deviation_pct: Optional[float]
+    required_manual_checks: List[str] = field(default_factory=list)
+    source: str = "offline_input"
+    is_trade_instruction: bool = False
+
+    def __post_init__(self) -> None:
+        status = str(self.review_status or "").strip().lower()
+        if status not in INTRADAY_REVIEW_STATUSES:
+            raise ValueError(f"Unsupported intraday review status: {self.review_status}")
+        object.__setattr__(self, "review_status", status)
+        object.__setattr__(self, "source", "offline_input")
+        object.__setattr__(self, "is_trade_instruction", False)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "code": self.code,
+            "morning_action": self.morning_action,
+            "review_status": self.review_status,
+            "reason": self.reason,
+            "price_deviation_pct": self.price_deviation_pct,
+            "required_manual_checks": list(self.required_manual_checks),
+            "source": self.source,
+            "is_trade_instruction": self.is_trade_instruction,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "IntradayReviewEvaluation":
+        return cls(
+            code=str(payload.get("code") or ""),
+            morning_action=str(payload.get("morning_action") or ""),
+            review_status=str(payload.get("review_status") or ""),
+            reason=str(payload.get("reason") or ""),
+            price_deviation_pct=_optional_float(payload.get("price_deviation_pct")),
+            required_manual_checks=[str(item) for item in (payload.get("required_manual_checks") or [])],
+            source=str(payload.get("source") or "offline_input"),
+            is_trade_instruction=bool(payload.get("is_trade_instruction", False)),
+        )
 
 
 @dataclass(frozen=True)
@@ -124,6 +203,29 @@ def validate_intraday_review_decision(
 
 def _copy_items(items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [dict(item) for item in items]
+
+
+def _optional_float(value: Any) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed != parsed or parsed in (float("inf"), float("-inf")):
+        return None
+    return parsed
+
+
+def _optional_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    lowered = str(value).strip().lower()
+    if lowered in {"true", "1", "yes", "y"}:
+        return True
+    if lowered in {"false", "0", "no", "n"}:
+        return False
+    return None
 
 
 def _price_policy_note(price_policy: str) -> str:
