@@ -15,8 +15,8 @@
 ## Current Gate
 
 - Active phase: P0 only.
-- Active PR: P0-4 Report Reliability Score v1.
-- P0-4 state: implemented; PR creation pending.
+- Active PR: P0-5 Final Action Display Contract.
+- P0-5 state: implemented; PR creation pending.
 - Continue automatically through P0-6 when checks are green and PRs are mergeable.
 - P1 and P2 are roadmap-only until explicit user confirmation.
 
@@ -27,8 +27,8 @@
 | P0-1 AI Role Boundary | merged | `codex/p0-1-ai-role-boundary-audit` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/99 | Merged via PR #99. Do not reimplement. |
 | P0-2 Conditional Plan Points v1 | merged | `codex/p0-2-conditional-plan-points-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/100 | Merged via squash commit `38eff38`. |
 | P0-3 Evidence Matrix v1 | merged | `codex/p0-3-evidence-matrix-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/101 | Merged via squash commit `dc9be09`. |
-| P0-4 Report Reliability Score v1 | implemented | `codex/p0-4-report-reliability-score-v1` | pending | Current main was partial/missing; implemented minimal report reliability helper, summary field, cockpit display, and tests. |
-| P0-5 Final Action Display Contract | pending | pending | pending | Wait for prior P0 PR merge. |
+| P0-4 Report Reliability Score v1 | merged | `codex/p0-4-report-reliability-score-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/102 | Merged via squash commit `d7050ef`. |
+| P0-5 Final Action Display Contract | implemented | `codex/p0-5-final-action-display-contract` | pending | Current main was partial/missing; implemented minimal final action display helper, report integration, and tests. |
 | P0-6 API Auth Guard v1 | pending | pending | pending | Wait for prior P0 PR merge. |
 | P1-1 Backtest Confidence Panel v1 | pending | not started | not started | Roadmap only. |
 | P1-2 Score Bucket Calibration | pending | not started | not started | Roadmap only. |
@@ -143,3 +143,40 @@
 - Test result: `python -m pytest tests/test_report_reliability_score.py tests/test_daily_decision_dashboard_archive.py` passed, 15 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 465 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, position manager, pipeline, data provider, storage, database, broker, or automatic trading changes.
+
+### 2026-05-05 - P0-4 PR Opened
+
+- Status: pr_opened.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/102
+- Checks: GitHub check runs all green before merge.
+- Mergeability: `mergeable_state=clean`.
+
+### 2026-05-05 - P0-4 Merged
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/102
+- Merge method: squash.
+- Main commit: `d7050ef Show report reliability before users review daily actions`.
+- Post-merge sync: checked out `main`, pulled with `--ff-only`, verified clean working tree and P0-4 squash commit in latest main history.
+
+### 2026-05-05 - P0-5 Audit
+
+- Status: partial/missing.
+- Scope: Final Action Display Contract only.
+- Forbidden areas: no pipeline rewrite, `AnalysisResult` rewrite, database change, backtest engine change, AI output structure change, PositionManager action generation change, workflow change, or `close_only` change.
+- Finding: current main centralized some action counts in `daily_decision_summary`, but had no `FinalActionDisplay` object and report exits still inferred display actionability separately.
+- Decision: add a display-only helper and route daily summary / notification action display through it without changing deterministic action generation.
+
+### 2026-05-05 - P0-5 Implementation
+
+- Status: implemented.
+- Added `src/final_action_display.py` with display-only actionability, sizing visibility, and plan-point visibility rules.
+- Added `final_action_display` to daily decision summary action, watch, and blocked items.
+- Updated notification actionability checks and recommended-action table rendering to consume the display object.
+- Updated BLOCK report lines to show only unavailable / observe-only wording and validation reason, without target weight, delta, or plan points.
+- Added `tests/test_final_action_display_contract.py`.
+- Added `tests/test_blocked_action_display.py`.
+- Updated existing dashboard, validation-gate, and recommended-action tests for the display contract.
+- Test result: `python -m pytest tests/test_final_action_display_contract.py tests/test_blocked_action_display.py tests/test_daily_decision_dashboard_archive.py tests/test_notification_validation_gate.py` passed, 21 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 472 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no workflow, `close_only`, position manager, pipeline decision generation, data provider, storage, database, broker, or automatic trading changes.

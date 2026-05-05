@@ -62,7 +62,7 @@ class NotificationValidationGateTestCase(unittest.TestCase):
 
         self.assertIn("BLOCK **1**", report)
         self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/阻塞：0/0/0/0/0/1", report)
-        self.assertIn("当前/保持仓位 66.67%/66.67%", report)
+        self.assertNotIn("当前/保持仓位", report)
         section_c = report.split("## 目标仓位模拟（计划视图）", 1)[1]
         self.assertNotIn("BHP.AX", section_c)
 
