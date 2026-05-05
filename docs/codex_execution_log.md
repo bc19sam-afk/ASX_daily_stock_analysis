@@ -15,7 +15,7 @@
 ## Current Gate
 
 - Active phase: P1 limited execution.
-- Active PR: P1-4 Structured Valuation Snapshot.
+- Active PR: P1-5 ASX Search Localisation.
 - P1-3a state: merged via PR #107.
 - Authorized scope: post-P1-3a verification, then P1-4 and P1-5 only.
 - P1-3b and P2 remain blocked until explicit user confirmation.
@@ -34,8 +34,8 @@
 | P1-2 Score Bucket Calibration | merged | `codex/p1-2-score-bucket-calibration` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/106 | Merged via squash commit `f69108b`. |
 | P1-3a Risk-Based Sizing Shadow Mode | merged | `codex/p1-3a-risk-sizing-shadow-mode` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/107 | Shadow-only preview merged via squash commit `03c8fa9`; P1-3b not started. |
 | P1-3b Risk-Based Sizing Cap | pending | not started | not started | Explicitly blocked until user confirmation. |
-| P1-4 Structured Valuation Snapshot | pr_opened | `codex/p1-4-structured-valuation-snapshot` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/108 | Structured valuation snapshot implemented; checks pending. |
-| P1-5 ASX Search Localisation | pending | not started | not started | Roadmap only. |
+| P1-4 Structured Valuation Snapshot | merged | `codex/p1-4-structured-valuation-snapshot` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/108 | Merged via squash commit `58f3c93`. |
+| P1-5 ASX Search Localisation | pr_opened | `codex/p1-5-asx-search-localisation` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/109 | ASX search localisation implemented; checks pending. |
 | P2-1 Intraday Review Input Contract | pending | not started | not started | Roadmap only. |
 | P2-2 Intraday Review v1 | pending | not started | not started | Roadmap only. |
 | P2-3 ASX Official Announcement Check Contract | pending | not started | not started | Roadmap only. |
@@ -350,3 +350,47 @@
 - Status: pr_opened.
 - PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/108
 - Read-only review: no blocking findings after the missing valuation `as_of_date` fallback was fixed.
+
+### 2026-05-05 - P1-4 Merged And Post-Verification
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/108
+- Merge method: squash.
+- Main commit: `58f3c93 Expose valuation as evidence without changing daily actions`.
+- GitHub checks: all green before merge; mergeability `clean`.
+- Post-merge verification: synced `main` with `--ff-only`, verified clean working tree, and ran P1-4 post-verification.
+- Test result: `python -m pytest tests/test_yfinance_valuation_snapshot.py` passed, 5 tests.
+- Test result: `python -m pytest tests/test_evidence_matrix.py` passed, 6 tests.
+- Test result: `python -m pytest tests/test_daily_decision_dashboard_archive.py` passed, 9 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_report_reliability_score.py` passed, 6 tests.
+- Test result: `python -m pytest` passed, 508 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Semantic audit: structured valuation remained evidence/display only, missing valuation stayed explicit, BLOCK items did not become actionable, and action counts / deterministic action fields were unchanged.
+
+### 2026-05-05 - P1-5 Audit
+
+- Status: partial/missing.
+- Scope: ASX Search Localisation only.
+- Forbidden areas: no ASX official announcement source, search service rewrite, `news_max_age_days` default change, Chinese compatibility removal, decision change, sizing change, action count change, workflow change, `close_only` change, database migration, broker integration, or automatic trading.
+- Finding: current main already included ASX/Australia grounded query terms and ASX entity disambiguation, but ASX news queries did not explicitly signal English-first context, SerpAPI still used HK/CN Chinese locale parameters, and Brave still used US country parameters.
+- Decision: keep the existing provider order, fallback, news age filter, and entity filter; only add English-first ASX query context and switch SerpAPI / Brave request parameters to AU/en when the query is ASX-localised.
+
+### 2026-05-05 - P1-5 Implementation
+
+- Status: implemented.
+- Added `tests/test_search_asx_localisation.py` covering ASX query context, SerpAPI AU/en parameters, Brave AU/en parameters, non-ASX compatibility, and ASX entity disambiguation.
+- Updated ASX grounded queries to include `English-first` alongside ASX and Australia.
+- Added a shared provider helper for ASX-localised query detection.
+- Updated SerpAPI ASX queries to use `google.com.au`, `hl=en`, and `gl=au` while preserving existing non-ASX defaults.
+- Updated Brave ASX queries to use `country=AU` and `search_lang=en` while preserving existing non-ASX defaults.
+- Red test result before implementation: `python -m pytest tests/test_search_asx_localisation.py tests/test_search_news_age_filter.py` failed as expected because English-first query context and AU provider parameters were missing.
+- Test result: `python -m pytest tests/test_search_asx_localisation.py tests/test_search_news_age_filter.py` passed, 18 tests.
+- Read-only review finding: the initial provider ASX-localisation helper matched any query containing `Australia`, which could alter non-ASX queries such as `Apple Australia AAPL latest news`; fixed by requiring explicit `.AX` or standalone `ASX` markers and adding regression coverage.
+- Test result: `python -m pytest tests/test_search_asx_localisation.py tests/test_search_news_age_filter.py tests/test_search_entity_disambiguation.py` passed, 35 tests.
+- Test result: `python -m pytest` passed, 517 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no workflow, `close_only`, PositionManager, pipeline, storage, database, broker, automatic trading, or deterministic action changes.
+
+### 2026-05-05 - P1-5 PR Opened
+
+- Status: pr_opened.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/109
+- Read-only review: no blocking findings after tightening ASX provider localisation to explicit `.AX` or standalone `ASX` markers.
