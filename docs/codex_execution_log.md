@@ -15,9 +15,9 @@
 ## Current Gate
 
 - Active phase: P0 only.
-- Active PR: P0-5 Final Action Display Contract.
-- P0-5 state: implemented; PR creation pending.
-- Continue automatically through P0-6 when checks are green and PRs are mergeable.
+- Active PR: P0-6 API Auth Guard v1.
+- P0-6 state: implemented; PR creation pending.
+- Stop after P0-6 merge and wait for explicit P1 confirmation.
 - P1 and P2 are roadmap-only until explicit user confirmation.
 
 ## PR Status
@@ -28,8 +28,8 @@
 | P0-2 Conditional Plan Points v1 | merged | `codex/p0-2-conditional-plan-points-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/100 | Merged via squash commit `38eff38`. |
 | P0-3 Evidence Matrix v1 | merged | `codex/p0-3-evidence-matrix-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/101 | Merged via squash commit `dc9be09`. |
 | P0-4 Report Reliability Score v1 | merged | `codex/p0-4-report-reliability-score-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/102 | Merged via squash commit `d7050ef`. |
-| P0-5 Final Action Display Contract | implemented | `codex/p0-5-final-action-display-contract` | pending | Current main was partial/missing; implemented minimal final action display helper, report integration, and tests. |
-| P0-6 API Auth Guard v1 | pending | pending | pending | Wait for prior P0 PR merge. |
+| P0-5 Final Action Display Contract | merged | `codex/p0-5-final-action-display-contract` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/103 | Merged via squash commit `9dadbdd`. |
+| P0-6 API Auth Guard v1 | implemented | `codex/p0-6-api-auth-guard-v1` | pending | Current main was partial/missing; implemented optional Bearer guard for system config endpoints and tests. |
 | P1-1 Backtest Confidence Panel v1 | pending | not started | not started | Roadmap only. |
 | P1-2 Score Bucket Calibration | pending | not started | not started | Roadmap only. |
 | P1-3 Risk-Based Sizing v1 | pending | not started | not started | Roadmap only. |
@@ -180,3 +180,39 @@
 - Test result: `python -m pytest tests/test_final_action_display_contract.py tests/test_blocked_action_display.py tests/test_daily_decision_dashboard_archive.py tests/test_notification_validation_gate.py` passed, 21 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 472 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, position manager, pipeline decision generation, data provider, storage, database, broker, or automatic trading changes.
+
+### 2026-05-05 - P0-5 PR Opened
+
+- Status: pr_opened.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/103
+- Checks: GitHub check runs all green before merge.
+- Mergeability: `mergeable_state=clean`.
+
+### 2026-05-05 - P0-5 Merged
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/103
+- Merge method: squash.
+- Main commit: `9dadbdd Unify report action display before rendering exits`.
+- Post-merge sync: checked out `main`, pulled with `--ff-only`, verified clean working tree and P0-5 squash commit in latest main history.
+
+### 2026-05-05 - P0-6 Audit
+
+- Status: partial/missing.
+- Scope: API Auth Guard v1 only.
+- Forbidden areas: no user system, OAuth, role model, complex frontend login, workflow change, daily report change, `close_only` change, analysis pipeline change, broker integration, or automatic trading.
+- Finding: current main had system config API endpoints and 401 response metadata, but no `API_AUTH_ENABLED` / `API_AUTH_TOKEN` contract, no Bearer token guard, and FastAPI docs still stated no authentication requirement.
+- Decision: implement a minimal optional Bearer guard for system config endpoints only, keep `/api/health` public, and preserve default local/API compatibility when auth is disabled.
+
+### 2026-05-05 - P0-6 Implementation
+
+- Status: implemented.
+- Added optional API auth dependency in `api/deps.py`, controlled by `API_AUTH_ENABLED` and `API_AUTH_TOKEN`.
+- Protected `/api/v1/system/config*` endpoints through the system config router while leaving `/api/health` public.
+- Updated FastAPI description, `.env.example`, `README.md`, and `README.zh-CN.md` to document optional Bearer auth.
+- Added `tests/test_api_auth_guard.py`.
+- Red test result before implementation: `python -m pytest tests/test_api_auth_guard.py` failed as expected because enabled auth still returned 200 for missing / wrong tokens.
+- Test result: `python -m pytest tests/test_api_auth_guard.py` passed, 6 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_system_config_api.py tests/test_server_runtime.py tests/test_spa_fallback.py` passed, 13 tests.
+- Test result: `python -m pytest` passed, 478 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no workflow, `close_only`, position manager, pipeline, data provider, storage, database, daily report, broker, or automatic trading changes.

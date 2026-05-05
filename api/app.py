@@ -71,7 +71,7 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
             "- 兼容 AU/US 标的统一报告流程\n"
             "- 重点保证报告口径一致、时间基准清楚、避免误导用户\n\n"
             "## 认证方式\n"
-            "当前版本暂无认证要求"
+            "支持可选 Bearer Token 认证；生产或公网访问建议开启。"
         ),
         version="1.0.0",
         lifespan=app_lifespan,

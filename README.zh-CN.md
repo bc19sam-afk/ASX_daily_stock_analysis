@@ -60,6 +60,8 @@ python main.py --serve-only --host 0.0.0.0 --port 8000
 python main.py --serve
 ```
 
+系统支持为受保护的 Web 控制台配置接口启用可选 Bearer Token 认证。本地开发可保持 `API_AUTH_ENABLED=false`；生产或公网访问建议设置 `API_AUTH_ENABLED=true`，并配置高强度 `API_AUTH_TOKEN`。
+
 若前端静态资源尚未构建，请先执行：
 
 ```bash
