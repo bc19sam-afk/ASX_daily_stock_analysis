@@ -35,7 +35,7 @@
 | P1-3a Risk-Based Sizing Shadow Mode | merged | `codex/p1-3a-risk-sizing-shadow-mode` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/107 | Shadow-only preview merged via squash commit `03c8fa9`; P1-3b not started. |
 | P1-3b Risk-Based Sizing Cap | pending | not started | not started | Explicitly blocked until user confirmation. |
 | P1-4 Structured Valuation Snapshot | merged | `codex/p1-4-structured-valuation-snapshot` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/108 | Merged via squash commit `58f3c93`. |
-| P1-5 ASX Search Localisation | implemented | `codex/p1-5-asx-search-localisation` | pending | ASX search localisation implemented; PR not opened yet. |
+| P1-5 ASX Search Localisation | pr_opened | `codex/p1-5-asx-search-localisation` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/109 | ASX search localisation implemented; checks pending. |
 | P2-1 Intraday Review Input Contract | pending | not started | not started | Roadmap only. |
 | P2-2 Intraday Review v1 | pending | not started | not started | Roadmap only. |
 | P2-3 ASX Official Announcement Check Contract | pending | not started | not started | Roadmap only. |
@@ -388,3 +388,9 @@
 - Test result: `python -m pytest tests/test_search_asx_localisation.py tests/test_search_news_age_filter.py tests/test_search_entity_disambiguation.py` passed, 35 tests.
 - Test result: `python -m pytest` passed, 517 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, PositionManager, pipeline, storage, database, broker, automatic trading, or deterministic action changes.
+
+### 2026-05-05 - P1-5 PR Opened
+
+- Status: pr_opened.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/109
+- Read-only review: no blocking findings after tightening ASX provider localisation to explicit `.AX` or standalone `ASX` markers.
