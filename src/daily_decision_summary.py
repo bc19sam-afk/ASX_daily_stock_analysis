@@ -28,7 +28,9 @@ from src.final_action_display import (
 from src.report_reliability import build_report_reliability, render_report_reliability_lines
 from src.core.risk_sizing import (
     RiskSizingSettings,
+    build_risk_sizing_comparisons,
     build_risk_sizing_previews,
+    render_risk_sizing_comparison_lines,
     render_risk_sizing_preview_lines,
 )
 
@@ -365,9 +367,20 @@ def build_daily_decision_summary(
         ),
         settings=risk_sizing_settings,
     )
+    risk_sizing_comparison = build_risk_sizing_comparisons(
+        results=successful_results,
+        overview=overview,
+        get_primary_action_model=get_primary_action_model,
+        is_blocked=_is_blocked,
+        is_actionable_context=lambda result, model: is_effective_executable_action(
+            model,
+            min_delta_amount=min_action_delta_amount,
+        ),
+        settings=risk_sizing_settings,
+    )
 
     return {
-        "schema_version": "daily_decision_summary.v1.5",
+        "schema_version": "daily_decision_summary.v1.6",
         "report_date": report_date,
         "technical_basis_date": technical_basis_date,
         "technical_basis_dates": technical_dates,
@@ -389,6 +402,7 @@ def build_daily_decision_summary(
         "backtest_confidence": backtest_confidence,
         "score_bucket_calibration": score_bucket_calibration,
         "risk_sizing_previews": risk_sizing_previews,
+        "risk_sizing_comparison": risk_sizing_comparison,
         "execution_checklist": list(EXECUTION_CHECKLIST),
         "watch_trigger_rule": WATCH_TRIGGER_RULE,
     }
@@ -433,6 +447,7 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
     )
     lines.extend(render_score_bucket_calibration_lines(summary.get("score_bucket_calibration") or {}))
     lines.extend(render_risk_sizing_preview_lines(summary.get("risk_sizing_previews") or []))
+    lines.extend(render_risk_sizing_comparison_lines(summary.get("risk_sizing_comparison") or {}))
     lines.extend([
         "| 项目 | 内容 |",
         "|---|---|",

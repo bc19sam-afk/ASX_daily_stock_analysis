@@ -415,3 +415,37 @@
 - Test result: `python -m pytest tests/test_risk_based_sizing.py tests/test_risk_sizing_cap_calculation.py tests/test_risk_sizing_shadow_mode.py` passed, 16 tests.
 - Test result: `python -m pytest` passed, 526 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no pipeline write-back, PositionManager behavior, workflow, `close_only`, data provider, storage, broker, automatic trading, database, LLM prompt, or intraday review changes.
+
+### 2026-05-05 - P1-3b-1 Merged And Post-Verification
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/110
+- Merge method: squash.
+- Main commit: `9d19b6a Prepare risk caps without changing daily sizing`.
+- GitHub checks: all green before merge; mergeability `clean`.
+- Post-merge verification: synced `main` with `--ff-only`, verified clean working tree, and ran P1-3b-1 post-verification.
+- Test result: `python -m pytest tests/test_risk_based_sizing.py tests/test_risk_sizing_cap_calculation.py tests/test_risk_sizing_shadow_mode.py` passed, 17 tests.
+- Test result: `python -m pytest tests/test_daily_decision_dashboard_archive.py` passed, 9 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_final_action_display_contract.py tests/test_blocked_action_display.py` passed, 7 tests.
+- Test result: `python -m pytest` passed, 526 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Semantic audit: default `shadow` still does not calculate/write back cap candidates; enabled candidates remain helper-only; BLOCK returns unavailable and does not become actionable.
+
+### 2026-05-05 - P1-3b-2 Audit
+
+- Status: partial/missing.
+- Scope: Risk Sizing Report Comparison / Dry Run only.
+- Forbidden areas: no enabled cap behavior, no target/delta/action/final decision/validation/action count change, no PositionManager output change, no workflow change, no `close_only` change, no data provider or storage change, no broker integration, no automatic trading, no database migration, no LLM prompt change, and no intraday review change.
+- Finding: P1-3b-1 provided a config-gated cap candidate helper, but `daily_decision_summary` and the pre-open dashboard did not expose a dry-run comparison between the current deterministic target and a future risk-capped candidate.
+- Decision: add a `risk_sizing_comparison` summary artifact and dashboard section labelled Dry Run, calculated from the existing candidate helper with no write-back to action fields.
+
+### 2026-05-05 - P1-3b-2 Implementation
+
+- Status: implemented.
+- Added `build_risk_sizing_comparisons()` and `render_risk_sizing_comparison_lines()` in `src/core/risk_sizing.py`.
+- Added `risk_sizing_comparison` to `daily_decision_summary` with schema version `daily_decision_summary.v1.6`.
+- Rendered `风险仓位对比（Dry Run，不改变今日动作）`, showing current system target, risk-capped candidate, difference, constraints, and explicit no-action-change wording.
+- BLOCK items render comparison unavailable with `validation BLOCK，仅观察`; missing close / stop distance renders unavailable without guessing.
+- Added `tests/test_risk_sizing_dry_run_comparison.py` and updated the dashboard archive schema test.
+- Test result: `python -m pytest tests/test_risk_sizing_dry_run_comparison.py tests/test_daily_decision_dashboard_archive.py` passed, 13 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 530 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no target_weight, delta_amount, position_action, final_decision, validation_status, action_counts, PositionManager, workflow, `close_only`, data provider, storage, broker, automatic trading, database, LLM prompt, or intraday review changes.
