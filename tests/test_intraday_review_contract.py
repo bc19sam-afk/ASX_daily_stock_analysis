@@ -9,7 +9,9 @@ import pytest
 
 from src.intraday_review_contract import (
     IntradayReviewDecision,
+    IntradayReviewEvaluation,
     IntradayReviewInput,
+    IntradayReviewMarketInput,
     build_intraday_review_input_from_summary,
     validate_intraday_review_decision,
 )
@@ -117,6 +119,30 @@ def test_contract_serializes_and_deserializes_round_trip():
     decoded_decision = IntradayReviewDecision.from_dict(json.loads(json.dumps(decision.to_dict())))
 
     assert decoded_decision == decision
+
+    market = IntradayReviewMarketInput(
+        code="BHP.AX",
+        last_price=101.0,
+        previous_close=100.0,
+        price_timestamp="2026-05-05T11:00:00+10:00",
+        has_price_sensitive_risk=False,
+        liquidity_warning=True,
+        notes=["offline fixture"],
+    )
+    assert IntradayReviewMarketInput.from_dict(json.loads(json.dumps(market.to_dict()))) == market
+
+    evaluation = IntradayReviewEvaluation(
+        code="BHP.AX",
+        morning_action="OPEN",
+        review_status="still_valid",
+        reason="Manual review only.",
+        price_deviation_pct=1.0,
+        required_manual_checks=["Manual review required."],
+    )
+    decoded_evaluation = IntradayReviewEvaluation.from_dict(json.loads(json.dumps(evaluation.to_dict())))
+    assert decoded_evaluation == evaluation
+    assert decoded_evaluation.source == "offline_input"
+    assert decoded_evaluation.is_trade_instruction is False
 
 
 def test_contract_module_does_not_import_ai_or_data_sources():

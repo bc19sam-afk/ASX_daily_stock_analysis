@@ -48,6 +48,43 @@ execution data.
 Morning BLOCK items can only remain `observe_only` or `block`. A future review
 mode may not convert a BLOCK item into an actionable intraday item.
 
+## Offline Evaluator
+
+P2-2a adds an offline-only evaluator. It accepts `IntradayReviewMarketInput`
+objects supplied by a caller or test fixture and produces
+`IntradayReviewEvaluation` objects.
+
+`IntradayReviewMarketInput`:
+
+- `code`
+- `last_price`
+- `previous_close`
+- `price_timestamp`
+- `has_price_sensitive_risk`
+- `liquidity_warning`
+- `notes`
+
+`IntradayReviewEvaluation`:
+
+- `code`
+- `morning_action`
+- `review_status`
+- `reason`
+- `price_deviation_pct`
+- `required_manual_checks`
+- `source`: always `offline_input`
+- `is_trade_instruction`: always `false`
+
+Rules:
+
+- Inputs are caller-supplied; the evaluator does not fetch realtime prices.
+- Missing `last_price` or `previous_close` degrades to observe-only.
+- Price-sensitive risk blocks review output.
+- Liquidity warnings keep items waiting or observe-only.
+- Morning BLOCK items can only remain observe-only or block.
+- PASS/actionable items can be `still_valid` only for manual review, never as a
+  trade instruction.
+
 ## Future P2-2 Guardrails
 
 A future implementation may build a separate intraday report, but it must stay
