@@ -306,11 +306,12 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "backtest_confidence",
         "score_bucket_calibration",
         "risk_sizing_previews",
+        "risk_sizing_comparison",
         "execution_checklist",
         "watch_trigger_rule",
     }
     assert set(summary.keys()) == expected_top_level_keys
-    assert summary["schema_version"] == "daily_decision_summary.v1.5"
+    assert summary["schema_version"] == "daily_decision_summary.v1.6"
     assert set(summary["action_counts"].keys()) == {
         "buy",
         "add",

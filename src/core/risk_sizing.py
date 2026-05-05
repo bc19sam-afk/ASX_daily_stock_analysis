@@ -7,7 +7,7 @@ upper bound for human review, and never write back into deterministic actions.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 
@@ -357,6 +357,58 @@ def build_risk_sizing_previews(
     return previews
 
 
+def build_risk_sizing_comparisons(
+    *,
+    results: Iterable[Any],
+    overview: Dict[str, Any],
+    get_primary_action_model: Callable[[Any], Dict[str, Any]],
+    is_blocked: Callable[[Any], bool],
+    is_actionable_context: Callable[[Any, Dict[str, Any]], bool],
+    settings: Optional[RiskSizingSettings] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Build dry-run risk cap comparisons without changing deterministic actions."""
+    base_settings = settings or DEFAULT_RISK_SIZING_SETTINGS
+    dry_run_settings = replace(base_settings, mode="enabled")
+    comparisons: Dict[str, Dict[str, Any]] = {}
+
+    for result in results:
+        code = str(getattr(result, "code", "") or "")
+        model = get_primary_action_model(result)
+        blocked = is_blocked(result)
+        candidate = build_risk_sizing_cap_candidate(
+            result=result,
+            action_model=model,
+            overview=overview,
+            settings=dry_run_settings,
+            is_blocked=blocked,
+            is_actionable_context=(False if blocked else is_actionable_context(result, model)),
+        )
+        current_target = _safe_float(candidate.get("current_target_weight"), 0.0)
+        capped_target = candidate.get("capped_target_weight")
+        if capped_target is None:
+            difference_weight = None
+        else:
+            difference_weight = round(_safe_float(capped_target, current_target) - current_target, 4)
+
+        warning_flags = list(candidate.get("warning_flags") or [])
+        if "dry_run_no_action_change" not in warning_flags:
+            warning_flags.append("dry_run_no_action_change")
+
+        comparisons[code] = {
+            "mode": "dry_run",
+            "current_target_weight": current_target,
+            "risk_capped_candidate_weight": capped_target,
+            "would_change_target": bool(candidate.get("would_change_target")),
+            "difference_weight": difference_weight,
+            "constraints_applied": list(candidate.get("constraints_applied") or []),
+            "warning_flags": warning_flags,
+            "unavailable_reason": str(candidate.get("unavailable_reason") or ""),
+            "note": "Dry run only; does not change today's action",
+        }
+
+    return comparisons
+
+
 def render_risk_sizing_preview_lines(previews: List[Dict[str, Any]]) -> List[str]:
     if not previews:
         return []
@@ -382,6 +434,40 @@ def render_risk_sizing_preview_lines(previews: List[Dict[str, Any]]) -> List[str
         )
     if len(previews) > 6:
         lines.append(f"- 其余 {len(previews) - 6} 只标的保留在 summary artifact 的 risk_sizing_previews 中。")
+    lines.append("")
+    return lines
+
+
+def render_risk_sizing_comparison_lines(comparisons: Dict[str, Dict[str, Any]]) -> List[str]:
+    if not comparisons:
+        return []
+
+    lines = ["**风险仓位对比（Dry Run，不改变今日动作）**"]
+    for code, comparison in list(comparisons.items())[:6]:
+        flags = set(comparison.get("warning_flags") or [])
+        if "validation_block" in flags:
+            lines.append(f"- {code}：风险仓位对比：不可用，原因：validation BLOCK，仅观察。")
+            continue
+
+        candidate_weight = comparison.get("risk_capped_candidate_weight")
+        if candidate_weight is None:
+            reason = comparison.get("unavailable_reason") or "missing_price_or_stop_distance"
+            lines.append(
+                f"- {code}：风险仓位对比不可用（{reason}）；Dry Run，仅供人工复核，不改变今日 deterministic action。"
+            )
+            continue
+
+        constraints = " / ".join(str(item) for item in (comparison.get("constraints_applied") or []))
+        constraints = constraints or "无额外约束"
+        current_target = _safe_float(comparison.get("current_target_weight"), 0.0)
+        difference = _safe_float(comparison.get("difference_weight"), 0.0)
+        lines.append(
+            f"- {code}：当前系统目标仓位 {current_target:.2%}；"
+            f"风险上限候选仓位 {float(candidate_weight):.2%}；差异 {difference:+.2%}；"
+            f"约束原因：{constraints}；Dry Run，仅供人工复核，不改变今日 deterministic action。"
+        )
+    if len(comparisons) > 6:
+        lines.append(f"- 其余 {len(comparisons) - 6} 只标的保留在 summary artifact 的 risk_sizing_comparison 中。")
     lines.append("")
     return lines
 
