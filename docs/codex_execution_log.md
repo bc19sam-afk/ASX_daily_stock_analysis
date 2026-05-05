@@ -16,7 +16,7 @@
 
 - Active phase: P0 only.
 - Active PR: P0-2 Conditional Plan Points v1.
-- P0-2 state: implemented; PR creation pending.
+- P0-2 state: pr_opened.
 - Stop after opening the P0-2 PR and wait for review / merge before P0-3.
 - P1 and P2 are roadmap-only until explicit user confirmation.
 
@@ -25,7 +25,7 @@
 | PR | Status | Branch | PR Link | Notes |
 | --- | --- | --- | --- | --- |
 | P0-1 AI Role Boundary | merged | `codex/p0-1-ai-role-boundary-audit` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/99 | Merged via PR #99. Do not reimplement. |
-| P0-2 Conditional Plan Points v1 | implemented | `codex/p0-2-conditional-plan-points-v1` | pending | Current main was partial/missing; implemented minimal conditional point helper, report rendering updates, and tests. |
+| P0-2 Conditional Plan Points v1 | pr_opened | `codex/p0-2-conditional-plan-points-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/100 | Current main was partial/missing; implemented minimal conditional point helper, report rendering updates, and tests. |
 | P0-3 Evidence Matrix v1 | pending | pending | pending | Wait for P0-2 merge. |
 | P0-4 Report Reliability Score v1 | pending | pending | pending | Depends on P0-3 evidence matrix. |
 | P0-5 Final Action Display Contract | pending | pending | pending | Wait for prior P0 PR merge. |
@@ -72,3 +72,9 @@
 - Test result: `python -m pytest tests/test_conditional_plan_points.py tests/test_report_conditional_price_points.py tests/test_notification_summary_format.py tests/test_notification_validation_gate.py tests/test_daily_decision_dashboard_archive.py` passed, 97 tests.
 - Test result: `python -m pytest` passed, 454 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, position manager, pipeline, data provider, storage, database, broker, or automatic trading changes.
+
+### 2026-05-05 - P0-2 PR Opened
+
+- Status: pr_opened.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/100
+- Stop condition: wait for P0-2 review / merge before starting P0-3.
