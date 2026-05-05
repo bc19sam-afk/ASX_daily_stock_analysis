@@ -15,8 +15,8 @@
 ## Current Gate
 
 - Active phase: P0 only.
-- Active PR: P0-3 Evidence Matrix v1.
-- P0-3 state: implemented; PR creation pending.
+- Active PR: P0-4 Report Reliability Score v1.
+- P0-4 state: implemented; PR creation pending.
 - Continue automatically through P0-6 when checks are green and PRs are mergeable.
 - P1 and P2 are roadmap-only until explicit user confirmation.
 
@@ -26,8 +26,8 @@
 | --- | --- | --- | --- | --- |
 | P0-1 AI Role Boundary | merged | `codex/p0-1-ai-role-boundary-audit` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/99 | Merged via PR #99. Do not reimplement. |
 | P0-2 Conditional Plan Points v1 | merged | `codex/p0-2-conditional-plan-points-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/100 | Merged via squash commit `38eff38`. |
-| P0-3 Evidence Matrix v1 | implemented | `codex/p0-3-evidence-matrix-v1` | pending | Current main was partial/missing; implemented minimal evidence matrix helper, summary fields, report display, and tests. |
-| P0-4 Report Reliability Score v1 | pending | pending | pending | Depends on P0-3 evidence matrix. |
+| P0-3 Evidence Matrix v1 | merged | `codex/p0-3-evidence-matrix-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/101 | Merged via squash commit `dc9be09`. |
+| P0-4 Report Reliability Score v1 | implemented | `codex/p0-4-report-reliability-score-v1` | pending | Current main was partial/missing; implemented minimal report reliability helper, summary field, cockpit display, and tests. |
 | P0-5 Final Action Display Contract | pending | pending | pending | Wait for prior P0 PR merge. |
 | P0-6 API Auth Guard v1 | pending | pending | pending | Wait for prior P0 PR merge. |
 | P1-1 Backtest Confidence Panel v1 | pending | not started | not started | Roadmap only. |
@@ -106,4 +106,40 @@
 - Updated `tests/test_daily_decision_dashboard_archive.py` schema stability coverage.
 - Test result: `python -m pytest tests/test_evidence_matrix.py tests/test_daily_decision_summary_evidence.py tests/test_daily_decision_dashboard_archive.py` passed, 14 tests.
 - Test result: `python -m pytest` passed, 459 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no workflow, `close_only`, position manager, pipeline, data provider, storage, database, broker, or automatic trading changes.
+
+### 2026-05-05 - P0-3 PR Opened
+
+- Status: pr_opened.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/101
+- Checks: GitHub check runs all green before merge.
+- Mergeability: `mergeable_state=clean`.
+
+### 2026-05-05 - P0-3 Merged
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/101
+- Merge method: squash.
+- Main commit: `dc9be09 Keep evidence auditable before reliability scoring`.
+- Post-merge sync: checked out `main`, pulled with `--ff-only`, verified clean working tree and P0-3 squash commit in latest main history.
+
+### 2026-05-05 - P0-4 Audit
+
+- Status: partial/missing.
+- Scope: Report Reliability Score v1 only.
+- Dependency check: P0-3 `evidence_matrix` is present in current main history via `dc9be09`.
+- Forbidden areas: no buy/sell decision change, sizing change, validation gate change, workflow change, `close_only` change, database migration, broker integration, or automatic trading.
+- Finding: current main had `evidence_matrix` and `evidence_summary`, but no `report_reliability` summary field, reliability score helper, or cockpit display explaining whether the report itself is suitable for pre-open manual review.
+- Decision: implement a simple, transparent helper based on price policy, market data freshness, evidence completeness, validation health, and backtest support, without feeding the score back into deterministic actions.
+
+### 2026-05-05 - P0-4 Implementation
+
+- Status: implemented.
+- Added `src/report_reliability.py` with `build_report_reliability` and dashboard rendering helpers.
+- Added `report_reliability` to `daily_decision_summary`, with schema version `daily_decision_summary.v1.2`.
+- Added report reliability display near the top of the pre-open cockpit.
+- Added `tests/test_report_reliability_score.py`.
+- Updated `tests/test_daily_decision_dashboard_archive.py` schema stability coverage.
+- Test result: `python -m pytest tests/test_report_reliability_score.py tests/test_daily_decision_dashboard_archive.py` passed, 15 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 465 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, position manager, pipeline, data provider, storage, database, broker, or automatic trading changes.
