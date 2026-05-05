@@ -2628,7 +2628,46 @@ class NotificationService:
                 f"{snapshot.get('turnover_rate', 'N/A')} | {display_source} |",
             ])
 
+        self._append_valuation_snapshot(lines, snapshot)
         lines.append("")
+
+    def _append_valuation_snapshot(self, lines: List[str], snapshot: Dict[str, Any]) -> None:
+        raw_snapshot = snapshot.get("valuation_snapshot")
+        valuation = raw_snapshot.to_dict() if hasattr(raw_snapshot, "to_dict") else raw_snapshot
+        lines.extend(["", "### 估值快照", ""])
+        if not isinstance(valuation, dict) or not valuation or not self._has_valuation_snapshot_values(valuation):
+            lines.append("- 估值数据缺失，不参与估值增强。")
+            return
+
+        source = str(valuation.get("source") or snapshot.get("source") or "unknown")
+        display_source = self._SOURCE_DISPLAY_NAMES.get(source, source)
+        lines.extend([
+            f"- PE(TTM)：{self._format_optional_number(valuation.get('pe_ttm'))}",
+            f"- PB：{self._format_optional_number(valuation.get('pb'))}",
+            f"- 股息率：{self._format_optional_percent(valuation.get('dividend_yield'))}",
+            f"- 来源：{display_source}",
+            f"- 时间：{valuation.get('as_of_date') or 'missing'}",
+            "- 说明：仅作估值证据展示，不改变 deterministic action。",
+        ])
+
+    @staticmethod
+    def _format_optional_number(value: Any) -> str:
+        try:
+            return f"{float(value):.2f}"
+        except (TypeError, ValueError):
+            return "missing"
+
+    @staticmethod
+    def _format_optional_percent(value: Any) -> str:
+        try:
+            return f"{float(value) * 100:.2f}%"
+        except (TypeError, ValueError):
+            return "missing"
+
+    @staticmethod
+    def _has_valuation_snapshot_values(valuation: Dict[str, Any]) -> bool:
+        fields = ("pe_ttm", "pe_forward", "pb", "dividend_yield", "market_cap", "roe", "debt_to_equity")
+        return any(valuation.get(field) is not None for field in fields)
     
     def send_to_wechat(self, content: str) -> bool:
         """

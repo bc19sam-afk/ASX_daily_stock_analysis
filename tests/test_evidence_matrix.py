@@ -94,3 +94,104 @@ def test_evidence_summary_counts_missing_and_block_entries():
     assert summary["market_data_available"] == 2
     assert summary["news_missing"] == 1
     assert summary["validation_block"] == 1
+
+
+def test_valuation_snapshot_is_preferred_for_evidence_details():
+    matrix = build_evidence_matrix(
+        results=[
+            _result(
+                code="CBA.AX",
+                fundamental_analysis="legacy valuation prose",
+                market_snapshot={
+                    "date": "2026-05-04",
+                    "close": "100.00",
+                    "source": "yfinance",
+                    "valuation_snapshot": {
+                        "pe_ttm": 14.2,
+                        "pb": 1.7,
+                        "dividend_yield": 0.048,
+                        "source": "yfinance",
+                        "as_of_date": "2026-05-04",
+                    },
+                },
+            )
+        ],
+        overview={"holdings": []},
+        classify_price_basis=lambda result: "close_only",
+        format_validation_issue_text=lambda result: "",
+    )
+
+    valuation = _by_category(matrix["CBA.AX"])["valuation"]
+
+    assert valuation["status"] == "available"
+    assert valuation["source"] == "yfinance"
+    assert valuation["as_of_date"] == "2026-05-04"
+    assert "估值快照" in valuation["details"]
+    assert "PE(TTM)：14.20" in valuation["details"]
+    assert "股息率：4.80%" in valuation["details"]
+
+
+def test_empty_valuation_snapshot_is_marked_missing():
+    matrix = build_evidence_matrix(
+        results=[
+            _result(
+                code="CBA.AX",
+                fundamental_analysis="",
+                market_snapshot={
+                    "date": "2026-05-04",
+                    "close": "100.00",
+                    "source": "yfinance",
+                    "valuation_snapshot": {
+                        "pe_ttm": None,
+                        "pb": None,
+                        "dividend_yield": None,
+                        "source": "yfinance",
+                        "as_of_date": "2026-05-04",
+                    },
+                },
+            )
+        ],
+        overview={"holdings": []},
+        classify_price_basis=lambda result: "close_only",
+        format_validation_issue_text=lambda result: "",
+    )
+
+    valuation = _by_category(matrix["CBA.AX"])["valuation"]
+
+    assert valuation["status"] == "missing"
+    assert valuation["source"] == "yfinance"
+    assert valuation["as_of_date"] == "2026-05-04"
+    assert "缺少" in valuation["details"]
+
+
+def test_undated_valuation_snapshot_does_not_fallback_to_market_date():
+    matrix = build_evidence_matrix(
+        results=[
+            _result(
+                code="CBA.AX",
+                fundamental_analysis="legacy valuation prose",
+                market_snapshot={
+                    "date": "2026-05-04",
+                    "close": "100.00",
+                    "source": "yfinance",
+                    "valuation_snapshot": {
+                        "pe_ttm": 15.1,
+                        "pb": 1.9,
+                        "dividend_yield": 0.03,
+                        "source": "yfinance",
+                        "as_of_date": None,
+                    },
+                },
+            )
+        ],
+        overview={"holdings": []},
+        classify_price_basis=lambda result: "close_only",
+        format_validation_issue_text=lambda result: "",
+    )
+
+    valuation = _by_category(matrix["CBA.AX"])["valuation"]
+
+    assert valuation["status"] == "available"
+    assert valuation["source"] == "yfinance"
+    assert valuation["as_of_date"] is None
+    assert "时间：2026-05-04" not in valuation["details"]

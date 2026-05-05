@@ -104,6 +104,34 @@ class RealtimeSource(Enum):
 
 
 @dataclass
+class ValuationSnapshot:
+    """Structured valuation fields; missing values remain None."""
+
+    pe_ttm: Optional[float] = None
+    pe_forward: Optional[float] = None
+    pb: Optional[float] = None
+    dividend_yield: Optional[float] = None
+    market_cap: Optional[float] = None
+    roe: Optional[float] = None
+    debt_to_equity: Optional[float] = None
+    source: str = ""
+    as_of_date: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "pe_ttm": self.pe_ttm,
+            "pe_forward": self.pe_forward,
+            "pb": self.pb,
+            "dividend_yield": self.dividend_yield,
+            "market_cap": self.market_cap,
+            "roe": self.roe,
+            "debt_to_equity": self.debt_to_equity,
+            "source": self.source,
+            "as_of_date": self.as_of_date,
+        }
+
+
+@dataclass
 class UnifiedRealtimeQuote:
     """
     统一实时行情数据结构
@@ -140,6 +168,7 @@ class UnifiedRealtimeQuote:
     pb_ratio: Optional[float] = None        # 市净率
     total_mv: Optional[float] = None        # 总市值(元)
     circ_mv: Optional[float] = None         # 流通市值(元)
+    valuation_snapshot: Optional[ValuationSnapshot] = None  # 结构化估值快照
     
     # === 其他指标 ===
     change_60d: Optional[float] = None      # 60日涨跌幅(%)
@@ -165,6 +194,8 @@ class UnifiedRealtimeQuote:
             val = getattr(self, f, None)
             if val is not None:
                 result[f] = val
+        if self.valuation_snapshot is not None:
+            result["valuation_snapshot"] = self.valuation_snapshot.to_dict()
         return result
     
     def has_basic_data(self) -> bool:

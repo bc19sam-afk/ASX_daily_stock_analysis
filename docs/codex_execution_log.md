@@ -15,10 +15,10 @@
 ## Current Gate
 
 - Active phase: P1 limited execution.
-- Active PR: P1-2 Score Bucket Calibration.
-- P1-1 state: merged via PR #105.
-- Authorized scope: execute P1-1 and P1-2 only, then stop before P1-3.
-- P2 remains roadmap-only until explicit user confirmation.
+- Active PR: P1-4 Structured Valuation Snapshot.
+- P1-3a state: merged via PR #107.
+- Authorized scope: post-P1-3a verification, then P1-4 and P1-5 only.
+- P1-3b and P2 remain blocked until explicit user confirmation.
 
 ## PR Status
 
@@ -31,9 +31,10 @@
 | P0-5 Final Action Display Contract | merged | `codex/p0-5-final-action-display-contract` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/103 | Merged via squash commit `9dadbdd`. |
 | P0-6 API Auth Guard v1 | merged | `codex/p0-6-api-auth-guard-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/104 | Merged via squash commit `dbea81f`. |
 | P1-1 Backtest Confidence Panel v1 | merged | `codex/p1-1-backtest-confidence-panel-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/105 | Merged via squash commit `8317082`. |
-| P1-2 Score Bucket Calibration | implemented | `codex/p1-2-score-bucket-calibration` | pending | Current main was partial/missing; implemented score bucket calibration display and tests. |
-| P1-3 Risk-Based Sizing v1 | pending | not started | not started | Roadmap only. |
-| P1-4 Structured Valuation Snapshot | pending | not started | not started | Roadmap only. |
+| P1-2 Score Bucket Calibration | merged | `codex/p1-2-score-bucket-calibration` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/106 | Merged via squash commit `f69108b`. |
+| P1-3a Risk-Based Sizing Shadow Mode | merged | `codex/p1-3a-risk-sizing-shadow-mode` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/107 | Shadow-only preview merged via squash commit `03c8fa9`; P1-3b not started. |
+| P1-3b Risk-Based Sizing Cap | pending | not started | not started | Explicitly blocked until user confirmation. |
+| P1-4 Structured Valuation Snapshot | implemented | `codex/p1-4-structured-valuation-snapshot` | pending | Structured valuation snapshot implemented; PR not opened yet. |
 | P1-5 ASX Search Localisation | pending | not started | not started | Roadmap only. |
 | P2-1 Intraday Review Input Contract | pending | not started | not started | Roadmap only. |
 | P2-2 Intraday Review v1 | pending | not started | not started | Roadmap only. |
@@ -306,3 +307,40 @@
 - Test result: `python -m pytest tests/test_risk_based_sizing.py tests/test_risk_sizing_shadow_mode.py tests/test_daily_decision_dashboard_archive.py` passed, 17 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 500 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, PositionManager, pipeline action generation, data provider, storage, database, broker, or automatic trading changes.
+
+### 2026-05-05 - P1-3a Merged And Post-Verification
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/107
+- Merge method: squash.
+- Main commit: `03c8fa9 Show risk sizing without changing daily actions (#107)`.
+- Post-merge verification: synced `main` with `--ff-only`, verified clean working tree, and completed post-P1-3a integration verification.
+- Test result: `python -m pytest tests/test_risk_based_sizing.py` passed.
+- Test result: `python -m pytest tests/test_risk_sizing_shadow_mode.py` passed.
+- Test result: `python -m pytest tests/test_daily_decision_dashboard_archive.py` passed.
+- Test result: `python -m pytest tests/test_final_action_display_contract.py tests/test_blocked_action_display.py` passed.
+- Test result: `python -m pytest tests/test_report_reliability_score.py` passed.
+- Test result: `python -m pytest` passed, 500 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Semantic audit: risk sizing preview stayed shadow-only, did not change deterministic action fields or action counts, and BLOCK items remained unavailable / observe-only.
+
+### 2026-05-05 - P1-4 Audit
+
+- Status: partial/missing.
+- Scope: Structured Valuation Snapshot only.
+- Forbidden areas: no decision change, sizing change, action count change, workflow change, `close_only` change, PositionManager change, pipeline change, database migration, broker integration, or automatic trading.
+- Finding: yfinance still exposed valuation through legacy `pe_ratio` and concatenated dividend yield into the PE display string; reports and evidence did not prefer a structured valuation snapshot.
+- Decision: add a lightweight `ValuationSnapshot` to realtime quote output, preserve legacy `pe_ratio` compatibility as numeric PE, and render valuation as evidence/display only.
+
+### 2026-05-05 - P1-4 Implementation
+
+- Status: implemented.
+- Added `ValuationSnapshot` to `data_provider/realtime_types.py` and included it in `UnifiedRealtimeQuote.to_dict()` when present.
+- Updated `YfinanceFetcher.get_realtime_quote()` to populate structured PE, forward PE, PB, dividend yield, market cap, ROE, debt-to-equity, source, and as-of date without appending dividend yield to `pe_ratio`.
+- Updated valuation evidence to prefer `market_snapshot.valuation_snapshot` while retaining legacy fundamental prose fallback.
+- Added structured valuation rendering to single-stock reports, including missing-field display and an explicit note that valuation evidence does not change deterministic actions.
+- Added `tests/test_yfinance_valuation_snapshot.py`.
+- Updated `tests/test_evidence_matrix.py` for valuation snapshot evidence.
+- Red test result before implementation: `python -m pytest tests/test_yfinance_valuation_snapshot.py tests/test_evidence_matrix.py tests/test_daily_decision_dashboard_archive.py` failed because structured valuation fields and report rendering were missing and dividend yield was still joined into `pe_ratio`.
+- Test result: `python -m pytest tests/test_yfinance_valuation_snapshot.py tests/test_evidence_matrix.py tests/test_daily_decision_dashboard_archive.py` passed, 20 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 508 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no workflow, `close_only`, PositionManager, pipeline, storage, database, broker, or automatic trading changes.
