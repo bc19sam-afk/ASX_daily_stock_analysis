@@ -34,7 +34,7 @@
 | P1-2 Score Bucket Calibration | merged | `codex/p1-2-score-bucket-calibration` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/106 | Merged via squash commit `f69108b`. |
 | P1-3a Risk-Based Sizing Shadow Mode | merged | `codex/p1-3a-risk-sizing-shadow-mode` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/107 | Shadow-only preview merged via squash commit `03c8fa9`; P1-3b not started. |
 | P1-3b Risk-Based Sizing Cap | pending | not started | not started | Explicitly blocked until user confirmation. |
-| P1-4 Structured Valuation Snapshot | implemented | `codex/p1-4-structured-valuation-snapshot` | pending | Structured valuation snapshot implemented; PR not opened yet. |
+| P1-4 Structured Valuation Snapshot | pr_opened | `codex/p1-4-structured-valuation-snapshot` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/108 | Structured valuation snapshot implemented; checks pending. |
 | P1-5 ASX Search Localisation | pending | not started | not started | Roadmap only. |
 | P2-1 Intraday Review Input Contract | pending | not started | not started | Roadmap only. |
 | P2-2 Intraday Review v1 | pending | not started | not started | Roadmap only. |
@@ -344,3 +344,9 @@
 - Test result: `python -m pytest tests/test_yfinance_valuation_snapshot.py tests/test_evidence_matrix.py tests/test_daily_decision_dashboard_archive.py` passed, 20 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 508 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, PositionManager, pipeline, storage, database, broker, or automatic trading changes.
+
+### 2026-05-05 - P1-4 PR Opened
+
+- Status: pr_opened.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/108
+- Read-only review: no blocking findings after the missing valuation `as_of_date` fallback was fixed.
