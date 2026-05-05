@@ -49,6 +49,11 @@ from src.daily_decision_summary import (
     is_effective_executable_action,
     render_preopen_decision_dashboard,
 )
+from src.conditional_plan import (
+    build_conditional_plan_points,
+    format_conditional_plan_points_inline,
+    render_conditional_plan_points_markdown,
+)
 from src.formatters import (
     format_feishu_markdown,
     markdown_to_archive_html_document,
@@ -929,6 +934,27 @@ class NotificationService:
         return value
 
     @staticmethod
+    def _technical_basis_date_for(result: AnalysisResult) -> str:
+        snapshot = getattr(result, "market_snapshot", None) or {}
+        if isinstance(snapshot, dict):
+            return str(snapshot.get("date") or snapshot.get("as_of_date") or "unknown")
+        return "unknown"
+
+    def _build_conditional_plan_points(
+        self,
+        result: AnalysisResult,
+        sniper_points: Optional[Dict[str, Any]] = None,
+    ):
+        """Build non-executable conditional plan points for report display."""
+        raw_points = sniper_points or {}
+        return build_conditional_plan_points(
+            raw_points,
+            price_basis=getattr(result, "execution_price_source", "close_only"),
+            technical_basis_date=self._technical_basis_date_for(result),
+            validation_status=getattr(result, "validation_status", "PASS"),
+        )
+
+    @staticmethod
     def _to_markdown_table_cell(value: Any) -> str:
         """Normalize text for deterministic markdown table rendering."""
         if value is None:
@@ -1507,6 +1533,7 @@ class NotificationService:
         intel = dashboard.get("intelligence", {}) if dashboard else {}
         battle = dashboard.get("battle_plan", {}) if dashboard else {}
         sniper = battle.get("sniper_points", {}) if battle else {}
+        plan_points = self._build_conditional_plan_points(result, sniper)
         risk_alerts = intel.get("risk_alerts", []) if intel else []
         reason_text = result.buy_reason or result.analysis_summary or "N/A"
 
@@ -1526,14 +1553,7 @@ class NotificationService:
             if normalized_risk_alerts else (result.risk_warning or "暂无新增高优先级风险")
         )
 
-        ref_points = []
-        if sniper.get("ideal_buy"):
-            ref_points.append(f"参考买入位 {self._clean_sniper_value(sniper.get('ideal_buy'))}")
-        if sniper.get("stop_loss"):
-            ref_points.append(f"风险提示位 {self._clean_sniper_value(sniper.get('stop_loss'))}")
-        if sniper.get("take_profit"):
-            ref_points.append(f"参考目标位 {self._clean_sniper_value(sniper.get('take_profit'))}")
-        ref_text = " | ".join(ref_points) if ref_points else "暂无明确参考位"
+        ref_text = format_conditional_plan_points_inline(plan_points)
 
         return {
             "heading": f"### {signal_emoji} {self._escape_md(self._format_stock_display_name(result.name, result.code))}",
@@ -1541,7 +1561,7 @@ class NotificationService:
             "action_line": f"- 主动作：{self._format_position_action_label(self._get_primary_action_model(result)['position_action'])}",
             "reason_line": f"- 关键理由：{reason_text}",
             "risk_line": f"- 风险：{risk_text}",
-            "reference_line": f"- 参考位：{ref_text}",
+            "reference_line": f"- 条件化计划点位：{ref_text}",
         }
 
     def _build_dashboard_observation_appendix_lines(
@@ -1959,22 +1979,15 @@ class NotificationService:
                 battle = dashboard.get('battle_plan', {}) if dashboard else {}
                 if battle:
                     report_lines.extend([
-                        "### 参考位 / 执行参考",
+                        "### 条件化计划点位 / 人工复核参考",
                         "",
                     ])
                     # 狙击点位
                     sniper = battle.get('sniper_points', {})
-                    if sniper:
+                    plan_points = self._build_conditional_plan_points(result, sniper)
+                    if plan_points:
                         report_lines.extend([
-                            "**📍 AI参考点位（非系统执行指令）**",
-                            "",
-                            "| 点位类型 | 价格 |",
-                            "|---------|------|",
-                            f"| 🎯 参考买入位（AI估计） | {self._clean_sniper_value(sniper.get('ideal_buy', 'N/A'))} |",
-                            f"| 🔵 观察买入位（AI估计） | {self._clean_sniper_value(sniper.get('secondary_buy', 'N/A'))} |",
-                            f"| 🛑 风险提示位（AI估计） | {self._clean_sniper_value(sniper.get('stop_loss', 'N/A'))} |",
-                            f"| 🎊 参考目标位（AI估计） | {self._clean_sniper_value(sniper.get('take_profit', 'N/A'))} |",
-                            "",
+                            *render_conditional_plan_points_markdown(plan_points),
                         ])
                     # 仓位策略
                     position = battle.get('position_strategy', {})
@@ -2215,20 +2228,10 @@ class NotificationService:
                 
                 # 狙击点位
                 sniper = battle.get('sniper_points', {}) if battle else {}
-                if sniper:
-                    ideal_buy = sniper.get('ideal_buy', '')
-                    stop_loss = sniper.get('stop_loss', '')
-                    take_profit = sniper.get('take_profit', '')
-                    points = []
-                    if ideal_buy:
-                        points.append(f"🎯参考位(AI):{ideal_buy[:12]}")
-                    if stop_loss:
-                        points.append(f"🛑风险位(AI):{stop_loss[:12]}")
-                    if take_profit:
-                        points.append(f"🎊目标参考(AI):{take_profit[:12]}")
-                    if points:
-                        lines.append(" | ".join(points))
-                        lines.append("")
+                plan_points = self._build_conditional_plan_points(result, sniper)
+                if plan_points:
+                    lines.append(f"📍 条件化计划点位: {format_conditional_plan_points_inline(plan_points)[:180]}")
+                    lines.append("")
                 
                 # 持仓建议
                 pos_advice = core.get('position_advice', {}) if core else {}
@@ -2499,19 +2502,10 @@ class NotificationService:
         
         # 狙击点位
         sniper = battle.get('sniper_points', {}) if battle else {}
-        if sniper and not _is_validation_blocked(result):
-            lines.extend([
-                "### 🎯 操作点位",
-                "",
-                "| AI参考买入位 | AI风险提示位 | AI参考目标位 |",
-                "|------|------|------|",
-            ])
-            ideal_buy = sniper.get('ideal_buy', '-')
-            stop_loss = sniper.get('stop_loss', '-')
-            take_profit = sniper.get('take_profit', '-')
-            lines.append(f"| {ideal_buy} | {stop_loss} | {take_profit} |")
-            lines.append("")
-        
+        plan_points = self._build_conditional_plan_points(result, sniper)
+        if plan_points:
+            lines.extend(render_conditional_plan_points_markdown(plan_points))
+
         # 持仓建议
         pos_advice = core.get('position_advice', {}) if core else {}
         if pos_advice and not _is_validation_blocked(result):
