@@ -214,6 +214,22 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(panel["by_action"]["OPEN"]["sample_size"], 1)
         self.assertEqual(panel["by_action"]["OPEN"]["win_rate_pct"], 100.0)
 
+    def test_get_score_bucket_calibration_uses_existing_results_without_changing_backtests(self) -> None:
+        """Verify score bucket calibration is a read-only view over existing backtest rows."""
+        service = BacktestService(self.db)
+        service.run_backtest(code="600519", force=False, eval_window_days=3, min_age_days=0, limit=10)
+        result_count_before = self._count_results()
+
+        calibration = service.get_score_bucket_calibration(eval_window_days=3)
+
+        self.assertEqual(self._count_results(), result_count_before)
+        self.assertEqual(calibration["80_100"]["sample_size"], 1)
+        self.assertEqual(calibration["80_100"]["window_days"], 3)
+        self.assertEqual(calibration["80_100"]["win_rate_pct"], 100.0)
+        self.assertEqual(calibration["80_100"]["confidence_level"], "low_sample")
+        self.assertEqual(calibration["60_70"]["sample_size"], 0)
+        self.assertEqual(calibration["current_items"], [])
+
     def test_get_recent_evaluations(self) -> None:
         """Verify get_recent_evaluations returns correct paginated results."""
         service = BacktestService(self.db)

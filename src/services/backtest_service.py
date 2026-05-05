@@ -11,12 +11,16 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, select
 
-from src.backtest_confidence import ACTION_BUCKETS, build_backtest_confidence_panel
+from src.backtest_confidence import (
+    ACTION_BUCKETS,
+    build_backtest_confidence_panel,
+    build_score_bucket_calibration,
+)
 from src.config import get_config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE, BacktestEngine, EvaluationConfig
 from src.repositories.backtest_repo import BacktestRepository
 from src.repositories.stock_repo import StockRepository
-from src.storage import BacktestResult, BacktestSummary, DatabaseManager
+from src.storage import AnalysisHistory, BacktestResult, BacktestSummary, DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +252,38 @@ class BacktestService:
         return build_backtest_confidence_panel(
             summary=summary,
             action_results=action_rows,
+            window_days=window_days,
+        )
+
+    def get_score_bucket_calibration(self, *, eval_window_days: Optional[int] = None) -> Dict[str, Any]:
+        """Return display-only score bucket calibration from existing backtest rows."""
+        config = get_config()
+        window_days = int(eval_window_days or getattr(config, "backtest_eval_window_days", 10) or 10)
+        engine_version = str(getattr(config, "backtest_engine_version", "v1"))
+
+        with self.db.get_session() as session:
+            rows = session.execute(
+                select(BacktestResult, AnalysisHistory.sentiment_score)
+                .join(AnalysisHistory, BacktestResult.analysis_history_id == AnalysisHistory.id)
+                .where(
+                    and_(
+                        BacktestResult.eval_window_days == window_days,
+                        BacktestResult.engine_version == engine_version,
+                        BacktestResult.eval_status == "completed",
+                    )
+                )
+            ).all()
+            score_rows = [
+                {
+                    "eval_status": result.eval_status,
+                    "sentiment_score": sentiment_score,
+                    "outcome": result.outcome,
+                    "simulated_return_pct": result.simulated_return_pct,
+                }
+                for result, sentiment_score in rows
+            ]
+        return build_score_bucket_calibration(
+            score_results=score_rows,
             window_days=window_days,
         )
 

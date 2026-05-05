@@ -1248,6 +1248,7 @@ class NotificationService:
             format_validation_issue_text=self._format_validation_issue_text,
             min_action_delta_amount=self._get_actionable_delta_amount_threshold(),
             backtest_confidence=self._build_backtest_confidence_panel(),
+            score_bucket_calibration=self._build_score_bucket_calibration(),
         )
 
     def get_last_daily_decision_summary(self) -> Optional[Dict[str, Any]]:
@@ -1266,6 +1267,19 @@ class NotificationService:
             from src.backtest_confidence import build_backtest_confidence_panel
 
             return build_backtest_confidence_panel(summary=None, action_results=[], window_days=None)
+
+    @staticmethod
+    def _build_score_bucket_calibration() -> Dict[str, Any]:
+        """Return report-only score bucket calibration from existing backtests."""
+        try:
+            from src.services.backtest_service import BacktestService
+
+            return BacktestService().get_score_bucket_calibration()
+        except Exception as exc:
+            logger.warning("评分分桶校准加载失败，降级为样本不足: %s", exc)
+            from src.backtest_confidence import build_score_bucket_calibration
+
+            return build_score_bucket_calibration(score_results=[], window_days=None)
 
     @staticmethod
     def _get_actionable_delta_amount_threshold() -> float:
