@@ -58,6 +58,7 @@ from src.evidence_matrix import (
     render_evidence_matrix_lines,
     render_evidence_summary_lines,
 )
+from src.final_action_display import build_final_action_display
 from src.formatters import (
     format_feishu_markdown,
     markdown_to_archive_html_document,
@@ -1204,6 +1205,7 @@ class NotificationService:
         return build_recommended_actions_table(
             results=results,
             get_primary_action_model=self._get_primary_action_model,
+            build_final_action_display=self._build_final_action_display,
             get_signal_level=self._get_signal_level,
             format_stock_display_name=self._format_stock_display_name,
             escape_md=self._escape_md,
@@ -1280,10 +1282,7 @@ class NotificationService:
 
     def _is_actionable_today(self, result: AnalysisResult) -> bool:
         """Return True when deterministic action implies execution-worthy change."""
-        return is_effective_executable_action(
-            self._get_primary_action_model(result),
-            min_delta_amount=self._get_actionable_delta_amount_threshold(),
-        )
+        return self._build_final_action_display(result)["actionability"] == "actionable"
 
     def _effective_actionable_results(self, results: List[AnalysisResult]) -> List[AnalysisResult]:
         """Return non-blocked results that remain executable after tiny-action suppression."""
@@ -1297,6 +1296,20 @@ class NotificationService:
         """Return True when an executable action is intentionally downgraded to watch."""
         action = str(self._get_primary_action_model(result).get("position_action") or "HOLD").upper()
         return action in {"OPEN", "ADD", "REDUCE", "CLOSE"} and not self._is_actionable_today(result)
+
+    def _build_final_action_display(
+        self,
+        result: AnalysisResult,
+        action_model: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Return the single display action object for report exits."""
+        return build_final_action_display(
+            result,
+            action_model=action_model or self._get_primary_action_model(result),
+            min_delta_amount=self._get_actionable_delta_amount_threshold(),
+            format_stock_display_name=self._format_stock_display_name,
+            format_validation_issue_text=self._format_validation_issue_text,
+        )
 
     def _infer_ai_commentary_decision(self, operation_advice: str) -> Optional[str]:
         """Infer BUY/HOLD/SELL bucket from AI narrative advice text."""
@@ -1445,22 +1458,22 @@ class NotificationService:
         reason = self._format_validation_issue_text(result)
         if truncate is not None:
             reason = reason[:truncate]
-        current_weight = float(getattr(result, 'current_weight', 0.0) or 0.0)
-        target_weight = float(getattr(result, 'target_weight', current_weight) or 0.0)
-        weight_text = ""
-        if current_weight > 0 or target_weight > 0:
-            weight_text = f" | 当前/保持仓位 {current_weight:.2%}/{target_weight:.2%}"
-        return f"- {stock_name}：{reason}{weight_text}"
+        return f"- {stock_name}：{reason}"
 
     def _format_primary_action_text(self, result: AnalysisResult) -> str:
-        model = self._get_primary_action_model(result)
+        display = self._build_final_action_display(result)
+        if not display["can_show_sizing"]:
+            return f"{display['display_label']} | {display['reason']}"
         return (
-            f"{model['position_action']} | 目标仓位 {model['target_weight']:.2%} | "
-            f"模拟Δ {model['delta_amount']:,.2f}"
+            f"{display['position_action']} | 目标仓位 {display['target_weight']:.2%} | "
+            f"模拟Δ {display['delta_amount']:,.2f}"
         )
 
     def _format_deterministic_sizing_text(self, result: AnalysisResult) -> str:
         """Format deterministic sizing guidance from the same target-allocation engine."""
+        display = self._build_final_action_display(result)
+        if not display["can_show_sizing"]:
+            return f"{display['display_label']} | 不显示目标仓位、调仓金额或目标数量"
         base = self._format_primary_action_text(result)
         raw_target_quantity = getattr(result, 'target_quantity', None)
         if raw_target_quantity is None:

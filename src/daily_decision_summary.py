@@ -13,11 +13,15 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from src.core.validator import normalize_validation_status
 from src.evidence_matrix import build_evidence_matrix, summarize_evidence_matrix
+from src.final_action_display import (
+    EXECUTABLE_ACTIONS,
+    build_final_action_display,
+    is_effective_executable_action,
+)
 from src.report_reliability import build_report_reliability, render_report_reliability_lines
 
 
 ACTION_COUNT_KEYS = ("buy", "add", "reduce", "close", "hold_watch", "blocked")
-EXECUTABLE_ACTIONS = {"OPEN", "ADD", "REDUCE", "CLOSE"}
 DEFAULT_ACTIONABLE_DELTA_AMOUNT = 20.0
 EXECUTION_CHECKLIST = [
     "确认报告为昨收计划 / 开盘前计划，技术信号基于已收盘日线。",
@@ -62,21 +66,6 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def is_effective_executable_action(
-    action_model: Dict[str, Any],
-    *,
-    min_delta_amount: float = DEFAULT_ACTIONABLE_DELTA_AMOUNT,
-) -> bool:
-    """Return True when an action is large enough to present as executable."""
-    action = str(action_model.get("position_action") or "HOLD").upper()
-    if action not in EXECUTABLE_ACTIONS:
-        return False
-    threshold = max(_safe_float(min_delta_amount, DEFAULT_ACTIONABLE_DELTA_AMOUNT), 0.0)
-    if threshold <= 0:
-        return True
-    return abs(_safe_float(action_model.get("delta_amount"))) >= threshold
-
-
 def _basis_counts(results: Iterable[Any], classify_price_basis: Callable[[Any], str]) -> Dict[str, int]:
     counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
     for result in results:
@@ -103,8 +92,10 @@ def _build_item(
     is_current_holding: bool,
     classify_price_basis: Callable[[Any], str],
     format_stock_display_name: Callable[[Any, Any], str],
+    format_validation_issue_text: Callable[[Any], str],
+    min_delta_amount: float,
 ) -> Dict[str, Any]:
-    return {
+    item = {
         "code": str(getattr(result, "code", "") or ""),
         "name": _display_name(result, format_stock_display_name),
         "position_action": str(action_model.get("position_action") or "HOLD"),
@@ -115,6 +106,14 @@ def _build_item(
         "price_basis": classify_price_basis(result),
         "reason": str(getattr(result, "action_reason", "") or ""),
     }
+    item["final_action_display"] = build_final_action_display(
+        result,
+        action_model=action_model,
+        min_delta_amount=min_delta_amount,
+        format_stock_display_name=format_stock_display_name,
+        format_validation_issue_text=format_validation_issue_text,
+    )
+    return item
 
 
 def build_daily_decision_summary(
@@ -163,6 +162,8 @@ def build_daily_decision_summary(
             is_current_holding=is_current_holding,
             classify_price_basis=classify_price_basis,
             format_stock_display_name=format_stock_display_name,
+            format_validation_issue_text=format_validation_issue_text,
+            min_delta_amount=min_action_delta_amount,
         )
 
         if not is_effective_executable_action(model, min_delta_amount=min_action_delta_amount):
@@ -202,6 +203,13 @@ def build_daily_decision_summary(
     for result in blocked_results:
         current_weight = _safe_float(getattr(result, "current_weight", 0.0))
         model = get_primary_action_model(result)
+        display = build_final_action_display(
+            result,
+            action_model=model,
+            min_delta_amount=min_action_delta_amount,
+            format_stock_display_name=format_stock_display_name,
+            format_validation_issue_text=format_validation_issue_text,
+        )
         blocked_items.append(
             {
                 "code": str(getattr(result, "code", "") or ""),
@@ -210,6 +218,7 @@ def build_daily_decision_summary(
                 "current_weight": current_weight,
                 "target_weight": _safe_float(model.get("target_weight"), current_weight),
                 "price_basis": classify_price_basis(result),
+                "final_action_display": display,
             }
         )
     action_counts["blocked"] = len(blocked_items)

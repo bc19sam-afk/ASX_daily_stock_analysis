@@ -343,7 +343,9 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "is_current_holding",
         "price_basis",
         "reason",
+        "final_action_display",
     }
+    assert summary["actionable_items"][0]["final_action_display"]["actionability"] == "actionable"
     cba_item = next(item for item in summary["actionable_items"] if item["code"] == "CBA.AX")
     assert cba_item["reason"] == ""
 
@@ -358,8 +360,10 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "is_current_holding",
         "price_basis",
         "reason",
+        "final_action_display",
         "trigger",
     }
+    assert summary["watch_items"][0]["final_action_display"]["actionability"] == "watch_only"
 
     assert [item["code"] for item in summary["blocked_items"]] == ["NAB.AX"]
     assert set(summary["blocked_items"][0].keys()) == {
@@ -369,7 +373,10 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "current_weight",
         "target_weight",
         "price_basis",
+        "final_action_display",
     }
+    assert summary["blocked_items"][0]["final_action_display"]["actionability"] == "blocked"
+    assert summary["blocked_items"][0]["final_action_display"]["can_show_sizing"] is False
 
 
 @patch("src.notification.get_db")
