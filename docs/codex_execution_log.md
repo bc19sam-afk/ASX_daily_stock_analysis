@@ -14,11 +14,11 @@
 
 ## Current Gate
 
-- Active phase: P0 only.
-- Active PR: P0-6 API Auth Guard v1.
-- P0-6 state: implemented; PR creation pending.
-- Stop after P0-6 merge and wait for explicit P1 confirmation.
-- P1 and P2 are roadmap-only until explicit user confirmation.
+- Active phase: P1 limited execution.
+- Active PR: P1-1 Backtest Confidence Panel v1.
+- P1-1 state: implemented; PR creation pending.
+- Authorized scope: execute P1-1 and P1-2 only, then stop before P1-3.
+- P2 remains roadmap-only until explicit user confirmation.
 
 ## PR Status
 
@@ -29,8 +29,8 @@
 | P0-3 Evidence Matrix v1 | merged | `codex/p0-3-evidence-matrix-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/101 | Merged via squash commit `dc9be09`. |
 | P0-4 Report Reliability Score v1 | merged | `codex/p0-4-report-reliability-score-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/102 | Merged via squash commit `d7050ef`. |
 | P0-5 Final Action Display Contract | merged | `codex/p0-5-final-action-display-contract` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/103 | Merged via squash commit `9dadbdd`. |
-| P0-6 API Auth Guard v1 | implemented | `codex/p0-6-api-auth-guard-v1` | pending | Current main was partial/missing; implemented optional Bearer guard for system config endpoints and tests. |
-| P1-1 Backtest Confidence Panel v1 | pending | not started | not started | Roadmap only. |
+| P0-6 API Auth Guard v1 | merged | `codex/p0-6-api-auth-guard-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/104 | Merged via squash commit `dbea81f`. |
+| P1-1 Backtest Confidence Panel v1 | implemented | `codex/p1-1-backtest-confidence-panel-v1` | pending | Current main was partial/missing; implemented display-only backtest confidence panel and tests. |
 | P1-2 Score Bucket Calibration | pending | not started | not started | Roadmap only. |
 | P1-3 Risk-Based Sizing v1 | pending | not started | not started | Roadmap only. |
 | P1-4 Structured Valuation Snapshot | pending | not started | not started | Roadmap only. |
@@ -216,3 +216,41 @@
 - Test result: `python -m pytest tests/test_system_config_api.py tests/test_server_runtime.py tests/test_spa_fallback.py` passed, 13 tests.
 - Test result: `python -m pytest` passed, 478 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, position manager, pipeline, data provider, storage, database, daily report, broker, or automatic trading changes.
+
+### 2026-05-05 - P0-6 PR Opened
+
+- Status: pr_opened.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/104
+- Checks: GitHub check runs all green before merge.
+- Mergeability: `mergeable_state=clean`.
+
+### 2026-05-05 - P0-6 Merged
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/104
+- Merge method: squash.
+- Main commit: `dbea81f Guard web configuration changes before public API exposure`.
+- Post-merge verification: synced `main` with `--ff-only`, verified clean working tree, and completed post-P0 integration verification with no regressions.
+
+### 2026-05-05 - P1-1 Audit
+
+- Status: partial/missing.
+- Scope: Backtest Confidence Panel v1 only.
+- Forbidden areas: no backtest engine rewrite, analysis logic change, action generation change, PositionManager change, workflow change, `close_only` change, database migration, broker integration, or automatic trading.
+- Finding: current main had backtest summaries and result rows, but no `backtest_confidence` summary field and no report cockpit panel showing historical calibration sample size, window, win rate, average simulated return, or low-sample warning.
+- Decision: add a display-only helper fed by existing backtest summary/result rows; do not feed backtest confidence into deterministic action generation.
+
+### 2026-05-05 - P1-1 Implementation
+
+- Status: implemented.
+- Added `src/backtest_confidence.py` with confidence panel builders and Markdown rendering.
+- Added `BacktestService.get_confidence_panel()` as a read-only query over existing backtest summaries/results.
+- Added `backtest_confidence` to `daily_decision_summary`, with schema version `daily_decision_summary.v1.3`.
+- Added historical calibration lines to the pre-open decision cockpit.
+- Added `tests/test_backtest_confidence_panel.py`.
+- Updated `tests/test_daily_decision_dashboard_archive.py` schema stability coverage.
+- Red test result before implementation: `python -m pytest tests/test_backtest_confidence_panel.py` failed as expected because `src.backtest_confidence`, the summary field, and report rendering did not exist.
+- Test result: `python -m pytest tests/test_backtest_confidence_panel.py tests/test_backtest_service.py tests/test_daily_decision_dashboard_archive.py` passed, 29 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_backtest_service.py tests/test_daily_decision_summary_evidence.py tests/test_report_reliability_score.py tests/test_final_action_display_contract.py` passed, 26 tests.
+- Test result: `python -m pytest` passed, 485 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no workflow, `close_only`, PositionManager, backtest engine, data provider, storage schema, database migration, broker, or automatic trading changes.
