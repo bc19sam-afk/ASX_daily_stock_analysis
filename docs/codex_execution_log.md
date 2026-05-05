@@ -14,11 +14,11 @@
 
 ## Current Gate
 
-- Active phase: P1 limited execution.
-- Active PR: P1-5 ASX Search Localisation.
+- Active phase: overnight safe queue.
+- Active PR: P1-3b-1 Risk-Based Sizing Cap Calculation.
 - P1-3a state: merged via PR #107.
-- Authorized scope: post-P1-3a verification, then P1-4 and P1-5 only.
-- P1-3b and P2 remain blocked until explicit user confirmation.
+- Authorized scope for current PR: P1-3b-1 only.
+- P1-3b-3, P2-2, broker integration, automatic trading, workflow changes, `close_only` changes, and database migrations remain blocked.
 
 ## PR Status
 
@@ -33,10 +33,12 @@
 | P1-1 Backtest Confidence Panel v1 | merged | `codex/p1-1-backtest-confidence-panel-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/105 | Merged via squash commit `8317082`. |
 | P1-2 Score Bucket Calibration | merged | `codex/p1-2-score-bucket-calibration` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/106 | Merged via squash commit `f69108b`. |
 | P1-3a Risk-Based Sizing Shadow Mode | merged | `codex/p1-3a-risk-sizing-shadow-mode` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/107 | Shadow-only preview merged via squash commit `03c8fa9`; P1-3b not started. |
-| P1-3b Risk-Based Sizing Cap | pending | not started | not started | Explicitly blocked until user confirmation. |
+| P1-3b-1 Risk-Based Sizing Cap Calculation | implemented | `codex/p1-3b-1-risk-sizing-cap-calculation` | not opened | Config-gated cap candidate helper only; no write-back to deterministic action fields. |
+| P1-3b-2 Risk Sizing Report Comparison / Dry Run | pending | not started | not started | Authorized after P1-3b-1 verification; display only. |
+| P1-3b-3 Risk-Based Sizing Cap Enabled Mode | blocked | not started | not started | Explicitly blocked; do not enable true cap behavior. |
 | P1-4 Structured Valuation Snapshot | merged | `codex/p1-4-structured-valuation-snapshot` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/108 | Merged via squash commit `58f3c93`. |
-| P1-5 ASX Search Localisation | pr_opened | `codex/p1-5-asx-search-localisation` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/109 | ASX search localisation implemented; checks pending. |
-| P2-1 Intraday Review Input Contract | pending | not started | not started | Roadmap only. |
+| P1-5 ASX Search Localisation | merged | `codex/p1-5-asx-search-localisation` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/109 | Merged via squash commit `a21b28e`. |
+| P2-1 Intraday Review Input Contract | pending | not started | not started | Not part of P1-3b-1; contract-only task remains queued after P1-3b-2 verification. |
 | P2-2 Intraday Review v1 | pending | not started | not started | Roadmap only. |
 | P2-3 ASX Official Announcement Check Contract | pending | not started | not started | Roadmap only. |
 | P2-4 Daily Review Journal | pending | not started | not started | Roadmap only. |
@@ -394,3 +396,22 @@
 - Status: pr_opened.
 - PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/109
 - Read-only review: no blocking findings after tightening ASX provider localisation to explicit `.AX` or standalone `ASX` markers.
+
+### 2026-05-05 - P1-3b-1 Audit
+
+- Status: partial/missing.
+- Scope: Risk-Based Sizing Cap Calculation only.
+- Forbidden areas: no enabled cap behavior, no target/delta/action/final decision/validation/action count change, no PositionManager output change, no workflow change, no `close_only` change, no data provider or storage change, no broker integration, no automatic trading, no database migration, no LLM prompt change, and no intraday review change.
+- Finding: P1-3a already had a shadow-only risk sizing preview, but no standalone cap candidate structure for future enabled-mode comparison and no formal `shadow|enabled` mode normalization.
+- Decision: add a deterministic `RiskSizingCapCandidate` helper that calculates candidate caps only when explicitly called with `mode=enabled`, never writes back, and is covered by focused tests for mode gating, cap math, missing data, BLOCK hard stop, buy/add no-forced-sell guard, and default compatibility.
+
+### 2026-05-05 - P1-3b-1 Implementation
+
+- Status: implemented.
+- Added `build_risk_sizing_cap_candidate()` and `RiskSizingCapCandidate` in `src/core/risk_sizing.py`; shadow mode returns a no-change candidate instead of calculating a cap.
+- Normalized risk sizing mode to `shadow|enabled`, defaulting invalid or missing values to `shadow`.
+- Added `tests/test_risk_sizing_cap_calculation.py`.
+- Updated `.env.example` and `src/config.py` comments to keep `shadow` as the default and warn that enabled mode requires explicit review before behavior changes.
+- Test result: `python -m pytest tests/test_risk_based_sizing.py tests/test_risk_sizing_cap_calculation.py tests/test_risk_sizing_shadow_mode.py` passed, 16 tests.
+- Test result: `python -m pytest` passed, 526 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no pipeline write-back, PositionManager behavior, workflow, `close_only`, data provider, storage, broker, automatic trading, database, LLM prompt, or intraday review changes.
