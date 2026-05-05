@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from src.core.validator import normalize_validation_status
+from src.evidence_matrix import build_evidence_matrix, summarize_evidence_matrix
 
 
 ACTION_COUNT_KEYS = ("buy", "add", "reduce", "close", "hold_watch", "blocked")
@@ -295,8 +296,16 @@ def build_daily_decision_summary(
                 }
             )
 
+    evidence_matrix = build_evidence_matrix(
+        results=successful_results,
+        overview=overview,
+        classify_price_basis=classify_price_basis,
+        format_validation_issue_text=format_validation_issue_text,
+    )
+    evidence_summary = summarize_evidence_matrix(evidence_matrix)
+
     return {
-        "schema_version": "daily_decision_summary.v1",
+        "schema_version": "daily_decision_summary.v1.1",
         "report_date": report_date,
         "technical_basis_date": technical_basis_date,
         "technical_basis_dates": technical_dates,
@@ -312,6 +321,8 @@ def build_daily_decision_summary(
         "blocked_items": blocked_items,
         "uncovered_holdings": uncovered_holdings,
         "data_quality_flags": data_quality_flags,
+        "evidence_matrix": evidence_matrix,
+        "evidence_summary": evidence_summary,
         "execution_checklist": list(EXECUTION_CHECKLIST),
         "watch_trigger_rule": WATCH_TRIGGER_RULE,
     }
