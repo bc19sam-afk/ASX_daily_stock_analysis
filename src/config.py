@@ -246,6 +246,12 @@ class Config:
     min_position_delta_amount: float = 20.0
     # ASX 可执行性约束：最小订单名义金额（小于该值则不产生可执行买卖动作）
     min_order_notional: float = 20.0
+    # 风险仓位参考（Shadow）：只用于报告展示，不改变实际 deterministic sizing
+    max_single_position_weight: float = 0.35
+    max_trade_risk_pct: float = 0.005
+    atr_stop_multiplier: float = 1.5
+    max_daily_turnover_pct: float = 0.20
+    risk_sizing_mode: str = "shadow"
     # 筹码分布开关（该接口不稳定，云端部署建议关闭）
     enable_chip_distribution: bool = False
     # 实时行情数据源优先级（逗号分隔）
@@ -551,6 +557,11 @@ class Config:
             execution_price_policy=cls._resolve_execution_price_policy(),
             min_position_delta_amount=max(0.0, float(os.getenv('MIN_POSITION_DELTA_AMOUNT', '20.0'))),
             min_order_notional=max(0.0, float(os.getenv('MIN_ORDER_NOTIONAL', '20.0'))),
+            max_single_position_weight=max(0.0, float(os.getenv('MAX_SINGLE_POSITION_WEIGHT', '0.35'))),
+            max_trade_risk_pct=max(0.0, float(os.getenv('MAX_TRADE_RISK_PCT', '0.005'))),
+            atr_stop_multiplier=max(0.0, float(os.getenv('ATR_STOP_MULTIPLIER', '1.5'))),
+            max_daily_turnover_pct=max(0.0, float(os.getenv('MAX_DAILY_TURNOVER_PCT', '0.20'))),
+            risk_sizing_mode=os.getenv('RISK_SIZING_MODE', 'shadow').strip().lower() or 'shadow',
             enable_chip_distribution=os.getenv('ENABLE_CHIP_DISTRIBUTION', 'false').lower() == 'true',
             # 实时行情数据源优先级：
             # - tencent: 腾讯财经，有量比/换手率/PE/PB等，单股查询稳定（推荐）
