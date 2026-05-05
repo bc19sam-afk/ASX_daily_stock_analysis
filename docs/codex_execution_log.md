@@ -449,3 +449,37 @@
 - Test result: `python -m pytest tests/test_risk_sizing_dry_run_comparison.py tests/test_daily_decision_dashboard_archive.py` passed, 13 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 530 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no target_weight, delta_amount, position_action, final_decision, validation_status, action_counts, PositionManager, workflow, `close_only`, data provider, storage, broker, automatic trading, database, LLM prompt, or intraday review changes.
+
+### 2026-05-05 - P1-3b-2 Merged And Post-Verification
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/111
+- Merge method: squash.
+- Main commit: `1414505 Show risk cap comparisons without changing actions`.
+- GitHub checks: all green before merge; mergeability `clean`.
+- Post-merge verification: synced `main` with `--ff-only`, verified clean working tree, and ran P1-3b-2 post-verification.
+- Test result: `python -m pytest tests/test_risk_sizing_dry_run_comparison.py` passed, 4 tests.
+- Test result: `python -m pytest tests/test_risk_based_sizing.py tests/test_risk_sizing_cap_calculation.py tests/test_risk_sizing_shadow_mode.py` passed, 17 tests.
+- Test result: `python -m pytest tests/test_daily_decision_dashboard_archive.py` passed, 9 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_final_action_display_contract.py tests/test_blocked_action_display.py` passed, 7 tests.
+- Test result: `python -m pytest` passed, 530 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Semantic audit: dry-run comparison remained display-only, did not change deterministic action fields or action counts, and BLOCK items stayed unavailable / non-actionable.
+
+### 2026-05-05 - P2-1 Audit
+
+- Status: missing.
+- Scope: Intraday Review Input Contract only.
+- Forbidden areas: no realtime quote fetching, no intraday strategy implementation, no daily report change, no AI re-decision, no broker integration, no automatic trading, no account writes, no workflow change, and no `close_only` change.
+- Finding: roadmap documentation mentioned future `intraday_review`, but no contract module, tests, or intraday review docs existed.
+- Decision: add a standalone contract module with serializable input/decision types and validation rules, plus contract docs; keep it disconnected from daily report generation and all realtime/data-source paths.
+
+### 2026-05-05 - P2-1 Implementation
+
+- Status: implemented.
+- Added `src/intraday_review_contract.py` with `IntradayReviewInput`, `IntradayReviewDecision`, `build_intraday_review_input_from_summary()`, and `validate_intraday_review_decision()`.
+- Added `docs/intraday_review.md` documenting contract-only scope and future P2-2 guardrails.
+- Added `tests/test_intraday_review_contract.py` covering summary-to-input construction, required `price_policy`, BLOCK-only `observe_only|block` statuses, serialization round-trip, and no AI/data-source imports.
+- Test result: initial `python -m pytest tests/test_intraday_review_contract.py` failed because the import-safety test matched boundary text rather than imports; fixed within test scope to inspect AST imports.
+- Test result: `python -m pytest tests/test_intraday_review_contract.py tests/test_daily_decision_dashboard_archive.py` passed, 14 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 535 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no daily report changes, realtime quote fetching, data provider calls, AI calls, workflow, `close_only`, broker, automatic trading, account writes, storage, or database migration.
