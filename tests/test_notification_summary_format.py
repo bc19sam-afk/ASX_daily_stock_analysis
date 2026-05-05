@@ -454,7 +454,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         sent_msg = mock_server.send_message.call_args.args[0]
         self.assertIn("2026-04-29", str(sent_msg["Subject"]))
 
-    def test_single_stock_report_labels_sniper_points_as_ai_reference_only(self) -> None:
+    def test_single_stock_report_labels_sniper_points_as_conditional_review_only(self) -> None:
         service = self._build_service()
         result = self._build_result(
             dashboard={
@@ -470,8 +470,13 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
 
         report = service.generate_single_stock_report(result)
-        self.assertIn("| AI参考买入位 | AI风险提示位 | AI参考目标位 |", report)
-        self.assertIn("| 10.50 | 9.80 | 11.60 |", report)
+        self.assertIn("条件化计划点位（非执行，仅供人工复核）", report)
+        for phrase in ["来源", "触发条件", "失效条件", "执行前", "人工复核"]:
+            self.assertIn(phrase, report)
+        self.assertIn("未验证", report)
+        self.assertIn("仅作观察参考", report)
+        self.assertIn("不作为执行价格", report)
+        self.assertNotIn("| AI参考买入位 | AI风险提示位 | AI参考目标位 |", report)
 
     @patch("src.notification.datetime")
     def test_build_stock_summary_marks_realtime_when_only_current_price_exists(self, mock_datetime) -> None:
@@ -976,7 +981,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("- 核心结论：持有/观望 | 评分 75 | 震荡上行", report)
         self.assertIn("- 关键理由：N/A", report)
         self.assertIn("- 风险：暂无新增高优先级风险", report)
-        self.assertIn("- 参考位：暂无明确参考位", report)
+        self.assertIn("- 条件化计划点位：暂无明确条件化观察位", report)
 
     @patch("src.notification.get_db")
     def test_observation_appendix_normalizes_non_string_risk_alerts(self, mock_get_db) -> None:
