@@ -153,6 +153,15 @@ def _technical_evidence(result: Any) -> Dict[str, Any]:
 
 def _valuation_evidence(result: Any) -> Dict[str, Any]:
     snapshot = getattr(result, "market_snapshot", None) or {}
+    valuation_snapshot = _valuation_snapshot_dict(snapshot.get("valuation_snapshot"))
+    if valuation_snapshot and _has_valuation_values(valuation_snapshot):
+        source = _normal_text(valuation_snapshot.get("source")) or "valuation_snapshot"
+        as_of_date = _normal_text(valuation_snapshot.get("as_of_date"))
+        return _entry("valuation", source, as_of_date, "available", _format_valuation_snapshot(valuation_snapshot), "info")
+    if valuation_snapshot:
+        source = _normal_text(valuation_snapshot.get("source")) or "valuation_snapshot"
+        as_of_date = _normal_text(valuation_snapshot.get("as_of_date"))
+        return _entry("valuation", source, as_of_date, "missing", "估值快照缺少 PE/PB/股息率等可用字段。", "warning")
     as_of_date = _normal_text(snapshot.get("date"))
     detail = _first_non_empty(getattr(result, "fundamental_analysis", None), getattr(result, "company_highlights", None))
     if detail:
@@ -254,6 +263,47 @@ def _to_float(value: Any) -> float:
         return float(value or 0.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _valuation_snapshot_dict(value: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "to_dict"):
+        try:
+            return value.to_dict()
+        except Exception:
+            return None
+    return None
+
+
+def _format_valuation_snapshot(snapshot: Dict[str, Any]) -> str:
+    parts = ["估值快照"]
+    parts.append(f"PE(TTM)：{_format_number(snapshot.get('pe_ttm'))}")
+    parts.append(f"PB：{_format_number(snapshot.get('pb'))}")
+    parts.append(f"股息率：{_format_percent(snapshot.get('dividend_yield'))}")
+    parts.append(f"来源：{snapshot.get('source') or 'unknown'}")
+    if snapshot.get("as_of_date"):
+        parts.append(f"时间：{snapshot.get('as_of_date')}")
+    return "；".join(parts)
+
+
+def _has_valuation_values(snapshot: Dict[str, Any]) -> bool:
+    fields = ("pe_ttm", "pe_forward", "pb", "dividend_yield", "market_cap", "roe", "debt_to_equity")
+    return any(snapshot.get(field) is not None for field in fields)
+
+
+def _format_number(value: Any) -> str:
+    try:
+        return f"{float(value):.2f}"
+    except (TypeError, ValueError):
+        return "missing"
+
+
+def _format_percent(value: Any) -> str:
+    try:
+        return f"{float(value) * 100:.2f}%"
+    except (TypeError, ValueError):
+        return "missing"
 
 
 def _cell(value: Any) -> str:

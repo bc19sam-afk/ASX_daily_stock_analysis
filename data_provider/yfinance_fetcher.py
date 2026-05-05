@@ -29,7 +29,7 @@ from tenacity import (
 )
 
 from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS
-from .realtime_types import UnifiedRealtimeQuote, RealtimeSource
+from .realtime_types import UnifiedRealtimeQuote, RealtimeSource, ValuationSnapshot, safe_float
 import os
 
 logger = logging.getLogger(__name__)
@@ -562,22 +562,14 @@ class YfinanceFetcher(BaseFetcher):
                 info = ticker.info
                 name = info.get('shortName', '') or info.get('longName', '') or symbol
                 
-                # 抓取市盈率、市净率和股息率
-                pe_val = info.get('trailingPE', 'N/A')
-                pb_val = info.get('priceToBook', None)
-                div_yield = info.get('dividendYield', 0)
-                
-                if isinstance(pe_val, float):
-                    pe_val = round(pe_val, 2)
-                if isinstance(pb_val, float):
-                    pb_val = round(pb_val, 2)
-                    
-                # 巧妙利用 pe_ratio 字段将股息率拼接进去，确保 AI 能直接看到
-                pe_str = f"{pe_val} | 💰股息率: {div_yield * 100:.2f}%" if div_yield else str(pe_val)
-                
+                valuation_snapshot = self._build_valuation_snapshot(info)
+                pe_val = valuation_snapshot.pe_ttm
+                pb_val = valuation_snapshot.pb
+                market_cap = valuation_snapshot.market_cap or market_cap
             except Exception:
                 name = symbol
-                pe_str = None
+                valuation_snapshot = None
+                pe_val = None
                 pb_val = None
             
             quote = UnifiedRealtimeQuote(
@@ -596,10 +588,11 @@ class YfinanceFetcher(BaseFetcher):
                 high=high,
                 low=low,
                 pre_close=prev_close,
-                pe_ratio=pe_str,    # <--- 带有股息率的核心数据被传出
-                pb_ratio=pb_val,    # <--- 真实的市净率
+                pe_ratio=pe_val,
+                pb_ratio=pb_val,
                 total_mv=market_cap,
                 circ_mv=None,
+                valuation_snapshot=valuation_snapshot,
             )
             
             logger.info(f"[Yfinance] 获取实时行情成功: {symbol} = {price}")
@@ -608,6 +601,25 @@ class YfinanceFetcher(BaseFetcher):
         except Exception as e:
             logger.warning(f"[Yfinance] 获取 {stock_code} 实时行情失败: {e}")
             return None
+
+    @staticmethod
+    def _build_valuation_snapshot(info: Dict[str, Any]) -> ValuationSnapshot:
+        as_of_date = info.get("asOfDate") or info.get("as_of_date")
+        return ValuationSnapshot(
+            pe_ttm=_round_or_none(safe_float(info.get("trailingPE"))),
+            pe_forward=_round_or_none(safe_float(info.get("forwardPE"))),
+            pb=_round_or_none(safe_float(info.get("priceToBook"))),
+            dividend_yield=safe_float(info.get("dividendYield")),
+            market_cap=safe_float(info.get("marketCap")),
+            roe=safe_float(info.get("returnOnEquity")),
+            debt_to_equity=safe_float(info.get("debtToEquity")),
+            source="yfinance",
+            as_of_date=str(as_of_date)[:10] if as_of_date else None,
+        )
+
+
+def _round_or_none(value: Optional[float]) -> Optional[float]:
+    return round(value, 2) if value is not None else None
 
 
 if __name__ == "__main__":
