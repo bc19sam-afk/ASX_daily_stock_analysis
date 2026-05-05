@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import and_, select
 
+from src.backtest_confidence import ACTION_BUCKETS, build_backtest_confidence_panel
 from src.config import get_config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE, BacktestEngine, EvaluationConfig
 from src.repositories.backtest_repo import BacktestRepository
@@ -221,6 +222,34 @@ class BacktestService:
         if summary is None:
             return None
         return self._summary_to_dict(summary)
+
+    def get_confidence_panel(self, *, eval_window_days: Optional[int] = None) -> Dict[str, Any]:
+        """Return display-only confidence metrics from existing backtest data."""
+        config = get_config()
+        window_days = int(eval_window_days or getattr(config, "backtest_eval_window_days", 10) or 10)
+        engine_version = str(getattr(config, "backtest_engine_version", "v1"))
+        summary = self.get_summary(scope="overall", code=None, eval_window_days=window_days)
+
+        action_rows: List[BacktestResult] = []
+        with self.db.get_session() as session:
+            action_rows = list(
+                session.execute(
+                    select(BacktestResult).where(
+                        and_(
+                            BacktestResult.eval_window_days == window_days,
+                            BacktestResult.engine_version == engine_version,
+                            BacktestResult.eval_status == "completed",
+                            BacktestResult.position_action.in_(ACTION_BUCKETS),
+                        )
+                    )
+                ).scalars().all()
+            )
+
+        return build_backtest_confidence_panel(
+            summary=summary,
+            action_results=action_rows,
+            window_days=window_days,
+        )
 
     def _resolve_analysis_date(self, analysis) -> Optional[date]:
         parsed = self.repo.parse_analysis_date_from_snapshot(analysis.context_snapshot)

@@ -1247,11 +1247,25 @@ class NotificationService:
             format_stock_display_name=self._format_stock_display_name,
             format_validation_issue_text=self._format_validation_issue_text,
             min_action_delta_amount=self._get_actionable_delta_amount_threshold(),
+            backtest_confidence=self._build_backtest_confidence_panel(),
         )
 
     def get_last_daily_decision_summary(self) -> Optional[Dict[str, Any]]:
         """Return the last summary generated as part of report rendering."""
         return self._last_daily_decision_summary
+
+    @staticmethod
+    def _build_backtest_confidence_panel() -> Dict[str, Any]:
+        """Return report-only backtest confidence metadata from existing summaries."""
+        try:
+            from src.services.backtest_service import BacktestService
+
+            return BacktestService().get_confidence_panel()
+        except Exception as exc:
+            logger.warning("回测置信面板加载失败，降级为样本不足: %s", exc)
+            from src.backtest_confidence import build_backtest_confidence_panel
+
+            return build_backtest_confidence_panel(summary=None, action_results=[], window_days=None)
 
     @staticmethod
     def _get_actionable_delta_amount_threshold() -> float:

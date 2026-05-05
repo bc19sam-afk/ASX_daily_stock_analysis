@@ -198,6 +198,22 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(summary["scope"], "overall")
         self.assertEqual(summary["win_count"], 1)
 
+    def test_get_confidence_panel_uses_existing_summary_without_changing_backtests(self) -> None:
+        """Verify report confidence panel is a read-only view over existing backtest rows."""
+        service = BacktestService(self.db)
+        service.run_backtest(code="600519", force=False, eval_window_days=3, min_age_days=0, limit=10)
+        result_count_before = self._count_results()
+
+        panel = service.get_confidence_panel(eval_window_days=3)
+
+        self.assertEqual(self._count_results(), result_count_before)
+        self.assertEqual(panel["overall"]["sample_size"], 1)
+        self.assertEqual(panel["overall"]["window_days"], 3)
+        self.assertEqual(panel["overall"]["win_rate_pct"], 100.0)
+        self.assertEqual(panel["overall"]["confidence_level"], "low_sample")
+        self.assertEqual(panel["by_action"]["OPEN"]["sample_size"], 1)
+        self.assertEqual(panel["by_action"]["OPEN"]["win_rate_pct"], 100.0)
+
     def test_get_recent_evaluations(self) -> None:
         """Verify get_recent_evaluations returns correct paginated results."""
         service = BacktestService(self.db)
