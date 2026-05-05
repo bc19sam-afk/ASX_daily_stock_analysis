@@ -285,3 +285,24 @@
 - Test result: `python -m pytest tests/test_score_bucket_calibration.py tests/test_backtest_confidence_panel.py tests/test_backtest_service.py tests/test_daily_decision_dashboard_archive.py` passed, 36 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 492 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, PositionManager, backtest engine, data provider, storage schema, database migration, broker, or automatic trading changes.
+
+### 2026-05-05 - P1-3a Audit
+
+- Status: partial/missing.
+- Scope: Risk-Based Sizing Shadow Mode only.
+- Forbidden areas: no deterministic sizing change, PositionManager output change, pipeline action generation change, workflow change, `close_only` change, data provider change, storage/database migration, broker integration, or automatic trading.
+- Finding: current main had deterministic `target_weight` / `delta_amount` generated before daily summary, but no display-only risk-budget sizing preview and no report wording that made the preview explicitly shadow-only.
+- Decision: add a read-only risk sizing preview helper and attach generated previews to `daily_decision_summary`; keep all existing deterministic action fields as the source of truth.
+
+### 2026-05-05 - P1-3a Implementation
+
+- Status: implemented.
+- Added `src/core/risk_sizing.py` with `RiskSizingPreview` dictionary builders for shadow-mode risk budget, stop distance, cap constraints, unavailable states, and BLOCK handling.
+- Added `risk_sizing_previews` to `daily_decision_summary`, with schema version `daily_decision_summary.v1.5`.
+- Rendered a cockpit section labelled `风险仓位参考（Shadow，不改变今日动作）`, explicitly stating that the preview is for manual review and does not change today's deterministic action.
+- Added conservative config/env fields for shadow preview: `RISK_SIZING_MODE`, `MAX_SINGLE_POSITION_WEIGHT`, `MAX_TRADE_RISK_PCT`, `ATR_STOP_MULTIPLIER`, and `MAX_DAILY_TURNOVER_PCT`.
+- Added `tests/test_risk_based_sizing.py` and `tests/test_risk_sizing_shadow_mode.py`.
+- Red test result before implementation: `python -m pytest tests/test_risk_based_sizing.py tests/test_risk_sizing_shadow_mode.py` failed as expected because `src.core.risk_sizing` and summary/report preview fields did not exist.
+- Test result: `python -m pytest tests/test_risk_based_sizing.py tests/test_risk_sizing_shadow_mode.py tests/test_daily_decision_dashboard_archive.py` passed, 17 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 500 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no workflow, `close_only`, PositionManager, pipeline action generation, data provider, storage, database, broker, or automatic trading changes.

@@ -26,6 +26,11 @@ from src.final_action_display import (
     is_effective_executable_action,
 )
 from src.report_reliability import build_report_reliability, render_report_reliability_lines
+from src.core.risk_sizing import (
+    RiskSizingSettings,
+    build_risk_sizing_previews,
+    render_risk_sizing_preview_lines,
+)
 
 
 ACTION_COUNT_KEYS = ("buy", "add", "reduce", "close", "hold_watch", "blocked")
@@ -136,6 +141,7 @@ def build_daily_decision_summary(
     min_action_delta_amount: float = DEFAULT_ACTIONABLE_DELTA_AMOUNT,
     backtest_confidence: Optional[Dict[str, Any]] = None,
     score_bucket_calibration: Optional[Dict[str, Any]] = None,
+    risk_sizing_settings: Optional[RiskSizingSettings] = None,
 ) -> Dict[str, Any]:
     """Build a stable summary for pre-open reporting and future intraday review."""
     successful_results = [r for r in results if not _is_failed_analysis(r)]
@@ -348,9 +354,20 @@ def build_daily_decision_summary(
             current_results=decision_results,
             format_stock_display_name=format_stock_display_name,
         )
+    risk_sizing_previews = build_risk_sizing_previews(
+        results=successful_results,
+        overview=overview,
+        get_primary_action_model=get_primary_action_model,
+        is_blocked=_is_blocked,
+        is_actionable_context=lambda result, model: is_effective_executable_action(
+            model,
+            min_delta_amount=min_action_delta_amount,
+        ),
+        settings=risk_sizing_settings,
+    )
 
     return {
-        "schema_version": "daily_decision_summary.v1.4",
+        "schema_version": "daily_decision_summary.v1.5",
         "report_date": report_date,
         "technical_basis_date": technical_basis_date,
         "technical_basis_dates": technical_dates,
@@ -371,6 +388,7 @@ def build_daily_decision_summary(
         "report_reliability": report_reliability,
         "backtest_confidence": backtest_confidence,
         "score_bucket_calibration": score_bucket_calibration,
+        "risk_sizing_previews": risk_sizing_previews,
         "execution_checklist": list(EXECUTION_CHECKLIST),
         "watch_trigger_rule": WATCH_TRIGGER_RULE,
     }
@@ -414,6 +432,7 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         )
     )
     lines.extend(render_score_bucket_calibration_lines(summary.get("score_bucket_calibration") or {}))
+    lines.extend(render_risk_sizing_preview_lines(summary.get("risk_sizing_previews") or []))
     lines.extend([
         "| 项目 | 内容 |",
         "|---|---|",

@@ -59,6 +59,7 @@ from src.evidence_matrix import (
     render_evidence_summary_lines,
 )
 from src.final_action_display import build_final_action_display
+from src.core.risk_sizing import risk_sizing_settings_from_config
 from src.formatters import (
     format_feishu_markdown,
     markdown_to_archive_html_document,
@@ -1249,6 +1250,7 @@ class NotificationService:
             min_action_delta_amount=self._get_actionable_delta_amount_threshold(),
             backtest_confidence=self._build_backtest_confidence_panel(),
             score_bucket_calibration=self._build_score_bucket_calibration(),
+            risk_sizing_settings=risk_sizing_settings_from_config(get_config()),
         )
 
     def get_last_daily_decision_summary(self) -> Optional[Dict[str, Any]]:
