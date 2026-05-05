@@ -205,6 +205,71 @@ def test_noise_sized_actions_are_counted_as_watch_not_actionable(mock_get_db):
 
 
 @patch("src.notification.get_db")
+def test_tiny_open_is_watch_across_dashboard_and_wechat_summaries(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    result = _result(
+        code="ABC.AX",
+        name="ABC",
+        final_decision="BUY",
+        position_action="OPEN",
+        target_weight=0.10,
+        delta_amount=0.60,
+    )
+    forbidden_action_text = ("买入:1", "建议买入 1", "今日买入 1")
+
+    service = _service()
+    dashboard_report = service.generate_dashboard_report([result], report_date="2026-04-29")
+    summary = service.get_last_daily_decision_summary()
+
+    assert summary["action_counts"]["total_actions"] == 0
+    assert summary["action_counts"]["buy"] == 0
+    assert summary["action_counts"]["hold_watch"] == 1
+    assert "| 今日总动作数量 | **0** |" in dashboard_report
+    assert "| 买入 / 加仓 / 减仓 / 清仓 / 持有观察 / 阻塞 | 0 / 0 / 0 / 0 / 1 / 0 |" in dashboard_report
+    assert all(text not in dashboard_report for text in forbidden_action_text)
+
+    summary_only_service = _service()
+    summary_only_service._report_summary_only = True
+    summary_only_report = summary_only_service.generate_dashboard_report([result], report_date="2026-04-29")
+
+    assert all(text not in summary_only_report for text in forbidden_action_text)
+    assert "OPEN" not in summary_only_report
+    assert "买入/新开仓" not in summary_only_report
+
+    wechat_service = _service()
+    wechat_dashboard = wechat_service.generate_wechat_dashboard([result])
+    wechat_summary = wechat_service.generate_wechat_summary([result])
+
+    assert all(text not in wechat_dashboard for text in forbidden_action_text)
+    assert all(text not in wechat_summary for text in forbidden_action_text)
+    assert "买入/新开仓" not in wechat_dashboard
+    assert "买入/新开仓" not in wechat_summary
+
+
+@patch("src.notification.get_db")
+def test_normal_open_is_counted_as_buy_action(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    result = _result(
+        code="CBA.AX",
+        name="CBA",
+        final_decision="BUY",
+        position_action="OPEN",
+        target_weight=0.10,
+        delta_amount=2000.0,
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-04-29")
+    summary = service.get_last_daily_decision_summary()
+
+    assert summary["action_counts"]["total_actions"] == 1
+    assert summary["action_counts"]["buy"] == 1
+    assert summary["action_counts"]["hold_watch"] == 0
+    assert "| 今日总动作数量 | **1** |" in report
+    assert "| 买入 / 加仓 / 减仓 / 清仓 / 持有观察 / 阻塞 | 1 / 0 / 0 / 0 / 0 / 0 |" in report
+
+
+@patch("src.notification.get_db")
 def test_daily_decision_summary_schema_is_stable(mock_get_db):
     mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
     service = _service()
