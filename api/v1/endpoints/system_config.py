@@ -7,7 +7,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from api.deps import get_system_config_service
+from api.deps import get_system_config_service, require_api_auth
 from api.v1.schemas.common import ErrorResponse
 from api.v1.schemas.system_config import (
     SystemConfigConflictResponse,
@@ -23,7 +23,7 @@ from src.services.system_config_service import ConfigConflictError, ConfigValida
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_api_auth)])
 
 
 @router.get(

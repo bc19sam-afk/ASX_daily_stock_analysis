@@ -60,6 +60,8 @@ python main.py --serve-only --host 0.0.0.0 --port 8000
 python main.py --serve
 ```
 
+Optional API Bearer authentication is supported for protected web console configuration endpoints. Local development remains compatible with `API_AUTH_ENABLED=false`; for production or public network access, set `API_AUTH_ENABLED=true` and configure a strong `API_AUTH_TOKEN`.
+
 If frontend assets are not prebuilt, build them first:
 
 ```bash

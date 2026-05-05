@@ -10,14 +10,53 @@ API 依赖注入模块
 3. 提供服务层依赖
 """
 
+import os
+import secrets
 from typing import Generator
 
-from fastapi import Request
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from src.storage import DatabaseManager
 from src.config import get_config, Config
 from src.services.system_config_service import SystemConfigService
+
+api_auth_scheme = HTTPBearer(auto_error=False)
+
+
+def _env_flag_enabled(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def require_api_auth(
+    credentials: HTTPAuthorizationCredentials | None = Depends(api_auth_scheme),
+) -> None:
+    """Require optional Bearer auth for protected API endpoints."""
+    if not _env_flag_enabled(os.environ.get("API_AUTH_ENABLED", "false")):
+        return
+
+    expected_token = os.environ.get("API_AUTH_TOKEN", "").strip()
+    if not expected_token:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "unauthorized",
+                "message": "API authentication is enabled but API_AUTH_TOKEN is not configured",
+                "detail": None,
+            },
+        )
+
+    supplied_token = credentials.credentials if credentials else ""
+    if not secrets.compare_digest(supplied_token, expected_token):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "unauthorized",
+                "message": "Valid Bearer token required",
+                "detail": None,
+            },
+        )
 
 
 def get_db() -> Generator[Session, None, None]:
