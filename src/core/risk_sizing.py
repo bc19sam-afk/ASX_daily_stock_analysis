@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 
+ALLOWED_RISK_SIZING_MODES = {"shadow", "enabled"}
+
+
 @dataclass(frozen=True)
 class RiskSizingSettings:
     max_single_position_weight: float = 0.35
@@ -19,6 +22,36 @@ class RiskSizingSettings:
     min_order_notional: float = 20.0
     max_daily_turnover_pct: float = 0.20
     mode: str = "shadow"
+
+
+@dataclass(frozen=True)
+class RiskSizingCapCandidate:
+    mode: str
+    current_target_weight: float
+    capped_target_weight: Optional[float]
+    cap_applied: bool
+    risk_budget_amount: Optional[float]
+    stop_distance: Optional[float]
+    stop_distance_source: str
+    constraints_applied: List[str]
+    warning_flags: List[str]
+    unavailable_reason: str
+    would_change_target: bool
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "mode": self.mode,
+            "current_target_weight": self.current_target_weight,
+            "capped_target_weight": self.capped_target_weight,
+            "cap_applied": self.cap_applied,
+            "risk_budget_amount": self.risk_budget_amount,
+            "stop_distance": self.stop_distance,
+            "stop_distance_source": self.stop_distance_source,
+            "constraints_applied": list(self.constraints_applied),
+            "warning_flags": list(self.warning_flags),
+            "unavailable_reason": self.unavailable_reason,
+            "would_change_target": self.would_change_target,
+        }
 
 
 DEFAULT_RISK_SIZING_SETTINGS = RiskSizingSettings()
@@ -46,7 +79,150 @@ def risk_sizing_settings_from_config(config: Any) -> RiskSizingSettings:
             getattr(config, "max_daily_turnover_pct", DEFAULT_RISK_SIZING_SETTINGS.max_daily_turnover_pct),
             DEFAULT_RISK_SIZING_SETTINGS.max_daily_turnover_pct,
         ),
-        mode=str(getattr(config, "risk_sizing_mode", DEFAULT_RISK_SIZING_SETTINGS.mode) or "shadow").strip().lower(),
+        mode=_normalize_risk_sizing_mode(getattr(config, "risk_sizing_mode", DEFAULT_RISK_SIZING_SETTINGS.mode)),
+    )
+
+
+def build_risk_sizing_cap_candidate(
+    *,
+    result: Any,
+    action_model: Dict[str, Any],
+    overview: Dict[str, Any],
+    settings: Optional[RiskSizingSettings] = None,
+    is_blocked: bool,
+    is_actionable_context: bool,
+) -> Dict[str, Any]:
+    """Calculate a deterministic risk cap candidate without mutating actions."""
+    settings = settings or DEFAULT_RISK_SIZING_SETTINGS
+    mode = _normalize_risk_sizing_mode(settings.mode)
+    current_weight = _safe_float(getattr(result, "current_weight", 0.0), 0.0)
+    current_target_weight = _safe_float(action_model.get("target_weight"), current_weight)
+    total_value = _safe_positive_float((overview or {}).get("total_value"), 0.0)
+    risk_budget_amount = round(total_value * max(settings.max_trade_risk_pct, 0.0), 2) if total_value > 0 else None
+    warnings: List[str] = []
+
+    def candidate(
+        *,
+        capped_target_weight: Optional[float],
+        cap_applied: bool,
+        stop_distance: Optional[float] = None,
+        stop_distance_source: str = "unavailable",
+        constraints_applied: Optional[List[str]] = None,
+        unavailable_reason: str = "",
+        would_change_target: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        changed = (
+            bool(cap_applied)
+            if would_change_target is None
+            else bool(would_change_target)
+        )
+        return RiskSizingCapCandidate(
+            mode=mode,
+            current_target_weight=round(current_target_weight, 4),
+            capped_target_weight=round(capped_target_weight, 4) if capped_target_weight is not None else None,
+            cap_applied=bool(cap_applied),
+            risk_budget_amount=risk_budget_amount,
+            stop_distance=round(stop_distance, 4) if stop_distance is not None else None,
+            stop_distance_source=stop_distance_source,
+            constraints_applied=list(constraints_applied or []),
+            warning_flags=list(warnings),
+            unavailable_reason=unavailable_reason,
+            would_change_target=changed,
+        ).to_dict()
+
+    if is_blocked:
+        warnings.append("validation_block")
+        return candidate(
+            capped_target_weight=None,
+            cap_applied=False,
+            unavailable_reason="validation_block",
+            would_change_target=False,
+        )
+
+    if mode != "enabled":
+        warnings.append("shadow_mode_no_cap_candidate")
+        return candidate(
+            capped_target_weight=None,
+            cap_applied=False,
+            unavailable_reason="shadow_mode",
+            would_change_target=False,
+        )
+
+    action = str(action_model.get("position_action") or "HOLD").strip().upper()
+    if not is_actionable_context or action not in {"OPEN", "ADD"}:
+        warnings.append("non_actionable_context")
+        return candidate(
+            capped_target_weight=None,
+            cap_applied=False,
+            unavailable_reason="non_buy_action_context",
+            would_change_target=False,
+        )
+
+    close_price = _extract_close_price(result)
+    stop_distance, stop_source, stop_warnings = _resolve_stop_distance(
+        result,
+        close_price=close_price,
+        atr_stop_multiplier=settings.atr_stop_multiplier,
+    )
+    warnings.extend(stop_warnings)
+    if close_price is None:
+        warnings.append("missing_close_price")
+    if total_value <= 0:
+        warnings.append("missing_portfolio_total_value")
+
+    if close_price is None or stop_distance is None or total_value <= 0:
+        if "missing_stop_distance" not in warnings and stop_distance is None:
+            warnings.append("missing_stop_distance")
+        return candidate(
+            capped_target_weight=None,
+            cap_applied=False,
+            stop_distance=stop_distance,
+            stop_distance_source=stop_source,
+            unavailable_reason="missing_price_or_stop_distance",
+            would_change_target=False,
+        )
+
+    raw_risk_weight = max(settings.max_trade_risk_pct, 0.0) * close_price / stop_distance
+    capped_weight = current_target_weight
+    constraints: List[str] = []
+
+    if raw_risk_weight < capped_weight:
+        capped_weight = raw_risk_weight
+        constraints.append("risk_budget")
+
+    max_single = max(settings.max_single_position_weight, 0.0)
+    if max_single > 0 and capped_weight > max_single:
+        capped_weight = max_single
+        constraints.append("max_single_position_weight")
+
+    daily_turnover = max(settings.max_daily_turnover_pct, 0.0)
+    if daily_turnover > 0:
+        turnover_cap = current_weight + daily_turnover
+        if capped_weight > turnover_cap:
+            capped_weight = turnover_cap
+            constraints.append("max_daily_turnover_pct")
+
+    if isinstance(overview, dict) and "cash" in overview and total_value > 0:
+        cash = max(_safe_float(overview.get("cash"), 0.0), 0.0)
+        cash_cap = current_weight + cash / total_value
+        if capped_weight > cash_cap:
+            capped_weight = cash_cap
+            constraints.append("cash")
+
+    if action in {"OPEN", "ADD"} and capped_weight < current_weight:
+        capped_weight = current_weight
+        warnings.append("cap_below_current_holding")
+        constraints.append("no_forced_sell")
+
+    capped_weight = max(capped_weight, 0.0)
+    cap_applied = capped_weight < current_target_weight
+    return candidate(
+        capped_target_weight=capped_weight,
+        cap_applied=cap_applied,
+        stop_distance=stop_distance,
+        stop_distance_source=stop_source,
+        constraints_applied=constraints,
+        would_change_target=cap_applied,
     )
 
 
@@ -60,7 +236,7 @@ def build_risk_sizing_preview(
     is_actionable_context: bool,
 ) -> Dict[str, Any]:
     settings = settings or DEFAULT_RISK_SIZING_SETTINGS
-    mode = str(settings.mode or "shadow").strip().lower() or "shadow"
+    mode = _normalize_risk_sizing_mode(settings.mode)
     current_weight = _safe_float(getattr(result, "current_weight", 0.0), 0.0)
     current_target_weight = _safe_float(action_model.get("target_weight"), current_weight)
     current_delta_amount = _safe_float(action_model.get("delta_amount"), 0.0)
@@ -273,3 +449,8 @@ def _safe_float(value: Any, default: float) -> float:
 def _safe_positive_float(value: Any, default: float) -> float:
     parsed = _safe_float(value, default)
     return parsed if parsed > 0 else default
+
+
+def _normalize_risk_sizing_mode(value: Any) -> str:
+    mode = str(value or "shadow").strip().lower()
+    return mode if mode in ALLOWED_RISK_SIZING_MODES else "shadow"

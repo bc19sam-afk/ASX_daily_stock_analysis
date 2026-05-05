@@ -246,7 +246,7 @@ class Config:
     min_position_delta_amount: float = 20.0
     # ASX 可执行性约束：最小订单名义金额（小于该值则不产生可执行买卖动作）
     min_order_notional: float = 20.0
-    # 风险仓位参考（Shadow）：只用于报告展示，不改变实际 deterministic sizing
+    # 风险仓位参考：默认 shadow，只用于报告展示，不改变实际 deterministic sizing
     max_single_position_weight: float = 0.35
     max_trade_risk_pct: float = 0.005
     atr_stop_multiplier: float = 1.5
