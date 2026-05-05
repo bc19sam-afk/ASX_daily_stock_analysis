@@ -115,6 +115,11 @@ class BaseSearchProvider(ABC):
     def is_available(self) -> bool:
         """检查是否有可用的 API Key"""
         return bool(self._api_keys)
+
+    @staticmethod
+    def _is_asx_localized_query(query: str) -> bool:
+        text = (query or "").lower()
+        return ".ax" in text or bool(re.search(r"\basx\b", text))
     
     def _get_next_key(self) -> Optional[str]:
         if not self._key_cycle:
@@ -246,10 +251,13 @@ class SerpAPISearchProvider(BaseSearchProvider):
             tbs = "qdr:w"
             if days <= 1: tbs = "qdr:d"
             elif days <= 30: tbs = "qdr:m"
+            is_asx = self._is_asx_localized_query(query)
             
             params = {
                 "engine": "google", "q": query, "api_key": api_key,
-                "google_domain": "google.com.hk", "hl": "zh-cn", "gl": "cn",
+                "google_domain": "google.com.au" if is_asx else "google.com.hk",
+                "hl": "en" if is_asx else "zh-cn",
+                "gl": "au" if is_asx else "cn",
                 "tbs": tbs, "num": max_results
             }
             
@@ -342,10 +350,13 @@ class BraveSearchProvider(BaseSearchProvider):
             freshness = "pw" # 默认一周
             if days <= 1: freshness = "pd"
             elif days > 30: freshness = "py"
+            is_asx = self._is_asx_localized_query(query)
             
             params = {
                 "q": query, "count": min(max_results, 20),
-                "freshness": freshness, "search_lang": "en", "country": "US"
+                "freshness": freshness,
+                "search_lang": "en",
+                "country": "AU" if is_asx else "US"
             }
             
             response = requests.get("https://api.search.brave.com/res/v1/web/search", headers=headers, params=params, timeout=10)
@@ -528,7 +539,7 @@ class SearchService:
         hints = self._parse_entity_hints(stock_code, stock_name)
         parts = [hints["name"], hints["code"], hints["base_ticker"]]
         if hints["is_asx"]:
-            parts.extend(["ASX", "Australia"])
+            parts.extend(["ASX", "Australia", "English-first"])
         parts.extend(intent_terms)
         return " ".join([p for p in parts if p])
 
