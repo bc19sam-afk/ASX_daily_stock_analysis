@@ -7,6 +7,12 @@ from typing import Any, Dict, Iterable, List, Optional
 
 
 ACTION_BUCKETS = ("OPEN", "ADD", "REDUCE", "CLOSE")
+SCORE_BUCKETS = ("60_70", "70_80", "80_100")
+SCORE_BUCKET_RANGES = {
+    "60_70": (60.0, 70.0),
+    "70_80": (70.0, 80.0),
+    "80_100": (80.0, 100.0),
+}
 MIN_CONFIDENCE_SAMPLE_SIZE = 20
 
 
@@ -37,6 +43,12 @@ def _empty_action_entry() -> Dict[str, Any]:
     }
 
 
+def _empty_score_bucket_entry(window_days: int) -> Dict[str, Any]:
+    entry = _empty_action_entry()
+    entry["window_days"] = window_days
+    return entry
+
+
 def _average(values: Iterable[Optional[float]]) -> Optional[float]:
     items = [float(value) for value in values if value is not None]
     if not items:
@@ -48,6 +60,20 @@ def _read_attr(row: Any, key: str) -> Any:
     if isinstance(row, dict):
         return row.get(key)
     return getattr(row, key, None)
+
+
+def score_bucket_for_score(value: Any) -> Optional[str]:
+    """Return the configured score bucket label for a 0-100 score."""
+    score = _safe_float(value)
+    if score is None:
+        return None
+    for bucket, (lower, upper) in SCORE_BUCKET_RANGES.items():
+        if bucket == "80_100":
+            if lower <= score <= upper:
+                return bucket
+        elif lower <= score < upper:
+            return bucket
+    return None
 
 
 def _build_action_entry(rows: List[Any]) -> Dict[str, Any]:
@@ -62,6 +88,49 @@ def _build_action_entry(rows: List[Any]) -> Dict[str, Any]:
         "avg_simulated_return_pct": _average(_safe_float(_read_attr(row, "simulated_return_pct")) for row in rows),
         "confidence_level": _confidence_level(sample_size),
     }
+
+
+def _build_score_bucket_entry(rows: List[Any], *, window_days: int) -> Dict[str, Any]:
+    entry = _build_action_entry(rows)
+    entry["window_days"] = window_days
+    return entry
+
+
+def _format_score(value: Any) -> str:
+    score = _safe_float(value)
+    if score is None:
+        return "N/A"
+    if score.is_integer():
+        return str(int(score))
+    return f"{score:.1f}"
+
+
+def _build_current_score_items(
+    current_results: Iterable[Any],
+    *,
+    format_stock_display_name: Optional[Any] = None,
+) -> List[Dict[str, Any]]:
+    current_items: List[Dict[str, Any]] = []
+    for result in current_results or []:
+        score = _safe_float(_read_attr(result, "sentiment_score"))
+        bucket = score_bucket_for_score(score)
+        if bucket is None:
+            continue
+        code = str(_read_attr(result, "code") or "")
+        name = _read_attr(result, "name") or code
+        if format_stock_display_name is not None:
+            display_name = format_stock_display_name(name, code)
+        else:
+            display_name = f"{name} ({code})" if code else str(name)
+        current_items.append(
+            {
+                "code": code,
+                "name": display_name,
+                "sentiment_score": int(score) if score.is_integer() else round(score, 1),
+                "bucket": bucket,
+            }
+        )
+    return current_items
 
 
 def build_backtest_confidence_panel(
@@ -98,6 +167,63 @@ def build_backtest_confidence_panel(
         "overall": overall,
         "by_action": by_action,
     }
+
+
+def build_score_bucket_calibration(
+    *,
+    score_results: Iterable[Any],
+    window_days: Optional[int],
+    current_results: Optional[Iterable[Any]] = None,
+    format_stock_display_name: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Build display-only historical calibration grouped by score bucket."""
+    resolved_window = _safe_int(window_days)
+    grouped: Dict[str, List[Any]] = {bucket: [] for bucket in SCORE_BUCKETS}
+    for row in score_results or []:
+        status = str(_read_attr(row, "eval_status") or "").strip()
+        if status and status != "completed":
+            continue
+        bucket = score_bucket_for_score(_read_attr(row, "sentiment_score"))
+        if bucket in grouped:
+            grouped[bucket].append(row)
+
+    calibration: Dict[str, Any] = {
+        bucket: _build_score_bucket_entry(rows, window_days=resolved_window)
+        if rows
+        else _empty_score_bucket_entry(resolved_window)
+        for bucket, rows in grouped.items()
+    }
+    calibration["current_items"] = _build_current_score_items(
+        current_results or [],
+        format_stock_display_name=format_stock_display_name,
+    )
+    return calibration
+
+
+def with_current_score_bucket_items(
+    calibration: Dict[str, Any],
+    *,
+    current_results: Iterable[Any],
+    format_stock_display_name: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Attach current non-blocked report scores without changing bucket statistics."""
+    calibration = calibration if isinstance(calibration, dict) else {}
+    first_window = 0
+    for bucket in SCORE_BUCKETS:
+        entry = calibration.get(bucket)
+        if isinstance(entry, dict):
+            first_window = _safe_int(entry.get("window_days"))
+            break
+
+    result: Dict[str, Any] = {
+        bucket: dict(calibration.get(bucket) or _empty_score_bucket_entry(first_window))
+        for bucket in SCORE_BUCKETS
+    }
+    result["current_items"] = _build_current_score_items(
+        current_results,
+        format_stock_display_name=format_stock_display_name,
+    )
+    return result
 
 
 def _format_pct(value: Any, *, signed: bool = False) -> str:
@@ -161,6 +287,41 @@ def render_backtest_confidence_lines(
                 f"- {action} 历史样本：样本 {action_sample} 次，"
                 f"胜率 {_format_pct(entry.get('win_rate_pct'))}，"
                 f"平均模拟收益 {_format_pct(entry.get('avg_simulated_return_pct'), signed=True)}。"
+            )
+
+    lines.extend(["", ""])
+    return lines
+
+
+def render_score_bucket_calibration_lines(calibration: Dict[str, Any]) -> List[str]:
+    """Render score-bucket calibration without implying trade certainty."""
+    calibration = calibration if isinstance(calibration, dict) else {}
+    current_items = calibration.get("current_items") or []
+    lines = [
+        "## 评分校准",
+        "",
+    ]
+
+    if not current_items:
+        lines.append("- 评分校准：当前结果缺少可映射评分，跳过评分校准；不作为置信增强。")
+        lines.extend(["", ""])
+        return lines
+
+    for item in current_items:
+        bucket = str(item.get("bucket") or "")
+        entry = calibration.get(bucket) or _empty_score_bucket_entry(0)
+        sample_size = _safe_int(entry.get("sample_size"))
+        window_days = _safe_int(entry.get("window_days"))
+        window_text = f"{window_days} 日窗口" if window_days else "窗口未知"
+        label = f"{item.get('name')} 评分 {_format_score(item.get('sentiment_score'))} -> {bucket}"
+        if sample_size < MIN_CONFIDENCE_SAMPLE_SIZE:
+            lines.append(f"- {label}：{window_text}，样本 {sample_size} 次，样本不足，不作为置信增强。")
+        else:
+            lines.append(
+                f"- {label}：{window_text}，样本 {sample_size} 次，"
+                f"胜率 {_format_pct(entry.get('win_rate_pct'))}，"
+                f"平均模拟收益 {_format_pct(entry.get('avg_simulated_return_pct'), signed=True)}；"
+                "仅作历史校准，不是交易保证。"
             )
 
     lines.extend(["", ""])

@@ -12,7 +12,13 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from src.core.validator import normalize_validation_status
-from src.backtest_confidence import build_backtest_confidence_panel, render_backtest_confidence_lines
+from src.backtest_confidence import (
+    build_backtest_confidence_panel,
+    build_score_bucket_calibration,
+    render_backtest_confidence_lines,
+    render_score_bucket_calibration_lines,
+    with_current_score_bucket_items,
+)
 from src.evidence_matrix import build_evidence_matrix, summarize_evidence_matrix
 from src.final_action_display import (
     EXECUTABLE_ACTIONS,
@@ -129,6 +135,7 @@ def build_daily_decision_summary(
     format_validation_issue_text: Callable[[Any], str],
     min_action_delta_amount: float = DEFAULT_ACTIONABLE_DELTA_AMOUNT,
     backtest_confidence: Optional[Dict[str, Any]] = None,
+    score_bucket_calibration: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a stable summary for pre-open reporting and future intraday review."""
     successful_results = [r for r in results if not _is_failed_analysis(r)]
@@ -328,9 +335,22 @@ def build_daily_decision_summary(
             action_results=[],
             window_days=None,
         )
+    if score_bucket_calibration is None:
+        score_bucket_calibration = build_score_bucket_calibration(
+            score_results=[],
+            window_days=None,
+            current_results=decision_results,
+            format_stock_display_name=format_stock_display_name,
+        )
+    else:
+        score_bucket_calibration = with_current_score_bucket_items(
+            score_bucket_calibration,
+            current_results=decision_results,
+            format_stock_display_name=format_stock_display_name,
+        )
 
     return {
-        "schema_version": "daily_decision_summary.v1.3",
+        "schema_version": "daily_decision_summary.v1.4",
         "report_date": report_date,
         "technical_basis_date": technical_basis_date,
         "technical_basis_dates": technical_dates,
@@ -350,6 +370,7 @@ def build_daily_decision_summary(
         "evidence_summary": evidence_summary,
         "report_reliability": report_reliability,
         "backtest_confidence": backtest_confidence,
+        "score_bucket_calibration": score_bucket_calibration,
         "execution_checklist": list(EXECUTION_CHECKLIST),
         "watch_trigger_rule": WATCH_TRIGGER_RULE,
     }
@@ -392,6 +413,7 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
             action_counts=counts,
         )
     )
+    lines.extend(render_score_bucket_calibration_lines(summary.get("score_bucket_calibration") or {}))
     lines.extend([
         "| 项目 | 内容 |",
         "|---|---|",

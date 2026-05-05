@@ -15,8 +15,8 @@
 ## Current Gate
 
 - Active phase: P1 limited execution.
-- Active PR: P1-1 Backtest Confidence Panel v1.
-- P1-1 state: implemented; PR creation pending.
+- Active PR: P1-2 Score Bucket Calibration.
+- P1-1 state: merged via PR #105.
 - Authorized scope: execute P1-1 and P1-2 only, then stop before P1-3.
 - P2 remains roadmap-only until explicit user confirmation.
 
@@ -30,8 +30,8 @@
 | P0-4 Report Reliability Score v1 | merged | `codex/p0-4-report-reliability-score-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/102 | Merged via squash commit `d7050ef`. |
 | P0-5 Final Action Display Contract | merged | `codex/p0-5-final-action-display-contract` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/103 | Merged via squash commit `9dadbdd`. |
 | P0-6 API Auth Guard v1 | merged | `codex/p0-6-api-auth-guard-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/104 | Merged via squash commit `dbea81f`. |
-| P1-1 Backtest Confidence Panel v1 | implemented | `codex/p1-1-backtest-confidence-panel-v1` | pending | Current main was partial/missing; implemented display-only backtest confidence panel and tests. |
-| P1-2 Score Bucket Calibration | pending | not started | not started | Roadmap only. |
+| P1-1 Backtest Confidence Panel v1 | merged | `codex/p1-1-backtest-confidence-panel-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/105 | Merged via squash commit `8317082`. |
+| P1-2 Score Bucket Calibration | implemented | `codex/p1-2-score-bucket-calibration` | pending | Current main was partial/missing; implemented score bucket calibration display and tests. |
 | P1-3 Risk-Based Sizing v1 | pending | not started | not started | Roadmap only. |
 | P1-4 Structured Valuation Snapshot | pending | not started | not started | Roadmap only. |
 | P1-5 ASX Search Localisation | pending | not started | not started | Roadmap only. |
@@ -253,4 +253,35 @@
 - Test result: `python -m pytest tests/test_backtest_confidence_panel.py tests/test_backtest_service.py tests/test_daily_decision_dashboard_archive.py` passed, 29 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest tests/test_backtest_service.py tests/test_daily_decision_summary_evidence.py tests/test_report_reliability_score.py tests/test_final_action_display_contract.py` passed, 26 tests.
 - Test result: `python -m pytest` passed, 485 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no workflow, `close_only`, PositionManager, backtest engine, data provider, storage schema, database migration, broker, or automatic trading changes.
+
+### 2026-05-05 - P1-1 Merged
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/105
+- Merge method: squash.
+- Main commit: `8317082 Show historical calibration without changing daily actions`.
+- Post-merge verification: synced `main` with `--ff-only`, verified clean working tree, and kept the P1 scope limited to P1-1/P1-2.
+
+### 2026-05-05 - P1-2 Audit
+
+- Status: partial/missing.
+- Scope: Score Bucket Calibration only.
+- Forbidden areas: no backtest engine rewrite, analysis logic change, action generation change, PositionManager change, workflow change, `close_only` change, database migration, broker integration, or automatic trading.
+- Finding: current main had P1-1 historical calibration lines, but no score-bucket summary, no current-score bucket mapping, and no report section that ties current scores to historical buckets.
+- Decision: add a display-only score-bucket calibration helper fed by existing backtest rows plus current non-blocked report items; do not feed score buckets into deterministic action generation.
+
+### 2026-05-05 - P1-2 Implementation
+
+- Status: implemented.
+- Added `score_bucket_calibration` helpers to `src/backtest_confidence.py` for 60_70 / 70_80 / 80_100 buckets and current-score mapping.
+- Added `BacktestService.get_score_bucket_calibration()` as a read-only query over existing backtest rows and analysis scores.
+- Added `score_bucket_calibration` to `daily_decision_summary`, with schema version `daily_decision_summary.v1.4`.
+- Added score bucket lines to the pre-open decision cockpit.
+- Added `tests/test_score_bucket_calibration.py`.
+- Updated `tests/test_daily_decision_dashboard_archive.py` schema stability coverage.
+- Red test result before implementation: `python -m pytest tests/test_score_bucket_calibration.py` failed as expected because score bucket calibration helpers and summary rendering did not exist.
+- Test result: `python -m pytest tests/test_score_bucket_calibration.py` passed, 6 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_score_bucket_calibration.py tests/test_backtest_confidence_panel.py tests/test_backtest_service.py tests/test_daily_decision_dashboard_archive.py` passed, 36 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 492 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: no workflow, `close_only`, PositionManager, backtest engine, data provider, storage schema, database migration, broker, or automatic trading changes.
