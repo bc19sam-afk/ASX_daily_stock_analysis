@@ -15,9 +15,9 @@
 ## Current Gate
 
 - Active phase: P0 only.
-- Active PR: P0-2 Conditional Plan Points v1.
-- P0-2 state: pr_opened.
-- Stop after opening the P0-2 PR and wait for review / merge before P0-3.
+- Active PR: P0-3 Evidence Matrix v1.
+- P0-3 state: implemented; PR creation pending.
+- Continue automatically through P0-6 when checks are green and PRs are mergeable.
 - P1 and P2 are roadmap-only until explicit user confirmation.
 
 ## PR Status
@@ -25,8 +25,8 @@
 | PR | Status | Branch | PR Link | Notes |
 | --- | --- | --- | --- | --- |
 | P0-1 AI Role Boundary | merged | `codex/p0-1-ai-role-boundary-audit` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/99 | Merged via PR #99. Do not reimplement. |
-| P0-2 Conditional Plan Points v1 | pr_opened | `codex/p0-2-conditional-plan-points-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/100 | Current main was partial/missing; implemented minimal conditional point helper, report rendering updates, and tests. |
-| P0-3 Evidence Matrix v1 | pending | pending | pending | Wait for P0-2 merge. |
+| P0-2 Conditional Plan Points v1 | merged | `codex/p0-2-conditional-plan-points-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/100 | Merged via squash commit `38eff38`. |
+| P0-3 Evidence Matrix v1 | implemented | `codex/p0-3-evidence-matrix-v1` | pending | Current main was partial/missing; implemented minimal evidence matrix helper, summary fields, report display, and tests. |
 | P0-4 Report Reliability Score v1 | pending | pending | pending | Depends on P0-3 evidence matrix. |
 | P0-5 Final Action Display Contract | pending | pending | pending | Wait for prior P0 PR merge. |
 | P0-6 API Auth Guard v1 | pending | pending | pending | Wait for prior P0 PR merge. |
@@ -77,4 +77,33 @@
 
 - Status: pr_opened.
 - PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/100
-- Stop condition: wait for P0-2 review / merge before starting P0-3.
+- Original stop condition superseded by user authorization to auto-merge green P0 PRs and continue through P0-6.
+
+### 2026-05-05 - P0-2 Merged
+
+- Status: merged.
+- PR: https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/100
+- Merge method: squash.
+- Main commit: `38eff38 Keep report plan points conditional and review gated (#100)`.
+- Post-merge sync: checked out `main`, pulled with `--ff-only`, verified clean working tree and P0-2 squash commit in latest main history.
+
+### 2026-05-05 - P0-3 Audit
+
+- Status: partial/missing.
+- Scope: Evidence Matrix v1 only.
+- Forbidden areas: no new external data source, ASX official announcement scraper, analysis logic change, position rule change, workflow change, `close_only` change, database migration, broker integration, or automatic trading.
+- Finding: current main had daily action/data-quality summary fields but no `evidence_matrix`, no per-stock evidence categories, and no evidence quality dashboard / detail table.
+- Decision: implement minimal evidence helper and report-display patch without feeding evidence back into action generation.
+
+### 2026-05-05 - P0-3 Implementation
+
+- Status: implemented.
+- Added `src/evidence_matrix.py` with per-stock evidence rows for market data, technical, valuation, news, announcement, backtest, portfolio, and validation.
+- Added optional `evidence_matrix` and `evidence_summary` to `daily_decision_summary`, with schema version `daily_decision_summary.v1.1`.
+- Added dashboard evidence quality summary and per-stock evidence matrix table.
+- Added `tests/test_evidence_matrix.py`.
+- Added `tests/test_daily_decision_summary_evidence.py`.
+- Updated `tests/test_daily_decision_dashboard_archive.py` schema stability coverage.
+- Test result: `python -m pytest tests/test_evidence_matrix.py tests/test_daily_decision_summary_evidence.py tests/test_daily_decision_dashboard_archive.py` passed, 14 tests.
+- Test result: `python -m pytest` passed, 459 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: no workflow, `close_only`, position manager, pipeline, data provider, storage, database, broker, or automatic trading changes.

@@ -54,6 +54,10 @@ from src.conditional_plan import (
     format_conditional_plan_points_inline,
     render_conditional_plan_points_markdown,
 )
+from src.evidence_matrix import (
+    render_evidence_matrix_lines,
+    render_evidence_summary_lines,
+)
 from src.formatters import (
     format_feishu_markdown,
     markdown_to_archive_html_document,
@@ -1634,6 +1638,7 @@ class NotificationService:
             "",
         ])
         report_lines.extend(self._build_data_baseline_lines(results, generated_at))
+        report_lines.extend(render_evidence_summary_lines(daily_summary.get("evidence_summary") or {}))
         if portfolio_summary_section:
             report_lines.extend([portfolio_summary_section.rstrip(), "", "---", ""])
 
@@ -1698,6 +1703,8 @@ class NotificationService:
         if has_mixed_price_basis:
             report_lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
         report_lines.extend(["", "---", ""])
+
+        report_lines.extend(render_evidence_matrix_lines(daily_summary.get("evidence_matrix") or {}))
 
         report_lines.extend([
             "## 当前持仓总览",
