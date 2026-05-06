@@ -73,6 +73,7 @@ from src.notification_recommended_action_builders import (
     build_recommended_actions_table,
 )
 from src.notification_portfolio_builders import (
+    build_holdings_audit_table,
     build_report_time_portfolio_overview,
     build_section_c_reconciliation_lines,
     build_simulated_target_allocation_table,
@@ -554,6 +555,8 @@ class NotificationService:
     def _classify_price_basis(result: AnalysisResult) -> str:
         """Classify price basis into: realtime / latest_close / close_only."""
         explicit_source = str(getattr(result, "execution_price_source", "") or "").strip().lower()
+        if explicit_source == "legacy_report_time":
+            return "close_only"
         if explicit_source in {"realtime", "latest_close", "close_only"}:
             return explicit_source
 
@@ -1709,135 +1712,68 @@ class NotificationService:
             basis_counts[self._classify_price_basis(result)] += 1
         has_mixed_price_basis = basis_counts["realtime"] > 0 and (basis_counts["latest_close"] + basis_counts["close_only"]) > 0
 
-        report_lines.extend([
-            "## 今日行动摘要",
-            "",
-        ])
-        if actionable_holding_results:
-            report_lines.append("**优先处理（当前持仓）**")
-            for result in actionable_holding_results:
-                action_model = self._get_primary_action_model(result)
-                report_lines.append(
-                    f"- {self._escape_md(self._format_stock_display_name(result.name, result.code))}："
-                    f"{self._format_position_action_label(action_model['position_action'])}（建议仓位 {action_model['target_weight']:.2%}）"
-                )
-            report_lines.append("")
-        else:
-            report_lines.append("- 今日当前持仓暂无必须立即执行的调仓动作。")
-        if uncovered_holdings:
-            report_lines.append(f"- 当前持仓有 **{len(uncovered_holdings)}** 只未覆盖分析，请优先补齐。")
-        if failed_results:
-            report_lines.append(f"- 今日有 **{len(failed_results)}** 只分析失败，建议重跑后再决策。")
-        if blocked_results:
-            report_lines.append(f"- 今日有 **{len(blocked_results)}** 只触发验证阻断，结论统一按“不可决策/仅观察”处理。")
-        if has_mixed_price_basis:
-            report_lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
-        report_lines.extend(["", "---", ""])
-
-        report_lines.extend([
-            "## 当前持仓总览",
-            "",
-            f"- 可用现金: **{overview.get('cash', 0.0):,.2f}**",
-            f"- 持仓市值: **{overview.get('equity_value', 0.0):,.2f}**",
-            f"- 账户总值: **{overview.get('total_value', 0.0):,.2f}**",
-            "",
-        ])
-        executed_weight_by_code = {
-            self._normalize_stock_code(item.get("code", "")): float(item.get("weight") or 0.0)
-            for item in holdings
-            if self._normalize_stock_code(item.get("code", ""))
-        }
-        if holdings:
+        if holdings or actionable_holding_results or uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis:
             report_lines.extend([
-                "| 当前持仓 | 数量 | 权重 | 估值来源 | 今日分析覆盖 |",
-                "|---------|------|------|----------|--------------|",
-            ])
-            for h in holdings:
-                valuation_source = self._format_valuation_source_label(h.get("valuation_source"))
-                analyzed_today = self._format_yes_no_label(h.get("analyzed_today"))
-                report_lines.append(
-                    f"| {h.get('name', h.get('code'))}({h.get('code')}) | {h.get('quantity', 0):,.2f} | {h.get('weight', 0.0):.2%} | {valuation_source} | {analyzed_today} |"
-                )
-            report_lines.extend([
+                "## 当前持仓动作",
                 "",
-                "注：估值来源随价格口径变化；“报告时点实时价估值”表示使用实时价格，“收盘基准价估值”表示使用最新收盘口径，“账户快照市值回退”表示缺少报告价时回退到账户快照。今日分析覆盖：是/否。",
+                (
+                    f"> 账户概览：可用现金 **{overview.get('cash', 0.0):,.2f}** | "
+                    f"持仓市值 **{overview.get('equity_value', 0.0):,.2f}** | "
+                    f"账户总值 **{overview.get('total_value', 0.0):,.2f}**"
+                ),
                 "",
-            ])
-
-        has_risk_or_failure_block = bool(uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis)
-        if successful_results:
-            report_lines.extend([
-                "## 当前持仓行动清单",
-                "",
-                "> 仅列出当前持仓中需要执行的动作；未出现即表示以持有观察为主。",
+                "> 仅列出当前持仓中需要处理的确定性动作；未出现即表示继续持有/观察。",
                 "",
             ])
             if actionable_holding_results:
                 report_lines.extend(self._build_recommended_actions_table(actionable_holding_results))
             else:
-                report_lines.append("- 当前持仓无明确调仓动作。")
+                report_lines.append("- 当前持仓暂无明确调仓动作。")
             report_lines.append("")
-        if has_risk_or_failure_block:
-            report_lines.extend([
-                "## 未覆盖 / 分析失败 / 风险提醒",
-                "",
-            ])
-            if uncovered_holdings:
-                report_lines.append("**未覆盖持仓**")
-                for item in uncovered_holdings:
-                    report_lines.append(f"- {item.get('name', item.get('code'))}({item.get('code')})")
-                report_lines.append("")
-            if failed_results:
-                report_lines.append("**分析失败（建议重跑）**")
-                for result in failed_results:
-                    reason = str(getattr(result, "error_message", "") or "未知错误")
-                    report_lines.append(f"- {result.name}({result.code})：{reason[:120]}")
-                report_lines.append("")
-            if blocked_results:
-                report_lines.append("**不可决策（仅观察）**")
-                for result in blocked_results:
-                    report_lines.append(self._format_blocked_result_line(result))
-                report_lines.append("")
-            if has_mixed_price_basis:
+            if uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis:
                 report_lines.extend([
-                    "**风险提醒**",
-                    "- 本次包含实时价格与非实时价格混用，执行前请二次确认价格基准。",
+                    "**待补齐 / 风险提醒**",
                     "",
                 ])
-        if display_non_holding_results or effective_actionable_results or blocked_results:
+                if uncovered_holdings:
+                    report_lines.append(f"- 当前持仓有 **{len(uncovered_holdings)}** 只未覆盖分析，请优先补齐。")
+                    report_lines.append("**未覆盖持仓**")
+                    for item in uncovered_holdings:
+                        report_lines.append(
+                            f"- {self._format_stock_display_name(item.get('name'), item.get('code'))}"
+                        )
+                if failed_results:
+                    report_lines.append(f"- 今日有 **{len(failed_results)}** 只分析失败，建议重跑后再决策。")
+                    report_lines.append("**分析失败（建议重跑）**")
+                    for result in failed_results:
+                        stock_name = self._format_stock_display_name(result.name, result.code)
+                        error_message = str(getattr(result, "error_message", "") or "未知错误")
+                        report_lines.append(f"- {stock_name}：{error_message}")
+                if blocked_results:
+                    report_lines.append(f"- 今日有 **{len(blocked_results)}** 只触发验证阻断。")
+                    report_lines.append("**不可决策（仅观察）**")
+                    for result in blocked_results:
+                        report_lines.append(self._format_blocked_result_line(result))
+                if has_mixed_price_basis:
+                    report_lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
+                report_lines.append("")
+
+        executed_weight_by_code = {
+            self._normalize_stock_code(item.get("code", "")): float(item.get("weight") or 0.0)
+            for item in holdings
+            if self._normalize_stock_code(item.get("code", ""))
+        }
+
+        if display_non_holding_results:
             report_lines.extend([
-                "## 非持仓观察名单",
+                "## 新开仓 / 观察清单",
                 "",
             ])
             if display_non_holding_results:
                 report_lines.extend(self._build_recommended_actions_table(display_non_holding_results))
             else:
-                report_lines.append("- 今日无非持仓观察标的。")
+                report_lines.append("- 今日无新开仓 / 观察标的。")
             report_lines.append("")
-        if effective_actionable_results or blocked_results:
-            report_lines.extend([
-                "## 目标仓位模拟（计划视图）",
-                "",
-                "> 以下目标仓位仅为模拟计划；“当前持仓总览”始终展示已执行的真实账户状态。",
-                "",
-            ])
-            report_lines.extend(
-                self._build_simulated_target_allocation_table(
-                    effective_actionable_results,
-                    executed_weight_by_code=executed_weight_by_code,
-                )
-            )
-            report_lines.extend(
-                self._build_section_c_reconciliation_lines(
-                    results=effective_actionable_results,
-                    overview_holdings=holdings,
-                )
-            )
-            report_lines.extend([
-                "",
-                "---",
-                "",
-            ])
 
         # 逐个股票的决策仪表盘（Issue #262: summary_only 时跳过详情）
         if not self._report_summary_only:
@@ -2096,15 +2032,60 @@ class NotificationService:
                         observation_items=observation_items,
                     )
                 )
-        report_lines.extend([
-            f"> 审计范围：成功分析 **{len(successful_results_for_summary)}** 只 | "
-            f"失败 **{len(failed_results_for_summary)}** 只 | "
-            f"BLOCK **{len(blocked_results_for_summary)}** 只 | "
-            f"{self._format_execution_action_counts_text(daily_summary)}",
+
+        appendix_lines = [
+            "## 详情 / 审计附录",
             "",
-        ])
-        report_lines.extend(self._build_data_baseline_lines(results, generated_at))
-        report_lines.extend(render_preopen_decision_appendix(daily_summary))
+            "### 审计范围 / 数据基准",
+            "",
+            (
+                f"> 审计范围：成功分析 **{len(successful_results_for_summary)}** 只 | "
+                f"失败 **{len(failed_results_for_summary)}** 只 | "
+                f"BLOCK **{len(blocked_results_for_summary)}** 只 | "
+                f"{self._format_execution_action_counts_text(daily_summary)}"
+            ),
+            "",
+        ]
+        appendix_lines.extend(self._build_data_baseline_lines(results, generated_at, title="### 数据时间基准"))
+        if holdings:
+            appendix_lines.extend([
+                "### 持仓估值与覆盖（附录）",
+                "",
+                "> 用于审计账户快照、报告时点估值来源与今日分析覆盖范围。",
+                "",
+            ])
+            appendix_lines.extend(
+                build_holdings_audit_table(
+                    holdings=holdings,
+                    format_stock_display_name=self._format_stock_display_name,
+                    format_valuation_source_label=self._format_valuation_source_label,
+                    format_yes_no_label=self._format_yes_no_label,
+                    to_markdown_table_cell=self._to_markdown_table_cell,
+                )
+            )
+            appendix_lines.append("")
+        if effective_actionable_results:
+            appendix_lines.extend([
+                "### 计划仓位模拟（附录）",
+                "",
+                "> 以下目标仓位仅为模拟计划；正文动作表优先用于开盘前阅读。",
+                "",
+            ])
+            appendix_lines.extend(
+                self._build_simulated_target_allocation_table(
+                    effective_actionable_results,
+                    executed_weight_by_code=executed_weight_by_code,
+                )
+            )
+            appendix_lines.extend(
+                self._build_section_c_reconciliation_lines(
+                    results=effective_actionable_results,
+                    overview_holdings=holdings,
+                )
+            )
+            appendix_lines.append("")
+        appendix_lines.extend(render_preopen_decision_appendix(daily_summary, include_heading=False))
+        report_lines.extend(appendix_lines)
         
         # 底部免责声明与时间
         report_lines.extend([

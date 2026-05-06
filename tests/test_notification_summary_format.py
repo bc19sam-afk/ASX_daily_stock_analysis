@@ -11,6 +11,14 @@ from src.formatters import format_feishu_markdown, markdown_to_html_document
 from src.notification import NotificationService, NotificationBuilder
 
 
+def _section_from(text: str, title: str) -> str:
+    return text.split(title, 1)[1]
+
+
+def _section_between(text: str, start_title: str, end_title: str) -> str:
+    return text.split(start_title, 1)[1].split(end_title, 1)[0]
+
+
 class NotificationSummaryFormatTestCase(unittest.TestCase):
     def _build_service(self) -> NotificationService:
         service = NotificationService.__new__(NotificationService)
@@ -78,20 +86,21 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("## 今日行动摘要", report)
-        self.assertIn("## 当前持仓总览", report)
-        self.assertIn("## 目标仓位模拟（计划视图）", report)
-        self.assertIn("- 可用现金: **100,000.00**", report)
-        self.assertIn("- 持仓市值: **0.00**", report)
-        self.assertIn("- 账户总值: **100,000.00**", report)
-        self.assertIn("| 标的 | 今日主动作（确定性/未执行） | AI补充（仅参考） |", report)
-        self.assertIn("| 标的 | 当前已执行权重 | 模拟目标权重 | 模拟调仓金额 |", report)
+        body_section = _section_between(report, "## 新开仓 / 观察清单", "## 详情 / 审计附录")
+        appendix_section = _section_from(report, "## 详情 / 审计附录")
+
+        self.assertIn("## 新开仓 / 观察清单", report)
+        self.assertIn("## 详情 / 审计附录", report)
+        self.assertNotIn("## 今日行动摘要", report)
+        self.assertNotIn("## 当前持仓总览", report)
+        self.assertNotIn("## 当前持仓行动清单", report)
+        self.assertNotIn("## 目标仓位模拟（计划视图）", report)
         self.assertIn("| 标的 | 今日主动作（确定性/未执行） | AI补充（仅参考） |", report)
         self.assertIn("**超长股票名称用于验证表格列宽稳定性与渲染一致性示例股份有限公司 (600519)**", report)
+        self.assertIn("### 计划仓位模拟（附录）", appendix_section)
+        self.assertIn("| 标的 | 当前已执行权重 | 模拟目标权重 | 模拟调仓金额 |", appendix_section)
+        self.assertNotIn("模拟目标权重", body_section)
         self.assertNotIn("   - 今日动作", report)
-
-        section_a = report.split("## 当前持仓行动清单")[0]
-        self.assertNotIn("模拟目标权重", section_a)
 
     @patch("src.notification.get_db")
     def test_dashboard_section_b_copy_uses_user_facing_wording(self, mock_get_db) -> None:
@@ -348,8 +357,10 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([analyzed_result], report_date="2026-03-30")
 
-        self.assertIn("| BHP(BHP.AX) | 100.00 | 50.00% |", report)
-        self.assertIn("| 🟢 **BHP (BHP.AX)** | 50.00% | 40.00% | 5,000.00 |", report)
+        appendix_section = _section_from(report, "## 详情 / 审计附录")
+
+        self.assertIn("| BHP (BHP.AX) | 100.00 | 50.00% |", appendix_section)
+        self.assertIn("| 🟢 **BHP (BHP.AX)** | 50.00% | 40.00% | 5,000.00 |", appendix_section)
         self.assertIn("未纳入今日分析的持仓权重：**16.67%**", report)
 
     @patch("src.notification.datetime")
@@ -522,14 +533,21 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report(self._build_regression_results(), report_date="2026-03-30")
 
+        appendix_section = _section_from(report, "## 详情 / 审计附录")
+
         self.assertIn("# 🎯 2026-03-30 决策仪表盘", report)
         self.assertIn("价格口径披露：**0/2** 只使用实时价格，**0/2** 只使用最新收盘，**2/2** 只按收盘口径。", report)
-        self.assertIn("| 贵州茅台(600519) | 100.00 | 36.00% | 账户快照市值回退 | 是 |", report)
+        self.assertIn("> 账户概览：可用现金 **200,000.00** | 持仓市值 **300,000.00** | 账户总值 **500,000.00**", report)
+        self.assertIn("| 当前持仓 | 数量 | 权重 | 估值来源 | 今日分析覆盖 |", appendix_section)
+        self.assertIn("| 贵州茅台 (600519) | 100.00 | 36.00% | 账户快照市值回退 | 是 |", appendix_section)
         self.assertIn("| 🟢 **贵州茅台 (600519)** | 加仓 · 中等仓位（约 16%） |", report)
-        self.assertIn("| 🟢 **贵州茅台 (600519)** | 36.00% | 16.00% | 15,000.00 |", report)
-        self.assertIn("## 今日行动摘要", report)
-        self.assertIn("## 当前持仓总览", report)
-        self.assertIn("## 目标仓位模拟（计划视图）", report)
+        self.assertIn("| 🟢 **贵州茅台 (600519)** | 36.00% | 16.00% | 15,000.00 |", appendix_section)
+        self.assertIn("## 当前持仓动作", report)
+        self.assertIn("## 详情 / 审计附录", report)
+        self.assertIn("### 计划仓位模拟（附录）", appendix_section)
+        self.assertNotIn("## 今日行动摘要", report)
+        self.assertNotIn("## 当前持仓总览", report)
+        self.assertNotIn("## 目标仓位模拟（计划视图）", report)
 
     @patch("src.notification.get_db")
     def test_dashboard_section_c_current_weight_uses_same_source_as_section_a(self, mock_get_db) -> None:
@@ -551,8 +569,10 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("| 贵州茅台(600519) | 10.00 | 27.27% |", report)
-        self.assertIn("| 🟢 **贵州茅台 (600519)** | 27.27% | 30.00% | 8,000.00 |", report)
+        appendix_section = _section_from(report, "## 详情 / 审计附录")
+
+        self.assertIn("| 贵州茅台 (600519) | 10.00 | 27.27% |", appendix_section)
+        self.assertIn("| 🟢 **贵州茅台 (600519)** | 27.27% | 30.00% | 8,000.00 |", appendix_section)
         self.assertNotIn("| 🟢 **贵州茅台 (600519)** | 5.00% | 30.00% | 8,000.00 |", report)
 
     @patch("src.notification.get_db")
@@ -607,12 +627,16 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([failed_a, failed_b], report_date="2026-03-30")
 
-        self.assertIn("## 未覆盖 / 分析失败 / 风险提醒", report)
+        self.assertIn("## 当前持仓动作", report)
+        self.assertIn("- 当前持仓暂无明确调仓动作。", report)
+        self.assertIn("**待补齐 / 风险提醒**", report)
+        self.assertIn("- 当前持仓有 **1** 只未覆盖分析，请优先补齐。", report)
+        self.assertIn("- 今日有 **2** 只分析失败，建议重跑后再决策。", report)
         self.assertIn("**分析失败（建议重跑）**", report)
-        self.assertIn("- 贵州茅台(600519)：数据源超时", report)
-        self.assertIn("- 五粮液(000858)：模型返回空结果", report)
+        self.assertIn("- 贵州茅台 (600519)：数据源超时", report)
+        self.assertIn("- 五粮液 (000858)：模型返回空结果", report)
         self.assertIn("**未覆盖持仓**", report)
-        self.assertIn("- 贵州茅台(600519)", report)
+        self.assertIn("- 贵州茅台 (600519)", report)
 
     @patch("src.notification.get_db")
     def test_dashboard_headline_counts_use_successful_results_when_failures_exist(self, mock_get_db) -> None:
@@ -648,11 +672,12 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
 
         report = service.generate_dashboard_report([ok_result, failed_result], report_date="2026-03-30")
-        self.assertIn("## 非持仓观察名单", report)
+        self.assertIn("## 新开仓 / 观察清单", report)
         self.assertIn("贵州茅台 (600519)", report)
-        non_holding_section = report.split("## 非持仓观察名单", 1)[1]
-        self.assertNotIn("五粮液(000858)", non_holding_section)
-        self.assertIn("五粮液(000858)：Connection error", report)
+        non_holding_section = _section_between(report, "## 新开仓 / 观察清单", "## 详情 / 审计附录")
+        self.assertNotIn("五粮液 (000858)", non_holding_section)
+        self.assertIn("**分析失败（建议重跑）**", report)
+        self.assertIn("- 五粮液 (000858)：Connection error", report)
 
     def test_failed_result_canonical_advice_is_not_hold(self) -> None:
         service = self._build_service()
@@ -740,11 +765,11 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         ]
 
         report = service.generate_dashboard_report(results, report_date="2026-03-30")
-        self.assertIn("- 可用现金: **112.01**", report)
-        self.assertIn("- 持仓市值: **6,740.00**", report)
-        self.assertIn("- 账户总值: **6,852.01**", report)
-        self.assertIn("| BHP(BHP.AX) | 66.00 | 48.16% |", report)
-        self.assertIn("| SHL(SHL.AX) | 172.00 | 50.20% |", report)
+        appendix_section = _section_from(report, "## 详情 / 审计附录")
+
+        self.assertIn("> 账户概览：可用现金 **112.01** | 持仓市值 **6,740.00** | 账户总值 **6,852.01**", report)
+        self.assertIn("| BHP (BHP.AX) | 66.00 | 48.16% |", appendix_section)
+        self.assertIn("| SHL (SHL.AX) | 172.00 | 50.20% |", appendix_section)
 
     @patch("src.notification.get_db")
     def test_dashboard_overview_exposes_valuation_source_and_analysis_coverage(self, mock_get_db) -> None:
@@ -763,15 +788,18 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         ]
 
         report = service.generate_dashboard_report(results, report_date="2026-03-30")
-        self.assertIn("| 当前持仓 | 数量 | 权重 | 估值来源 | 今日分析覆盖 |", report)
+        appendix_section = _section_from(report, "## 详情 / 审计附录")
+
+        self.assertIn("### 持仓估值与覆盖（附录）", appendix_section)
+        self.assertIn("| 当前持仓 | 数量 | 权重 | 估值来源 | 今日分析覆盖 |", appendix_section)
         # BHP uses close-basis report price and is analyzed today
-        self.assertIn("| BHP(BHP.AX) | 66.00 | 58.76% | 收盘基准价估值 | 是 |", report)
+        self.assertIn("| BHP (BHP.AX) | 66.00 | 58.76% | 收盘基准价估值 | 是 |", appendix_section)
         # LAU falls back to stored market_value and is analyzed today
-        self.assertIn("| LAU(LAU.AX) | 2,958.00 | 34.19% | 账户快照市值回退 | 是 |", report)
+        self.assertIn("| LAU (LAU.AX) | 2,958.00 | 34.19% | 账户快照市值回退 | 是 |", appendix_section)
         # TLS is not in today's analysis results
-        self.assertIn("| TLS(TLS.AX) | 100.00 | 5.14% | 账户快照市值回退 | 否 |", report)
-        self.assertIn("账户快照市值回退", report)
-        self.assertIn("今日分析覆盖：是/否", report)
+        self.assertIn("| TLS (TLS.AX) | 100.00 | 5.14% | 账户快照市值回退 | 否 |", appendix_section)
+        self.assertIn("账户快照市值回退", appendix_section)
+        self.assertIn("- 当前持仓有 **1** 只未覆盖分析，请优先补齐。", report)
 
     @patch("src.notification.get_db")
     def test_dashboard_overview_labels_realtime_valuation_source(self, mock_get_db) -> None:
@@ -791,8 +819,11 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("| BHP(BHP.AX) | 10.00 | 83.33% | 报告时点实时价估值 | 是 |", report)
-        self.assertIn("估值来源随价格口径变化", report)
+        appendix_section = _section_from(report, "## 详情 / 审计附录")
+
+        self.assertIn("**价格口径**：realtime；技术基准日 unknown", report)
+        self.assertIn("价格口径披露：**1/1** 只使用实时价格，**0/1** 只使用最新收盘，**0/1** 只按收盘口径。", report)
+        self.assertIn("| BHP (BHP.AX) | 10.00 | 83.33% | 报告时点实时价估值 | 是 |", appendix_section)
 
     @patch("src.notification.get_db")
     def test_dashboard_overview_defaults_legacy_price_source_to_close_basis(self, mock_get_db) -> None:
@@ -812,8 +843,12 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
-        self.assertIn("| BHP(BHP.AX) | 10.00 | 83.33% | 收盘基准价估值 | 是 |", report)
-        self.assertNotIn("报告时点实时价估值 | 是 |", report)
+        appendix_section = _section_from(report, "## 详情 / 审计附录")
+
+        self.assertIn("**价格口径**：close_only；技术基准日 unknown", report)
+        self.assertIn("价格口径披露：**0/1** 只使用实时价格，**0/1** 只使用最新收盘，**1/1** 只按收盘口径。", report)
+        self.assertIn("| BHP (BHP.AX) | 10.00 | 83.33% | 收盘基准价估值 | 是 |", appendix_section)
+        self.assertNotIn("报告时点实时价估值 | 是 |", appendix_section)
 
     @patch("src.notification.get_db")
     def test_market_snapshot_displays_yfinance_source_name(self, mock_get_db) -> None:

@@ -572,16 +572,18 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
     return lines
 
 
-def render_preopen_decision_appendix(summary: Dict[str, Any]) -> List[str]:
+def render_preopen_decision_appendix(summary: Dict[str, Any], *, include_heading: bool = True) -> List[str]:
     """Render audit/detail sections below the compact homepage."""
     if not summary:
         return []
 
     counts = summary.get("action_counts") or {}
-    lines = [
-        "## 详情 / 审计附录",
-        "",
-    ]
+    lines: List[str] = []
+    if include_heading:
+        lines.extend([
+            "## 详情 / 审计附录",
+            "",
+        ])
     lines.extend(render_evidence_summary_lines(summary.get("evidence_summary") or {}))
     lines.extend(render_report_reliability_lines(summary.get("report_reliability") or {}))
     lines.extend(

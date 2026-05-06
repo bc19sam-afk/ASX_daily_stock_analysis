@@ -526,3 +526,23 @@
 - Test result: `python -m pytest tests/test_report_readability_guardrail.py tests/test_daily_decision_dashboard_archive.py` passed, 13 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 548 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: presentation-only change; deterministic action fields, BLOCK semantics, validation gate behavior, and `close_only` planning context remained unchanged.
+
+### 2026-05-06 - R1 Report Body Deduplication Audit
+
+- Status: missing.
+- Scope: report body structure after the compact homepage.
+- Forbidden areas: no `final_decision`, `position_action`, `target_weight`, `delta_amount`, `action_counts`, `validation_status`, `PositionManager`, pipeline, data provider, workflow, `close_only`, broker integration, or automatic trading changes.
+- Finding: after R0, the homepage was readable, but the body still repeated the same action information across `今日行动摘要`, `当前持仓总览`, `当前持仓行动清单`, and `目标仓位模拟（计划视图）`.
+- Decision: keep the homepage unchanged, collapse body holdings content into one main action section, rename the non-holding section to `新开仓 / 观察清单`, and move simulated target allocation plus audit/time-basis material into the appendix path.
+
+### 2026-05-06 - R1 Report Body Deduplication Implementation
+
+- Status: implemented.
+- Replaced the repeated body sequence with `当前持仓动作` and `新开仓 / 观察清单`, preserving one main holdings action table plus a compact risk/remediation block.
+- Moved `目标仓位模拟` out of the main reading path into `详情 / 审计附录` as `计划仓位模拟（附录）`, alongside audit scope and data-basis disclosure.
+- Restored appendix-level auditability with a compact `持仓估值与覆盖（附录）` table and explicit failed / uncovered compact lists, without re-expanding the body into duplicate overview blocks.
+- Normalized `legacy_report_time` display disclosure back to the close-basis path so appendix valuation labels and report-level price-basis wording stay consistent.
+- Preserved stock detail rendering and audit appendix content for evidence summary/matrix, backtest confidence, score bucket calibration, and risk sizing shadow/dry-run sections.
+- Added `tests/test_report_body_deduplication.py` and updated validation-gate rendering assertions to the new body contract.
+- Updated broader notification rendering regression coverage so the appendix now locks holdings valuation source, analysis coverage, reconciliation weights, failure visibility, and the R1 body ordering contract.
+- Scope check: presentation-only change; deterministic action fields, BLOCK semantics, validation-gate behavior, and `close_only` planning context remained unchanged.
