@@ -569,3 +569,14 @@
 - Test result: `python -m pytest tests/test_report_readability_guardrail.py tests/test_report_body_deduplication.py tests/test_daily_decision_dashboard_archive.py` passed, 16 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 554 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: runner reads only local files, writes only intraday review JSON/Markdown artifacts, does not call realtime data, AI, data providers, brokers, storage, workflow, or daily report generation, and does not mutate input summary/action counts.
+
+### 2026-05-06 - P2-2 Intraday Review v1 Completion Audit
+
+- Status: complete.
+- Scope: original roadmap item `P2-2 Intraday Review v1`.
+- Audit result: current `main` satisfies the minimal P2-2 v1 contract through the independent intraday review contract, offline evaluator, and file-based runner.
+- Evidence: `scripts/run_intraday_review.py` reads a morning `daily_decision_summary` and caller-supplied `market_input.json`; `run_intraday_review_file()` writes independent `intraday_review_YYYYMMDD.json` and `intraday_review_YYYYMMDD.md` artifacts.
+- Interpretation: the original roadmap wording "拉取或获得盘中价格" is satisfied for v1 by "获得盘中价格" through explicit file input. Realtime quote fetching is not required for P2-2 v1 and remains out of scope until separately authorized.
+- Boundary check: no default daily workflow integration, no `close_only` daily report changes, no AI calls, no data provider calls, no broker integration, no automatic trading, no account writes, and no mutation of morning `final_decision`, `position_action`, `target_weight`, `delta_amount`, `action_counts`, or `validation_status`.
+- BLOCK check: BLOCK morning items remain `observe_only` or `block` and cannot become `still_valid`.
+- Decision: mark P2-2 complete and continue to original roadmap item `P2-3 ASX Official Announcement Check Contract`.
