@@ -51,6 +51,34 @@ def build_simulated_target_allocation_table(
     return lines
 
 
+def build_holdings_audit_table(
+    *,
+    holdings: Optional[List[Dict[str, Any]]],
+    format_stock_display_name: Callable[[Any, Any], str],
+    format_valuation_source_label: Callable[[str], str],
+    format_yes_no_label: Callable[[Any], str],
+    to_markdown_table_cell: Callable[[str], str],
+) -> List[str]:
+    """Build appendix-only holdings audit table for valuation source and coverage."""
+    lines = [
+        "| 当前持仓 | 数量 | 权重 | 估值来源 | 今日分析覆盖 |",
+        "|---|---:|---:|---|---|",
+    ]
+
+    for item in holdings or []:
+        display_name = format_stock_display_name(item.get("name"), item.get("code"))
+        stock_cell = to_markdown_table_cell(display_name)
+        lines.append(
+            "| "
+            f"{stock_cell} | "
+            f"{float(item.get('quantity') or 0.0):,.2f} | "
+            f"{float(item.get('weight') or 0.0):.2%} | "
+            f"{format_valuation_source_label(str(item.get('valuation_source') or ''))} | "
+            f"{format_yes_no_label(item.get('analyzed_today'))} |"
+        )
+    return lines
+
+
 def build_section_c_reconciliation_lines(
     *,
     results: List[Any],

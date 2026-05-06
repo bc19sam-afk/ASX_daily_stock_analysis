@@ -40,7 +40,7 @@ class NotificationValidationGateTestCase(unittest.TestCase):
 
         self.assertIn("不可决策（仅观察）", report)
         self.assertIn("价格口径混用", report)
-        self.assertIn("不可决策/仅观察", report)
+        self.assertIn("今日有 **1** 只触发验证阻断", report)
 
     @patch("src.notification.get_db")
     def test_dashboard_report_keeps_blocked_holding_weight_and_excludes_simulated_row(self, mock_get_db) -> None:
@@ -63,8 +63,7 @@ class NotificationValidationGateTestCase(unittest.TestCase):
         self.assertIn("BLOCK **1**", report)
         self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/阻塞：0/0/0/0/0/1", report)
         self.assertNotIn("当前/保持仓位", report)
-        section_c = report.split("## 目标仓位模拟（计划视图）", 1)[1].split("### C 段闭环说明", 1)[0]
-        self.assertNotIn("BHP.AX", section_c)
+        self.assertNotIn("### 计划仓位模拟（附录）", report)
 
     @patch("src.notification.get_db")
     def test_wechat_dashboard_separates_blocked_bucket_from_hold_and_simulated_allocation(self, mock_get_db) -> None:
