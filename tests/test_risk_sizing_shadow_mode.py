@@ -5,7 +5,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
-from src.daily_decision_summary import build_daily_decision_summary, render_preopen_decision_dashboard
+from src.daily_decision_summary import (
+    build_daily_decision_summary,
+    render_preopen_decision_appendix,
+    render_preopen_decision_dashboard,
+)
 
 
 def _result(**overrides) -> AnalysisResult:
@@ -47,6 +51,13 @@ def _summary(results):
         classify_price_basis=lambda result: result.execution_price_source,
         format_stock_display_name=lambda name, code: f"{name} ({code})",
         format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
+    )
+
+
+def _render_dashboard(summary) -> str:
+    return "\n".join(
+        render_preopen_decision_dashboard(summary)
+        + render_preopen_decision_appendix(summary)
     )
 
 
@@ -93,7 +104,7 @@ def test_blocked_result_gets_unavailable_shadow_preview_and_stays_blocked():
     )
 
     summary = _summary([blocked])
-    report = "\n".join(render_preopen_decision_dashboard(summary))
+    report = _render_dashboard(summary)
 
     assert summary["action_counts"]["blocked"] == 1
     assert summary["action_counts"]["total_actions"] == 0
@@ -113,10 +124,10 @@ def test_blocked_result_gets_unavailable_shadow_preview_and_stays_blocked():
 
 def test_dashboard_renders_shadow_wording_without_changing_close_only_context():
     summary = _summary([_result()])
-    report = "\n".join(render_preopen_decision_dashboard(summary))
+    report = _render_dashboard(summary)
 
     assert "风险仓位参考（Shadow，不改变今日动作）" in report
     assert "仅供人工复核，不改变今日 deterministic action" in report
     assert summary["price_policy"] == "close_only"
     assert summary["technical_basis_date"] == "2026-05-04"
-    assert "| 技术基准日 / 价格基准 | 2026-05-04 / close_only（收盘口径） |" in report
+    assert "**价格口径**：close_only；技术基准日 2026-05-04" in report

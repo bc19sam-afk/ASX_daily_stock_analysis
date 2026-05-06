@@ -46,17 +46,13 @@ from src.core.validator import normalize_validation_status
 from src.daily_decision_summary import (
     DEFAULT_ACTIONABLE_DELTA_AMOUNT,
     build_daily_decision_summary,
-    is_effective_executable_action,
+    render_preopen_decision_appendix,
     render_preopen_decision_dashboard,
 )
 from src.conditional_plan import (
     build_conditional_plan_points,
     format_conditional_plan_points_inline,
     render_conditional_plan_points_markdown,
-)
-from src.evidence_matrix import (
-    render_evidence_matrix_lines,
-    render_evidence_summary_lines,
 )
 from src.final_action_display import build_final_action_display
 from src.core.risk_sizing import risk_sizing_settings_from_config
@@ -1665,7 +1661,7 @@ class NotificationService:
         )
         self._last_daily_decision_summary = daily_summary
 
-        successful_results_for_summary, actionable_results_for_summary, blocked_results_for_summary = self._split_completed_results(sorted_results)
+        successful_results_for_summary, _, blocked_results_for_summary = self._split_completed_results(sorted_results)
         failed_results_for_summary = [r for r in sorted_results if _is_failed_analysis(r)]
 
         report_lines = [
@@ -1673,15 +1669,6 @@ class NotificationService:
             "",
         ]
         report_lines.extend(render_preopen_decision_dashboard(daily_summary))
-        report_lines.extend([
-            f"> 成功分析 **{len(successful_results_for_summary)}** 只 | "
-            f"失败 **{len(failed_results_for_summary)}** 只 | "
-            f"BLOCK **{len(blocked_results_for_summary)}** 只 | "
-            f"{self._format_execution_action_counts_text(daily_summary)}",
-            "",
-        ])
-        report_lines.extend(self._build_data_baseline_lines(results, generated_at))
-        report_lines.extend(render_evidence_summary_lines(daily_summary.get("evidence_summary") or {}))
         if portfolio_summary_section:
             report_lines.extend([portfolio_summary_section.rstrip(), "", "---", ""])
 
@@ -1746,8 +1733,6 @@ class NotificationService:
         if has_mixed_price_basis:
             report_lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
         report_lines.extend(["", "---", ""])
-
-        report_lines.extend(render_evidence_matrix_lines(daily_summary.get("evidence_matrix") or {}))
 
         report_lines.extend([
             "## 当前持仓总览",
@@ -2111,10 +2096,20 @@ class NotificationService:
                         observation_items=observation_items,
                     )
                 )
+        report_lines.extend([
+            f"> 审计范围：成功分析 **{len(successful_results_for_summary)}** 只 | "
+            f"失败 **{len(failed_results_for_summary)}** 只 | "
+            f"BLOCK **{len(blocked_results_for_summary)}** 只 | "
+            f"{self._format_execution_action_counts_text(daily_summary)}",
+            "",
+        ])
+        report_lines.extend(self._build_data_baseline_lines(results, generated_at))
+        report_lines.extend(render_preopen_decision_appendix(daily_summary))
         
-        # 底部（去除免责声明）
+        # 底部免责声明与时间
         report_lines.extend([
             "",
+            "*免责声明：仅作计划，供人工决策辅助；系统不自动下单。*",
             f"*报告生成时间：{generated_at.strftime('%Y-%m-%d %H:%M:%S')}*",
         ])
         
