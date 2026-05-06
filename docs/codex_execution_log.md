@@ -14,11 +14,13 @@
 
 ## Current Gate
 
-- Active phase: overnight safe queue.
-- Active PR: P1-3b-1 Risk-Based Sizing Cap Calculation.
-- P1-3a state: merged via PR #107.
-- Authorized scope for current PR: P1-3b-1 only.
-- P1-3b-3, P2-2, broker integration, automatic trading, workflow changes, `close_only` changes, and database migrations remain blocked.
+- Active phase: paused after original P2 roadmap completion.
+- Active PR: none.
+- P0 state: complete.
+- P1 state: complete through shadow / dry-run risk sizing, structured valuation, and ASX search localisation; true risk sizing enabled mode is not implemented.
+- P2 state: original roadmap complete through P2-1, P2-2, P2-3, and P2-4.
+- R0/R1 state: report readability guardrails complete.
+- P1-3b-3, realtime quote adapter, broker integration, automatic trading, workflow changes, `close_only` changes, storage changes, and database migrations remain blocked unless separately authorized.
 
 ## PR Status
 
@@ -32,16 +34,22 @@
 | P0-6 API Auth Guard v1 | merged | `codex/p0-6-api-auth-guard-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/104 | Merged via squash commit `dbea81f`. |
 | P1-1 Backtest Confidence Panel v1 | merged | `codex/p1-1-backtest-confidence-panel-v1` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/105 | Merged via squash commit `8317082`. |
 | P1-2 Score Bucket Calibration | merged | `codex/p1-2-score-bucket-calibration` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/106 | Merged via squash commit `f69108b`. |
-| P1-3a Risk-Based Sizing Shadow Mode | merged | `codex/p1-3a-risk-sizing-shadow-mode` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/107 | Shadow-only preview merged via squash commit `03c8fa9`; P1-3b not started. |
-| P1-3b-1 Risk-Based Sizing Cap Calculation | implemented | `codex/p1-3b-1-risk-sizing-cap-calculation` | not opened | Config-gated cap candidate helper only; no write-back to deterministic action fields. |
-| P1-3b-2 Risk Sizing Report Comparison / Dry Run | pending | not started | not started | Authorized after P1-3b-1 verification; display only. |
+| P1-3a Risk-Based Sizing Shadow Mode | merged | `codex/p1-3a-risk-sizing-shadow-mode` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/107 | Shadow-only preview merged via squash commit `03c8fa9`. |
+| P1-3b-1 Risk-Based Sizing Cap Calculation | merged | `codex/p1-3b-1-risk-sizing-cap-calculation` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/110 | Config-gated cap candidate helper only; no write-back to deterministic action fields. |
+| P1-3b-2 Risk Sizing Report Comparison / Dry Run | merged | `codex/p1-3b-2-risk-sizing-dry-run-comparison` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/111 | Dry-run/report comparison only; no deterministic action or sizing write-back. |
 | P1-3b-3 Risk-Based Sizing Cap Enabled Mode | blocked | not started | not started | Explicitly blocked; do not enable true cap behavior. |
 | P1-4 Structured Valuation Snapshot | merged | `codex/p1-4-structured-valuation-snapshot` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/108 | Merged via squash commit `58f3c93`. |
 | P1-5 ASX Search Localisation | merged | `codex/p1-5-asx-search-localisation` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/109 | Merged via squash commit `a21b28e`. |
-| P2-1 Intraday Review Input Contract | pending | not started | not started | Not part of P1-3b-1; contract-only task remains queued after P1-3b-2 verification. |
-| P2-2 Intraday Review v1 | pending | not started | not started | Roadmap only. |
-| P2-3 ASX Official Announcement Check Contract | pending | not started | not started | Roadmap only. |
-| P2-4 Daily Review Journal | pending | not started | not started | Roadmap only. |
+| P2-1 Intraday Review Input Contract | merged | `codex/p2-1-intraday-review-input-contract` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/112 | Contract-only input/decision layer; no realtime review implementation. |
+| P2-2 Intraday Review v1 | complete | multiple | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/117 | Original v1 satisfied by contract, offline evaluator, file runner, and completion audit; no realtime quote adapter. |
+| P2-3 ASX Official Announcement Check Contract | merged | `codex/p2-3-asx-official-announcement-check-contract` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/118 | Contract/display/reliability only; no scraper or trading action changes. |
+| P2-4 Daily Review Journal | merged | `codex/p2-4-daily-review-journal` | https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/119 | Artifact-only review journal; no broker, account, portfolio, or daily-summary mutation. |
+
+## Development Pause
+
+- Status recorded on 2026-05-06 after main commit `a0a0456`.
+- Pause all feature development until the next real daily report has been reviewed.
+- Do not start P1-3b-3, realtime quote adapters, new roadmap items, broker integration, automatic trading, database migrations, workflow changes, or `close_only` changes without separate authorization.
 
 ## Run Log
 
