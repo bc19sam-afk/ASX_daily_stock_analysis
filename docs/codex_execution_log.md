@@ -580,3 +580,18 @@
 - Boundary check: no default daily workflow integration, no `close_only` daily report changes, no AI calls, no data provider calls, no broker integration, no automatic trading, no account writes, and no mutation of morning `final_decision`, `position_action`, `target_weight`, `delta_amount`, `action_counts`, or `validation_status`.
 - BLOCK check: BLOCK morning items remain `observe_only` or `block` and cannot become `still_valid`.
 - Decision: mark P2-2 complete and continue to original roadmap item `P2-3 ASX Official Announcement Check Contract`.
+
+### 2026-05-06 - P2-3 ASX Official Announcement Check Contract
+
+- Status: implemented.
+- Scope: original roadmap item `P2-3 ASX Official Announcement Check Contract`.
+- Added a contract-only `ASXAnnouncementCheck` status model with `clear`, `risk_found`, `unavailable`, and `not_checked`; default/unconfigured checks remain `not_checked`.
+- Evidence matrix now preserves ASX announcement status explicitly, never falls back from `unavailable` or `not_checked` to `clear`, and treats `risk_found` as a block-severity evidence flag without changing deterministic actions.
+- Report reliability now flags and deducts for ASX announcement `not_checked`, `unavailable`, and `risk_found`; this is report evidence only and does not feed back into `final_decision`, `position_action`, sizing, validation gates, or action counts.
+- No scraper, paid API, realtime data source, AI call, broker integration, automatic trading, workflow change, `close_only` change, storage change, PositionManager change, or database migration was added.
+- Red test result before implementation: `python -m pytest tests/test_asx_announcement_contract.py` failed because `src.asx_announcements` did not exist.
+- Test result: `python -m pytest tests/test_asx_announcement_contract.py` passed, 5 tests.
+- Test result: `python -m pytest tests/test_asx_announcement_contract.py tests/test_evidence_matrix.py tests/test_report_reliability_score.py tests/test_report_readability_guardrail.py` passed, 21 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_daily_decision_dashboard_archive.py` passed, 9 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 559 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: P2-3 remains contract/display/reliability only; morning `daily_decision_summary` action fields and counts remain unchanged.

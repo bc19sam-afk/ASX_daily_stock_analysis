@@ -3,8 +3,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
 
+from src.asx_announcements import (
+    ANNOUNCEMENT_CLEAR,
+    ANNOUNCEMENT_NOT_CHECKED,
+    ANNOUNCEMENT_RISK_FOUND,
+    ANNOUNCEMENT_UNAVAILABLE,
+    coerce_asx_announcement_check,
+)
 from src.core.validator import normalize_validation_status
 
 
@@ -14,9 +21,11 @@ def build_evidence_matrix(
     overview: Dict[str, Any],
     classify_price_basis: Callable[[Any], str],
     format_validation_issue_text: Callable[[Any], str],
+    announcement_checks: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """Build per-stock evidence rows without feeding back into decisions."""
     holdings_by_code = _holdings_by_code(overview.get("holdings") or [])
+    announcement_checks = announcement_checks or {}
     matrix: Dict[str, List[Dict[str, Any]]] = {}
 
     for result in results:
@@ -29,7 +38,7 @@ def build_evidence_matrix(
             _technical_evidence(result),
             _valuation_evidence(result),
             _news_evidence(result),
-            _announcement_evidence(),
+            _announcement_evidence(code, announcement_checks.get(code)),
             _backtest_evidence(result),
             _portfolio_evidence(result, holding),
             _validation_evidence(result, format_validation_issue_text),
@@ -46,6 +55,9 @@ def summarize_evidence_matrix(matrix: Dict[str, List[Dict[str, Any]]]) -> Dict[s
         "market_data_missing_or_stale": 0,
         "news_missing": 0,
         "valuation_missing": 0,
+        "announcement_not_checked": 0,
+        "announcement_unavailable": 0,
+        "announcement_risk_found": 0,
         "backtest_not_checked": 0,
         "validation_block": 0,
     }
@@ -61,6 +73,13 @@ def summarize_evidence_matrix(matrix: Dict[str, List[Dict[str, Any]]]) -> Dict[s
             summary["news_missing"] += 1
         if (by_category.get("valuation") or {}).get("status") in {"missing", "not_checked", "stale"}:
             summary["valuation_missing"] += 1
+        announcement_status = (by_category.get("announcement") or {}).get("status")
+        if announcement_status == ANNOUNCEMENT_NOT_CHECKED:
+            summary["announcement_not_checked"] += 1
+        elif announcement_status == ANNOUNCEMENT_UNAVAILABLE:
+            summary["announcement_unavailable"] += 1
+        elif announcement_status == ANNOUNCEMENT_RISK_FOUND:
+            summary["announcement_risk_found"] += 1
         if (by_category.get("backtest") or {}).get("status") == "not_checked":
             summary["backtest_not_checked"] += 1
         if (by_category.get("validation") or {}).get("severity") == "block":
@@ -80,6 +99,11 @@ def render_evidence_summary_lines(summary: Dict[str, Any]) -> List[str]:
         f"- {summary.get('market_data_available', 0)}/{stock_count} 只股票行情数据完整。",
         f"- {summary.get('news_missing', 0)}/{stock_count} 只股票新闻证据缺失或未检查。",
         f"- {summary.get('valuation_missing', 0)}/{stock_count} 只股票估值 / 基本面证据缺失。",
+        (
+            f"- ASX 官方公告：未检查 {summary.get('announcement_not_checked', 0)}/{stock_count}，"
+            f"源不可用 {summary.get('announcement_unavailable', 0)}/{stock_count}，"
+            f"风险 {summary.get('announcement_risk_found', 0)}/{stock_count}。"
+        ),
         f"- {summary.get('backtest_not_checked', 0)}/{stock_count} 只股票回测证据未检查。",
         f"- {summary.get('validation_block', 0)} 只股票触发 validation block。",
         "",
@@ -176,14 +200,21 @@ def _news_evidence(result: Any) -> Dict[str, Any]:
     return _entry("news", "search_or_ai_summary", None, "missing", "新闻证据缺失。", "warning")
 
 
-def _announcement_evidence() -> Dict[str, Any]:
+def _announcement_evidence(code: str, check_value: Any = None) -> Dict[str, Any]:
+    check = coerce_asx_announcement_check(code, check_value)
+    severity = {
+        ANNOUNCEMENT_CLEAR: "info",
+        ANNOUNCEMENT_RISK_FOUND: "block",
+        ANNOUNCEMENT_UNAVAILABLE: "warning",
+        ANNOUNCEMENT_NOT_CHECKED: "warning",
+    }.get(check.status, "warning")
     return _entry(
         "announcement",
-        "not_configured",
-        None,
-        "not_checked",
-        "未接入 ASX 官方公告检查；执行前需人工检查 ASX announcements。",
-        "warning",
+        check.source,
+        check.checked_at,
+        check.status,
+        _format_announcement_details(check.to_dict()),
+        severity,
     )
 
 
@@ -285,6 +316,27 @@ def _format_valuation_snapshot(snapshot: Dict[str, Any]) -> str:
     if snapshot.get("as_of_date"):
         parts.append(f"时间：{snapshot.get('as_of_date')}")
     return "；".join(parts)
+
+
+def _format_announcement_details(check: Dict[str, Any]) -> str:
+    reason = _normal_text(check.get("reason")) or "ASX 官方公告状态未提供；执行前需人工检查公告。"
+    latest_items = check.get("latest_items") or []
+    titles = []
+    for item in latest_items[:2]:
+        if isinstance(item, dict):
+            title = _first_non_empty(item.get("title"), item.get("headline"), item.get("summary"))
+            published_at = _normal_text(item.get("published_at") or item.get("date"))
+            if title and published_at:
+                titles.append(f"{title}（{published_at}）")
+            elif title:
+                titles.append(title)
+        else:
+            title = _normal_text(item)
+            if title:
+                titles.append(title)
+    if titles:
+        return f"{reason} 最新项：{'；'.join(titles)}。"
+    return reason
 
 
 def _has_valuation_values(snapshot: Dict[str, Any]) -> bool:

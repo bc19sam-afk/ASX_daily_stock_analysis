@@ -130,26 +130,69 @@ def _score_market_data(stock_count: int, summary: Dict[str, Any], flags: List[Di
 
 
 def _score_evidence_completeness(matrix: Dict[str, List[Dict[str, Any]]], flags: List[Dict[str, str]]) -> int:
-    categories = {"technical", "valuation", "news"}
+    categories = {"technical", "valuation", "news", "announcement"}
     total = 0
+    issue_count = 0
     missing = 0
+    announcement_not_checked = 0
+    announcement_unavailable = 0
+    announcement_risk_found = 0
     for entries in matrix.values():
         for entry in entries:
             if entry.get("category") not in categories:
                 continue
             total += 1
-            if entry.get("status") in {"missing", "stale", "not_checked"}:
+            status = entry.get("status")
+            if entry.get("category") == "announcement":
+                if status == "not_checked":
+                    announcement_not_checked += 1
+                    issue_count += 1
+                    continue
+                if status == "unavailable":
+                    announcement_unavailable += 1
+                    issue_count += 1
+                    continue
+                if status == "risk_found":
+                    announcement_risk_found += 1
+                    issue_count += 1
+                    continue
+            if status in {"missing", "stale", "not_checked", "unavailable"}:
                 missing += 1
+                issue_count += 1
     if total <= 0:
-        flags.append({"code": "evidence_missing", "severity": "warning", "message": "技术 / 估值 / 新闻证据不可审计。"})
+        flags.append({"code": "evidence_missing", "severity": "warning", "message": "技术 / 估值 / 新闻 / 公告证据不可审计。"})
         return 0
-    score = round(25 * (total - missing) / total)
+    score = round(25 * (total - issue_count) / total)
     if missing > 0:
         flags.append(
             {
                 "code": "evidence_missing",
                 "severity": "warning",
                 "message": f"{missing}/{total} 项技术 / 估值 / 新闻证据缺失、过期或未检查。",
+            }
+        )
+    if announcement_not_checked > 0:
+        flags.append(
+            {
+                "code": "asx_announcement_not_checked",
+                "severity": "warning",
+                "message": f"{announcement_not_checked} 只股票 ASX 官方公告未检查；执行前检查公告。",
+            }
+        )
+    if announcement_unavailable > 0:
+        flags.append(
+            {
+                "code": "asx_announcement_unavailable",
+                "severity": "warning",
+                "message": f"{announcement_unavailable} 只股票 ASX 公告源不可用；执行前检查公告。",
+            }
+        )
+    if announcement_risk_found > 0:
+        flags.append(
+            {
+                "code": "asx_announcement_risk_found",
+                "severity": "block",
+                "message": f"{announcement_risk_found} 只股票检测到 price-sensitive 公告风险；详见证据矩阵。",
             }
         )
     return score
