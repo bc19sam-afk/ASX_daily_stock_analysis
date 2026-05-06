@@ -19,7 +19,12 @@ from src.backtest_confidence import (
     render_score_bucket_calibration_lines,
     with_current_score_bucket_items,
 )
-from src.evidence_matrix import build_evidence_matrix, summarize_evidence_matrix
+from src.evidence_matrix import (
+    build_evidence_matrix,
+    render_evidence_matrix_lines,
+    render_evidence_summary_lines,
+    summarize_evidence_matrix,
+)
 from src.final_action_display import (
     EXECUTABLE_ACTIONS,
     build_final_action_display,
@@ -37,6 +42,8 @@ from src.core.risk_sizing import (
 
 ACTION_COUNT_KEYS = ("buy", "add", "reduce", "close", "hold_watch", "blocked")
 DEFAULT_ACTIONABLE_DELTA_AMOUNT = 20.0
+HOMEPAGE_ACTIONABLE_LIMIT = 5
+HOMEPAGE_RISK_LIMIT = 5
 EXECUTION_CHECKLIST = [
     "确认报告为昨收计划 / 开盘前计划，技术信号基于已收盘日线。",
     "开盘后执行前复核实时价格、盘口流动性和重大新闻。",
@@ -421,6 +428,90 @@ def _format_action_item(item: Dict[str, Any]) -> str:
     return f"{item.get('name')}：{action_label}，目标仓位 {target_weight:.2%}，模拟调仓 {delta_amount:,.2f}"
 
 
+def _today_conclusion(
+    *,
+    actionable_items: List[Dict[str, Any]],
+    current_holding_actions: List[Dict[str, Any]],
+    blocked_items: List[Dict[str, Any]],
+) -> str:
+    if current_holding_actions:
+        return f"优先处理 {len(current_holding_actions)} 只当前持仓；其余按昨收计划准备。"
+    if actionable_items:
+        return f"今日有 {len(actionable_items)} 个确定性动作，开盘后确认价格再执行。"
+    if blocked_items:
+        return f"今日无可执行动作；{len(blocked_items)} 只标的触发 BLOCK，先观察。"
+    return "今日无确定性动作，以观察为主。"
+
+
+def _format_action_counts_inline(counts: Dict[str, Any]) -> str:
+    return (
+        f"买入 {int(counts.get('buy', 0) or 0)} / "
+        f"加仓 {int(counts.get('add', 0) or 0)} / "
+        f"减仓 {int(counts.get('reduce', 0) or 0)} / "
+        f"清仓 {int(counts.get('close', 0) or 0)} / "
+        f"观察 {int(counts.get('hold_watch', 0) or 0)} / "
+        f"BLOCK {int(counts.get('blocked', 0) or 0)}"
+    )
+
+
+def _report_reliability_sentence(reliability: Dict[str, Any]) -> str:
+    if not reliability:
+        return "未生成可信度摘要。"
+    level = str(reliability.get("level") or "low_observe_only")
+    label = {
+        "high": "可直接作为开盘前计划",
+        "usable_with_manual_review": "可用，但需人工确认",
+        "low_observe_only": "仅观察",
+    }.get(level, "仅观察")
+    reasons = [
+        str(flag.get("message") or "").strip()
+        for flag in (reliability.get("flags") or [])
+        if str(flag.get("code") or "") != "low_reliability" and str(flag.get("message") or "").strip()
+    ]
+    reason = reasons[0] if reasons else "无重大扣分项。"
+    return f"{int(reliability.get('score') or 0)}/100，{label}；{reason}"
+
+
+def _top_risk_lines(
+    *,
+    blocked_items: List[Dict[str, Any]],
+    flags: List[Dict[str, Any]],
+) -> List[str]:
+    risk_lines: List[str] = []
+    if blocked_items:
+        risk_lines.append(f"BLOCK {len(blocked_items)} 只，已从可执行动作中排除。")
+        for item in blocked_items[:2]:
+            reason = str(item.get("reason") or "").strip()
+            if reason:
+                risk_lines.append(f"{item.get('name')}：{reason}")
+
+    seen = {line for line in risk_lines}
+    for flag in flags:
+        if blocked_items and str(flag.get("code") or "") == "validation_block":
+            continue
+        message = str(flag.get("message") or "").strip()
+        if message and message not in seen:
+            risk_lines.append(message)
+            seen.add(message)
+        if len(risk_lines) >= HOMEPAGE_RISK_LIMIT:
+            break
+
+    return risk_lines[:HOMEPAGE_RISK_LIMIT]
+
+
+def _execution_checklist_inline(checklist: List[str]) -> str:
+    if not checklist:
+        return "开盘后确认价格；检查公告和新闻；数据不足则观察；仅作计划。"
+    return "开盘后确认价格；检查公告和新闻；数据不足则观察；仅作计划。"
+
+
+def _homepage_banner(price_policy: str) -> str:
+    normalized_policy = str(price_policy or "close_only")
+    if normalized_policy == "close_only":
+        return "> close_only 昨收计划 / 开盘前计划。开盘后确认价格。"
+    return f"> {normalized_policy} 价格口径。开盘后确认价格。"
+
+
 def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
     """Render the one-screen deterministic cockpit as Markdown lines."""
     counts = summary.get("action_counts") or {}
@@ -435,9 +526,63 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
     lines = [
         "## 开盘前决策驾驶舱",
         "",
-        "> 昨收计划 / 开盘前计划：本页只汇总确定性动作、当前组合视图和验证闸门结果；不是实时交易建议。开盘后执行前必须复核实时价格。",
+        _homepage_banner(str(summary.get("price_policy") or "close_only")),
+        "",
+        f"**今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
+        f"**今日动作数量**：{_format_action_counts_inline(counts)}",
+        "",
+        "**当前持仓需要处理什么**",
+    ]
+
+    if current_holding_actions:
+        for item in current_holding_actions[:HOMEPAGE_ACTIONABLE_LIMIT]:
+            lines.append(f"- {_format_action_item(item)}。")
+    else:
+        lines.append("- 当前持仓暂无必须调仓动作；继续按昨收计划观察。")
+    if uncovered_holdings:
+        lines.append(f"- 另有 {len(uncovered_holdings)} 只当前持仓未覆盖今日分析，执行前先补齐或人工确认。")
+
+    lines.extend(["", "**Top actionable items**"])
+    actionable_items = summary.get("actionable_items") or []
+    if actionable_items:
+        for item in actionable_items[:HOMEPAGE_ACTIONABLE_LIMIT]:
+            lines.append(f"- {_format_action_item(item)}。")
+    else:
+        if watch_items:
+            names = "、".join(str(item.get("name")) for item in watch_items[:HOMEPAGE_ACTIONABLE_LIMIT])
+            suffix = " 等" if len(watch_items) > HOMEPAGE_ACTIONABLE_LIMIT else ""
+            lines.append(f"- 今日无确定性动作；观察名单 {len(watch_items)} 只：{names}{suffix}。")
+        else:
+            lines.append("- 今日无确定性动作；数据不足则观察。")
+
+    lines.extend(["", "**Top risks / BLOCK**"])
+    risk_lines = _top_risk_lines(blocked_items=blocked_items, flags=flags)
+    if risk_lines:
+        for risk_line in risk_lines:
+            lines.append(f"- {risk_line}")
+    else:
+        lines.append("- 未发现 BLOCK 或数据质量风险。")
+    lines.extend([
+        "",
+        f"**报告可信度**：{_report_reliability_sentence(summary.get('report_reliability') or {})}",
+        f"**价格口径**：{summary.get('price_policy', 'close_only')}；技术基准日 {summary.get('technical_basis_date', 'unknown')}",
+        f"**执行前检查**：{_execution_checklist_inline(summary.get('execution_checklist', EXECUTION_CHECKLIST))}",
+    ])
+    lines.extend(["", "---", ""])
+    return lines
+
+
+def render_preopen_decision_appendix(summary: Dict[str, Any]) -> List[str]:
+    """Render audit/detail sections below the compact homepage."""
+    if not summary:
+        return []
+
+    counts = summary.get("action_counts") or {}
+    lines = [
+        "## 详情 / 审计附录",
         "",
     ]
+    lines.extend(render_evidence_summary_lines(summary.get("evidence_summary") or {}))
     lines.extend(render_report_reliability_lines(summary.get("report_reliability") or {}))
     lines.extend(
         render_backtest_confidence_lines(
@@ -448,49 +593,5 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
     lines.extend(render_score_bucket_calibration_lines(summary.get("score_bucket_calibration") or {}))
     lines.extend(render_risk_sizing_preview_lines(summary.get("risk_sizing_previews") or []))
     lines.extend(render_risk_sizing_comparison_lines(summary.get("risk_sizing_comparison") or {}))
-    lines.extend([
-        "| 项目 | 内容 |",
-        "|---|---|",
-        f"| 报告日 | {summary.get('report_date', 'unknown')} |",
-        f"| 技术基准日 / 价格基准 | {summary.get('technical_basis_date', 'unknown')} / {summary.get('price_policy', 'close_only')}（收盘口径） |",
-        f"| 今日总动作数量 | **{counts.get('total_actions', 0)}** |",
-        (
-            "| 买入 / 加仓 / 减仓 / 清仓 / 持有观察 / 阻塞 | "
-            f"{counts.get('buy', 0)} / {counts.get('add', 0)} / {counts.get('reduce', 0)} / "
-            f"{counts.get('close', 0)} / {counts.get('hold_watch', 0)} / {counts.get('blocked', 0)} |"
-        ),
-        "",
-        "**当前持仓需要做什么**",
-    ])
-
-    if current_holding_actions:
-        for item in current_holding_actions[:6]:
-            lines.append(f"- {_format_action_item(item)}。")
-    else:
-        lines.append("- 当前持仓暂无必须调仓动作；继续按昨收计划观察。")
-    if uncovered_holdings:
-        lines.append(f"- 另有 {len(uncovered_holdings)} 只当前持仓未覆盖今日分析，执行前先补齐或人工确认。")
-
-    lines.extend(["", "**观察名单触发条件**"])
-    if watch_items:
-        names = "、".join(str(item.get("name")) for item in watch_items[:6])
-        suffix = " 等" if len(watch_items) > 6 else ""
-        lines.append(f"- 今日观察 {len(watch_items)} 只：{names}{suffix}。")
-        lines.append(f"- {summary.get('watch_trigger_rule', WATCH_TRIGGER_RULE)}")
-    else:
-        lines.append(f"- 今日无持有观察项；{summary.get('watch_trigger_rule', WATCH_TRIGGER_RULE)}")
-
-    lines.extend(["", "**BLOCK / 数据质量风险**"])
-    if blocked_items or flags:
-        if blocked_items:
-            lines.append(f"- 存在 BLOCK：{len(blocked_items)} 只，已从可执行动作中排除。")
-        for flag in flags[:4]:
-            lines.append(f"- {flag.get('message', '')}")
-    else:
-        lines.append("- 未发现 BLOCK 或数据质量风险。")
-
-    lines.extend(["", "**开盘后执行前检查**"])
-    for item in summary.get("execution_checklist", EXECUTION_CHECKLIST):
-        lines.append(f"- {item}")
-    lines.extend(["", "---", ""])
+    lines.extend(render_evidence_matrix_lines(summary.get("evidence_matrix") or {}))
     return lines

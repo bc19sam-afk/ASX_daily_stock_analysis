@@ -6,7 +6,11 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
-from src.daily_decision_summary import build_daily_decision_summary, render_preopen_decision_dashboard
+from src.daily_decision_summary import (
+    build_daily_decision_summary,
+    render_preopen_decision_appendix,
+    render_preopen_decision_dashboard,
+)
 
 
 def _result(**overrides) -> AnalysisResult:
@@ -51,6 +55,13 @@ def _summary(results, *, score_bucket_calibration=None):
         format_stock_display_name=lambda name, code: f"{name} ({code})",
         format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
         score_bucket_calibration=score_bucket_calibration,
+    )
+
+
+def _render_dashboard(summary) -> str:
+    return "\n".join(
+        render_preopen_decision_dashboard(summary)
+        + render_preopen_decision_appendix(summary)
     )
 
 
@@ -115,7 +126,7 @@ def test_dashboard_renders_current_score_bucket_metrics_when_sample_available():
         [_result(sentiment_score=76)],
         score_bucket_calibration=build_score_bucket_calibration(score_results=rows, window_days=10),
     )
-    report = "\n".join(render_preopen_decision_dashboard(summary))
+    report = _render_dashboard(summary)
 
     assert "评分校准" in report
     assert "CBA (CBA.AX) 评分 76 -> 70_80" in report
@@ -136,7 +147,7 @@ def test_missing_sentiment_score_skips_current_bucket_mapping():
         [result],
         score_bucket_calibration=build_score_bucket_calibration(score_results=[], window_days=10),
     )
-    report = "\n".join(render_preopen_decision_dashboard(summary))
+    report = _render_dashboard(summary)
 
     assert summary["score_bucket_calibration"]["current_items"] == []
     assert "当前结果缺少可映射评分，跳过评分校准" in report
@@ -174,7 +185,7 @@ def test_blocked_item_is_not_score_bucket_enhanced_into_actionable():
             window_days=10,
         ),
     )
-    report = "\n".join(render_preopen_decision_dashboard(summary))
+    report = _render_dashboard(summary)
 
     assert summary["action_counts"]["blocked"] == 1
     assert summary["action_counts"]["total_actions"] == 0

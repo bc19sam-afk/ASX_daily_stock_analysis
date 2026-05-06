@@ -5,7 +5,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
-from src.daily_decision_summary import build_daily_decision_summary, render_preopen_decision_dashboard
+from src.daily_decision_summary import (
+    build_daily_decision_summary,
+    render_preopen_decision_appendix,
+    render_preopen_decision_dashboard,
+)
 
 
 def _result(**overrides) -> AnalysisResult:
@@ -50,11 +54,18 @@ def _summary(results):
     )
 
 
+def _render_dashboard(summary) -> str:
+    return "\n".join(
+        render_preopen_decision_dashboard(summary)
+        + render_preopen_decision_appendix(summary)
+    )
+
+
 def test_dry_run_comparison_renders_without_changing_action_fields():
     result = _result()
 
     summary = _summary([result])
-    report = "\n".join(render_preopen_decision_dashboard(summary))
+    report = _render_dashboard(summary)
 
     assert summary["action_counts"] == {
         "buy": 1,
@@ -100,7 +111,7 @@ def test_blocked_item_gets_unavailable_comparison_and_stays_blocked():
     )
 
     summary = _summary([blocked])
-    report = "\n".join(render_preopen_decision_dashboard(summary))
+    report = _render_dashboard(summary)
 
     assert summary["action_counts"]["blocked"] == 1
     assert summary["action_counts"]["total_actions"] == 0
@@ -120,7 +131,7 @@ def test_missing_price_or_stop_distance_is_unavailable_without_guessing():
     missing = _result(market_snapshot={"date": "2026-05-04", "source": "fixture"}, stop_loss=None)
 
     summary = _summary([missing])
-    report = "\n".join(render_preopen_decision_dashboard(summary))
+    report = _render_dashboard(summary)
 
     comparison = summary["risk_sizing_comparison"]["BHP.AX"]
     assert comparison["risk_capped_candidate_weight"] is None
@@ -133,11 +144,11 @@ def test_missing_price_or_stop_distance_is_unavailable_without_guessing():
 
 def test_dry_run_comparison_keeps_close_only_context_and_action_counts():
     summary = _summary([_result()])
-    report = "\n".join(render_preopen_decision_dashboard(summary))
+    report = _render_dashboard(summary)
 
     assert summary["price_policy"] == "close_only"
     assert summary["technical_basis_date"] == "2026-05-04"
     assert summary["action_counts"]["total_actions"] == 1
     assert summary["actionable_items"][0]["target_weight"] == 0.20
     assert summary["actionable_items"][0]["delta_amount"] == 20000.0
-    assert "| 技术基准日 / 价格基准 | 2026-05-04 / close_only（收盘口径） |" in report
+    assert "**价格口径**：close_only；技术基准日 2026-05-04" in report

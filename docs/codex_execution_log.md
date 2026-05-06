@@ -507,3 +507,22 @@
 - Test result: `python -m pytest tests/test_daily_decision_dashboard_archive.py` passed, 9 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 544 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: evaluator imports only contract/typing modules, does not call realtime data, AI, data providers, brokers, storage, workflow, or daily report generation, and does not mutate input summary/action counts.
+
+### 2026-05-06 - R0 Report Readability Guardrail Audit
+
+- Status: missing.
+- Scope: homepage readability only for the pre-open daily report.
+- Forbidden areas: no `final_decision`, `position_action`, `target_weight`, `delta_amount`, `action_counts`, `validation_status`, `PositionManager`, pipeline, data provider, workflow, `close_only`, realtime quotes, broker integration, or automatic trading changes.
+- Finding: the report homepage had become audit-heavy, with evidence matrix, calibration panels, risk sizing detail, conditional point explanations, and repeated disclaimer wording crowding out the actual morning action summary.
+- Decision: keep the homepage to a one-screen operator summary, move evidence / calibration / risk sizing detail into an appendix section, collapse repetitive warnings into short action-oriented copy, and preserve deterministic action semantics unchanged.
+
+### 2026-05-06 - R0 Report Readability Guardrail Implementation
+
+- Status: implemented.
+- Compact homepage now keeps only `今日结论`, `今日动作数量`, `当前持仓需要处理什么`, `Top actionable items`, `Top risks / BLOCK`, one-line `报告可信度`, `价格口径`, and one-line `执行前检查`.
+- Added appendix rendering for evidence summary/matrix, backtest confidence, score bucket calibration, and risk sizing shadow/dry-run sections so audit detail remains available without dominating the first screen.
+- Reduced repeated disclaimer wording and kept a single footer disclaimer: `仅作计划，供人工决策辅助；系统不自动下单。`
+- Added `tests/test_report_readability_guardrail.py` and updated report/archive tests to lock the new homepage-vs-appendix contract, including a mixed-price-policy banner regression.
+- Test result: `python -m pytest tests/test_report_readability_guardrail.py tests/test_daily_decision_dashboard_archive.py` passed, 13 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 548 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: presentation-only change; deterministic action fields, BLOCK semantics, validation gate behavior, and `close_only` planning context remained unchanged.

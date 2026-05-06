@@ -119,11 +119,13 @@ def test_preopen_dashboard_close_only_wording_and_action_counts(mock_get_db):
     report = service.generate_dashboard_report(_mixed_action_results(), report_date="2026-04-29")
 
     assert report.startswith("# 🎯 2026-04-29 决策仪表盘\n\n## 开盘前决策驾驶舱")
-    assert "昨收计划 / 开盘前计划" in report
-    assert "不是实时交易建议" in report
-    assert "开盘后执行前必须复核实时价格" in report
-    assert "| 今日总动作数量 | **4** |" in report
-    assert "| 买入 / 加仓 / 减仓 / 清仓 / 持有观察 / 阻塞 | 1 / 1 / 1 / 1 / 1 / 1 |" in report
+    assert "**今日结论**" in report
+    assert "**今日动作数量**" in report
+    assert "买入 1 / 加仓 1 / 减仓 1 / 清仓 1 / 观察 1 / BLOCK 1" in report
+    assert "**报告可信度**" in report
+    assert "**价格口径**：close_only" in report
+    assert "技术基准日 2026-04-28" in report
+    assert "**执行前检查**：" in report
 
     summary = service.get_last_daily_decision_summary()
     assert summary["price_policy"] == "close_only"
@@ -184,7 +186,7 @@ def test_noise_sized_actions_are_counted_as_watch_not_actionable(mock_get_db):
     report = service.generate_dashboard_report(results, report_date="2026-04-29")
     summary = service.get_last_daily_decision_summary()
 
-    assert "| 今日总动作数量 | **1** |" in report
+    assert "**今日动作数量**：买入 0 / 加仓 0 / 减仓 1 / 清仓 0 / 观察 1 / BLOCK 0" in report
     assert "LAU：减仓" not in report
     assert "LAU (LAU.AX)：减仓" not in report
     assert "**LAU (LAU.AX)** | 减仓" not in report
@@ -224,8 +226,7 @@ def test_tiny_open_is_watch_across_dashboard_and_wechat_summaries(mock_get_db):
     assert summary["action_counts"]["total_actions"] == 0
     assert summary["action_counts"]["buy"] == 0
     assert summary["action_counts"]["hold_watch"] == 1
-    assert "| 今日总动作数量 | **0** |" in dashboard_report
-    assert "| 买入 / 加仓 / 减仓 / 清仓 / 持有观察 / 阻塞 | 0 / 0 / 0 / 0 / 1 / 0 |" in dashboard_report
+    assert "**今日动作数量**：买入 0 / 加仓 0 / 减仓 0 / 清仓 0 / 观察 1 / BLOCK 0" in dashboard_report
     assert all(text not in dashboard_report for text in forbidden_action_text)
 
     summary_only_service = _service()
@@ -265,8 +266,7 @@ def test_normal_open_is_counted_as_buy_action(mock_get_db):
     assert summary["action_counts"]["total_actions"] == 1
     assert summary["action_counts"]["buy"] == 1
     assert summary["action_counts"]["hold_watch"] == 0
-    assert "| 今日总动作数量 | **1** |" in report
-    assert "| 买入 / 加仓 / 减仓 / 清仓 / 持有观察 / 阻塞 | 1 / 0 / 0 / 0 / 0 / 0 |" in report
+    assert "**今日动作数量**：买入 1 / 加仓 0 / 减仓 0 / 清仓 0 / 观察 0 / BLOCK 0" in report
 
 
 @patch("src.notification.get_db")
@@ -399,8 +399,8 @@ def test_html_archive_is_text_based_and_contains_dashboard(mock_get_db, tmp_path
     html = html_path.read_text(encoding="utf-8")
 
     assert "<h2>开盘前决策驾驶舱</h2>" in html
-    assert "昨收计划 / 开盘前计划" in html
-    assert "开盘后执行前必须复核实时价格" in html
+    assert "close_only 昨收计划 / 开盘前计划" in html
+    assert "开盘后确认价格" in html
     assert "<table>" in html
     assert "<img" not in html.lower()
     assert "image placeholder" not in html.lower()
