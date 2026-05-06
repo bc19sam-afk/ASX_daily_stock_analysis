@@ -546,3 +546,26 @@
 - Added `tests/test_report_body_deduplication.py` and updated validation-gate rendering assertions to the new body contract.
 - Updated broader notification rendering regression coverage so the appendix now locks holdings valuation source, analysis coverage, reconciliation weights, failure visibility, and the R1 body ordering contract.
 - Scope check: presentation-only change; deterministic action fields, BLOCK semantics, validation-gate behavior, and `close_only` planning context remained unchanged.
+
+### 2026-05-06 - P2-2b Audit
+
+- Status: missing.
+- Scope: file-based intraday review runner only.
+- Forbidden areas: no realtime quote fetching, no yfinance/data_provider/external API calls, no AI calls, no broker integration, no automatic trading, no account writes, no workflow change, no `close_only` daily report change, no PositionManager change, no P1-3b-3 risk sizing cap enablement, no database migration, and no P2-2c realtime adapter.
+- Finding: P2-2a exposed a pure offline evaluator, but there was no local-file runner that could read a morning `daily_decision_summary`, consume externally supplied market input, and write auditable intraday review artifacts.
+- Decision: keep the runner independent from `main.py` and daily workflow by adding `scripts/run_intraday_review.py`, with file reading/writing logic in `src/intraday_review.py`.
+
+### 2026-05-06 - P2-2b Implementation
+
+- Status: implemented.
+- Added `run_intraday_review_file()` to read a local summary JSON and local market-input JSON, run the offline evaluator, and write `intraday_review_YYYYMMDD.json` plus `intraday_review_YYYYMMDD.md`.
+- Added `scripts/run_intraday_review.py` as an explicit CLI for file-based review only.
+- Output items include `required_checks`, `source`, and `is_trade_instruction=false`; extra market-input symbols are ignored with warnings.
+- Missing market input degrades to `observe_only` with a `missing_input` reason.
+- Markdown output is intentionally short: data source, no automatic order placement, and manual checks before action.
+- Added `tests/test_intraday_review_runner.py`.
+- Red test result before implementation: `python -m pytest tests/test_intraday_review_runner.py` failed because `scripts.run_intraday_review` did not exist.
+- Test result: `python -m pytest tests/test_intraday_review_runner.py tests/test_intraday_review_offline_evaluator.py tests/test_intraday_review_contract.py` passed, 17 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_report_readability_guardrail.py tests/test_report_body_deduplication.py tests/test_daily_decision_dashboard_archive.py` passed, 16 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 554 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: runner reads only local files, writes only intraday review JSON/Markdown artifacts, does not call realtime data, AI, data providers, brokers, storage, workflow, or daily report generation, and does not mutate input summary/action counts.
