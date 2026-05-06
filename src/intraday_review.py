@@ -8,12 +8,15 @@ or mutate the morning summary.
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Mapping, Optional
+import json
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 from src.intraday_review_contract import (
     IntradayReviewEvaluation,
     IntradayReviewInput,
     IntradayReviewMarketInput,
+    build_intraday_review_input_from_summary,
     validate_intraday_review_decision,
     IntradayReviewDecision,
 )
@@ -76,6 +79,167 @@ def evaluate_intraday_review_offline(
     return evaluations
 
 
+def run_intraday_review_file(
+    *,
+    summary_path: str | Path,
+    market_input_path: str | Path,
+    output_dir: str | Path,
+) -> Dict[str, str]:
+    """Run the offline evaluator from local JSON files and write review artifacts."""
+    summary_file = Path(summary_path)
+    market_file = Path(market_input_path)
+    output_path = Path(output_dir)
+
+    summary = _read_json_object(summary_file)
+    market_payload = _read_json_object(market_file)
+    review_input = build_intraday_review_input_from_summary(
+        summary,
+        source_summary_path=str(summary_file),
+    )
+    market_inputs = _market_inputs_from_payload(market_payload)
+
+    evaluations = evaluate_intraday_review_offline(review_input, market_inputs=market_inputs)
+    market_source = str(market_payload.get("source") or "offline_input").strip() or "offline_input"
+    output = _build_file_review_payload(
+        review_input,
+        evaluations=evaluations,
+        market_input_codes=set(market_inputs.keys()),
+        generated_at=str(market_payload.get("generated_at") or ""),
+        market_source=market_source,
+    )
+
+    output_path.mkdir(parents=True, exist_ok=True)
+    date_slug = _date_slug(review_input.report_date)
+    json_path = output_path / f"intraday_review_{date_slug}.json"
+    markdown_path = output_path / f"intraday_review_{date_slug}.md"
+
+    json_path.write_text(
+        json.dumps(output, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    markdown_path.write_text(_render_file_review_markdown(output), encoding="utf-8")
+
+    return {
+        "json_path": str(json_path),
+        "markdown_path": str(markdown_path),
+    }
+
+
+def _build_file_review_payload(
+    review_input: IntradayReviewInput,
+    *,
+    evaluations: Mapping[str, IntradayReviewEvaluation],
+    market_input_codes: set[str],
+    generated_at: str,
+    market_source: str,
+) -> Dict[str, Any]:
+    summary_codes = _summary_codes(review_input)
+    extra_codes = sorted(code for code in market_input_codes if code not in summary_codes)
+    warnings = []
+    if extra_codes:
+        warnings.append(f"Ignored market input for symbols not present in summary: {', '.join(extra_codes)}")
+
+    return {
+        "report_date": review_input.report_date,
+        "source_summary_path": review_input.source_summary_path,
+        "generated_at": generated_at,
+        "price_policy": review_input.price_policy,
+        "technical_basis_date": review_input.technical_basis_date,
+        "is_trade_instruction": False,
+        "warnings": warnings,
+        "items": [
+            _file_review_item(evaluation, market_source=market_source)
+            for code, evaluation in evaluations.items()
+            if code in summary_codes
+        ],
+    }
+
+
+def _file_review_item(evaluation: IntradayReviewEvaluation, *, market_source: str) -> Dict[str, Any]:
+    return {
+        "code": evaluation.code,
+        "morning_action": evaluation.morning_action,
+        "review_status": evaluation.review_status,
+        "reason": evaluation.reason,
+        "price_deviation_pct": evaluation.price_deviation_pct,
+        "required_checks": list(evaluation.required_manual_checks),
+        "source": market_source or evaluation.source,
+        "is_trade_instruction": False,
+    }
+
+
+def _render_file_review_markdown(payload: Mapping[str, Any]) -> str:
+    lines = [
+        f"# 盘中复核结果 {payload.get('report_date') or ''}".rstrip(),
+        "",
+        "- 这是盘中复核结果",
+        "- 数据来自输入文件",
+        "- 不自动下单",
+        "- 执行前确认价格、公告、流动性",
+        "",
+        f"- 价格口径：{payload.get('price_policy') or 'unknown'}",
+        f"- 技术基准日：{payload.get('technical_basis_date') or 'unknown'}",
+        "",
+        "| 标的 | Morning action | 复核状态 | 价格偏离 | 说明 |",
+        "| --- | --- | --- | ---: | --- |",
+    ]
+    for item in payload.get("items") or []:
+        deviation = item.get("price_deviation_pct")
+        deviation_text = "n/a" if deviation is None else f"{float(deviation):+.2f}%"
+        lines.append(
+            "| {code} | {morning_action} | {review_status} | {deviation} | {reason} |".format(
+                code=item.get("code") or "",
+                morning_action=item.get("morning_action") or "",
+                review_status=item.get("review_status") or "",
+                deviation=deviation_text,
+                reason=_markdown_cell(str(item.get("reason") or "")),
+            )
+        )
+
+    warnings = payload.get("warnings") or []
+    if warnings:
+        lines.extend(["", "## Warnings"])
+        lines.extend(f"- {_markdown_cell(str(warning))}" for warning in warnings)
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _read_json_object(path: Path) -> Dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object.")
+    return payload
+
+
+def _market_inputs_from_payload(payload: Mapping[str, Any]) -> Dict[str, IntradayReviewMarketInput]:
+    items = payload.get("items") or []
+    if not isinstance(items, Sequence) or isinstance(items, (str, bytes)):
+        raise ValueError("market input JSON requires an items array.")
+    markets = []
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        markets.append(IntradayReviewMarketInput.from_dict(dict(item)))
+    return _normalize_market_inputs(markets)
+
+
+def _summary_codes(review_input: IntradayReviewInput) -> set[str]:
+    codes = set()
+    for bucket in (review_input.actionable_items, review_input.watch_items, review_input.blocked_items):
+        for item in bucket:
+            codes.add(_code(item))
+    return codes
+
+
+def _date_slug(report_date: str) -> str:
+    slug = "".join(ch for ch in str(report_date or "") if ch.isdigit())
+    return slug or "unknown"
+
+
+def _markdown_cell(value: str) -> str:
+    return value.replace("|", "/").replace("\n", " ")
+
+
 def _evaluate_item(
     item: Mapping[str, object],
     *,
@@ -99,7 +263,7 @@ def _evaluate_item(
             code,
             morning_action,
             "observe_only",
-            "No offline market input was supplied; evaluator cannot assess validity without guessing.",
+            "missing_input: No offline market input was supplied; evaluator cannot assess validity without guessing.",
             deviation,
         )
 

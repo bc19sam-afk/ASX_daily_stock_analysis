@@ -85,6 +85,45 @@ Rules:
 - PASS/actionable items can be `still_valid` only for manual review, never as a
   trade instruction.
 
+## File Runner
+
+P2-2b adds a local-file runner around the offline evaluator:
+
+```bash
+python scripts/run_intraday_review.py --summary reports/daily_decision_summary_YYYYMMDD.json --market-input market_input.json --output-dir reports
+```
+
+The runner reads only the provided files and writes:
+
+- `reports/intraday_review_YYYYMMDD.json`
+- `reports/intraday_review_YYYYMMDD.md`
+
+`market_input.json`:
+
+- `generated_at`
+- `source`: usually `file_input`
+- `items`: list of `IntradayReviewMarketInput`
+
+Output items include:
+
+- `code`
+- `morning_action`
+- `review_status`
+- `reason`
+- `price_deviation_pct`
+- `required_checks`
+- `source`
+- `is_trade_instruction`: always `false`
+
+Rules:
+
+- The runner does not fetch realtime prices, call data providers, call AI, or
+  connect brokers.
+- The morning `daily_decision_summary` is read-only and is not rewritten.
+- Missing market input degrades to observe-only with a `missing_input` reason.
+- Extra market-input symbols are ignored and reported as warnings.
+- Markdown output is a short manual-review report, not a trade instruction.
+
 ## Future P2-2 Guardrails
 
 A future implementation may build a separate intraday report, but it must stay
