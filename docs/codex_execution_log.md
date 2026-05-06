@@ -595,3 +595,19 @@
 - Test result: `python -m pytest tests/test_daily_decision_dashboard_archive.py` passed, 9 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 559 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: P2-3 remains contract/display/reliability only; morning `daily_decision_summary` action fields and counts remain unchanged.
+
+### 2026-05-06 - P2-4 Daily Review Journal
+
+- Status: implemented.
+- Scope: original roadmap item `P2-4 Daily Review Journal`.
+- Added a local JSON artifact helper for `reports/review_journal_YYYYMMDD.json` with schema version `review_journal.v1`.
+- Journal initialization records morning actions from an existing `daily_decision_summary` without mutating the summary or changing `final_decision`, `position_action`, `target_weight`, `delta_amount`, `validation_status`, or action counts.
+- Intraday review results can be appended with a source review path; manual execution notes are append-only and always marked `user_provided=true`.
+- Existing journal writes preserve prior manual notes, post-trade notes, and intraday review entries instead of replacing the artifact wholesale.
+- Added `docs/review_journal.md` to document that the journal is a review artifact, not a broker ledger, trading system, account writer, or portfolio updater.
+- Red test result before implementation: `python -m pytest tests/test_review_journal.py` failed because `src.review_journal` did not exist.
+- Test result: `python -m pytest tests/test_review_journal.py` passed, 6 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_intraday_review_runner.py tests/test_intraday_review_contract.py` passed, 8 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest tests/test_report_readability_guardrail.py tests/test_report_body_deduplication.py tests/test_daily_decision_dashboard_archive.py` passed, 16 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `python -m pytest` passed, 565 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Scope check: P2-4 records and appends review artifacts only; it does not connect brokers, write accounts, infer real fills, modify portfolio holdings, mutate daily summary fields, or affect `close_only` report generation.
