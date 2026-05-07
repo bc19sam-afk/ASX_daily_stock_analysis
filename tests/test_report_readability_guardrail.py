@@ -159,7 +159,6 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
 
     assert "**今日结论**" in landing
     assert "**今日动作数量**" in landing
-    assert "**免费数据质量快照**" in landing
     assert "**当前持仓需要处理什么**" in landing
     assert "**Top actionable items**" in landing
     assert "**Top risks / BLOCK**" in landing

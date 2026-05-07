@@ -121,15 +121,15 @@ def test_preopen_dashboard_close_only_wording_and_action_counts(mock_get_db):
     assert report.startswith("# 🎯 2026-04-29 决策仪表盘\n\n## 开盘前决策驾驶舱")
     assert "**今日结论**" in report
     assert "**今日动作数量**" in report
-    assert "**免费数据质量快照**" in report
-    assert "- 行情：" in report
-    assert "- 估值：" in report
-    assert "- 新闻：" in report
     assert "买入 1 / 加仓 1 / 减仓 1 / 清仓 1 / 观察 1 / BLOCK 1" in report
     assert "**报告可信度**" in report
     assert "**价格口径**：close_only" in report
     assert "技术基准日 2026-04-28" in report
     assert "**执行前检查**：" in report
+    assert "**免费数据质量快照**" in report
+    assert "- 行情：" in report
+    assert "- 估值：" in report
+    assert "- 新闻：" in report
 
     summary = service.get_last_daily_decision_summary()
     assert summary["price_policy"] == "close_only"
@@ -458,6 +458,7 @@ def test_data_quality_snapshot_summarizes_free_inputs_without_changing_actions(m
     assert any(item["code"] == "analysis_failed" for item in snapshot["attention"])
     assert "**免费数据质量快照**" in report
     assert "估值：1/2 有快照" in report
+    assert report.index("**免费数据质量快照**") < report.index("\n---\n")
 
 
 @patch("src.notification.get_db")

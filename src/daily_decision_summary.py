@@ -348,6 +348,17 @@ def build_daily_decision_summary(
         evidence_summary=evidence_summary,
         data_quality_flags=data_quality_flags,
     )
+    data_quality_snapshot = build_data_quality_snapshot(
+        successful_results=successful_results,
+        failed_results=failed_results,
+        evidence_matrix=evidence_matrix,
+        evidence_summary=evidence_summary,
+        report_reliability=report_reliability,
+        data_quality_flags=data_quality_flags,
+        price_basis_counts=counts,
+        technical_basis_dates=technical_dates,
+        uncovered_holdings=uncovered_holdings,
+    )
     if backtest_confidence is None:
         backtest_confidence = build_backtest_confidence_panel(
             summary=None,
@@ -388,17 +399,6 @@ def build_daily_decision_summary(
             min_delta_amount=min_action_delta_amount,
         ),
         settings=risk_sizing_settings,
-    )
-    data_quality_snapshot = build_data_quality_snapshot(
-        successful_results=successful_results,
-        failed_results=failed_results,
-        evidence_matrix=evidence_matrix,
-        evidence_summary=evidence_summary,
-        report_reliability=report_reliability,
-        data_quality_flags=data_quality_flags,
-        price_basis_counts=counts,
-        technical_basis_dates=technical_dates,
-        uncovered_holdings=uncovered_holdings,
     )
 
     return {
@@ -546,12 +546,9 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         "",
         f"**今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
         f"**今日动作数量**：{_format_action_counts_inline(counts)}",
-    ]
-    lines.extend(render_data_quality_snapshot_lines(summary.get("data_quality_snapshot") or {}))
-    lines.extend([
         "",
         "**当前持仓需要处理什么**",
-    ])
+    ]
 
     if current_holding_actions:
         for item in current_holding_actions[:HOMEPAGE_ACTIONABLE_LIMIT]:
@@ -587,6 +584,7 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         f"**价格口径**：{summary.get('price_policy', 'close_only')}；技术基准日 {summary.get('technical_basis_date', 'unknown')}",
         f"**执行前检查**：{_execution_checklist_inline(summary.get('execution_checklist', EXECUTION_CHECKLIST))}",
     ])
+    lines.extend(render_data_quality_snapshot_lines(summary.get("data_quality_snapshot") or {}))
     lines.extend(["", "---", ""])
     return lines
 
