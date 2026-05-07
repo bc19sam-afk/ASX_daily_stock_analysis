@@ -9,6 +9,9 @@ from pathlib import Path
 from src.review_journal import (
     append_manual_execution_note,
     attach_intraday_review,
+    bootstrap_review_journal_from_artifacts,
+    build_weekly_review_summary,
+    generate_weekly_review_summary_from_journals,
     build_review_journal_from_summary,
     load_review_journal_file,
     write_review_journal_file,
@@ -218,6 +221,135 @@ def test_journal_file_is_serializable_and_uses_expected_name(tmp_path: Path):
     assert path.name == "review_journal_20260506.json"
     assert json.loads(path.read_text(encoding="utf-8")) == loaded
     assert loaded["review_journal"]["report_date"] == "2026-05-06"
+
+
+def test_bootstrap_from_artifacts_merges_intraday_and_preserves_manual_notes(tmp_path: Path):
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir()
+    summary_path = reports_dir / "daily_decision_summary_20260506.json"
+    intraday_path = reports_dir / "intraday_review_20260506.json"
+    summary_path.write_text(json.dumps(_summary_payload(), ensure_ascii=False), encoding="utf-8")
+    intraday_path.write_text(json.dumps(_intraday_payload(), ensure_ascii=False), encoding="utf-8")
+
+    result = bootstrap_review_journal_from_artifacts(
+        summary_path=summary_path,
+        output_dir=reports_dir,
+        created_at="2026-05-06T16:00:00+10:00",
+        updated_at="2026-05-06T16:30:00+10:00",
+    )
+    journal_path = Path(result["journal_path"])
+    with_note = append_manual_execution_note(
+        load_review_journal_file(journal_path),
+        code="BHP.AX",
+        note="Manual note survives bootstrap rerun.",
+        status="skipped",
+        timestamp="2026-05-06T17:00:00+10:00",
+    )
+    write_review_journal_file(with_note, output_dir=reports_dir)
+
+    rerun = bootstrap_review_journal_from_artifacts(
+        summary_path=summary_path,
+        output_dir=reports_dir,
+        created_at="2026-05-06T18:00:00+10:00",
+        updated_at="2026-05-06T18:30:00+10:00",
+    )
+    loaded = load_review_journal_file(rerun["journal_path"])
+    payload = loaded["review_journal"]
+
+    assert result["attached_intraday_review"] is True
+    assert result["source_intraday_review_path"] == str(intraday_path)
+    assert result["infers_real_fills"] is False
+    assert payload["created_at"] == "2026-05-06T16:00:00+10:00"
+    assert payload["manual_execution_notes"] == with_note["review_journal"]["manual_execution_notes"]
+    assert len(payload["intraday_reviews"]) == 2
+
+
+def test_weekly_review_summary_counts_local_journals_without_inferring_fills(tmp_path: Path):
+    first = build_review_journal_from_summary(
+        _summary_payload(),
+        source_summary_path="reports/daily_decision_summary_20260506.json",
+        created_at="2026-05-06T16:00:00+10:00",
+    )
+    first = attach_intraday_review(
+        first,
+        _intraday_payload(),
+        source_review_path="reports/intraday_review_20260506.json",
+        updated_at="2026-05-06T16:30:00+10:00",
+    )
+    first = append_manual_execution_note(
+        first,
+        code="BHP.AX",
+        note="Skipped after manual news check.",
+        status="skipped",
+        timestamp="2026-05-06T17:00:00+10:00",
+    )
+    second_summary = copy.deepcopy(_summary_payload())
+    second_summary["report_date"] = "2026-05-07"
+    second_summary["actionable_items"][0]["code"] = "CSL.AX"
+    second = build_review_journal_from_summary(
+        second_summary,
+        source_summary_path="reports/daily_decision_summary_20260507.json",
+        created_at="2026-05-07T16:00:00+10:00",
+    )
+
+    weekly = build_weekly_review_summary(
+        [first, second],
+        week_start="2026-05-04",
+        week_end="2026-05-10",
+        source_journal_paths=["reports/review_journal_20260506.json", "reports/review_journal_20260507.json"],
+        generated_at="2026-05-10T18:00:00+10:00",
+    )["weekly_review_summary"]
+
+    assert weekly["schema_version"] == "review_weekly_summary.v1"
+    assert weekly["journal_count"] == 2
+    assert weekly["morning_action_counts"]["OPEN"] == 2
+    assert weekly["morning_action_counts"]["HOLD"] == 2
+    assert weekly["morning_action_counts"]["BLOCK"] == 2
+    assert weekly["intraday_review_counts"]["still_valid"] == 1
+    assert weekly["intraday_review_counts"]["observe_only"] == 1
+    assert weekly["manual_note_counts"]["skipped"] == 1
+    assert weekly["real_fills_inferred"] is False
+    assert weekly["broker_connected"] is False
+    assert {"code": "BHP.AX", "reasons": ["manual_skipped"]} in weekly["symbols_needing_followup"]
+
+
+def test_generate_weekly_review_summary_from_journal_files(tmp_path: Path):
+    reports_dir = tmp_path / "reports"
+    old_dir = tmp_path / "old"
+    reports_dir.mkdir()
+    old_dir.mkdir()
+    write_review_journal_file(
+        build_review_journal_from_summary(
+            _summary_payload(),
+            source_summary_path="reports/daily_decision_summary_20260506.json",
+            created_at="2026-05-06T16:00:00+10:00",
+        ),
+        output_dir=reports_dir,
+    )
+    old_summary = copy.deepcopy(_summary_payload())
+    old_summary["report_date"] = "2026-04-29"
+    write_review_journal_file(
+        build_review_journal_from_summary(
+            old_summary,
+            source_summary_path="reports/daily_decision_summary_20260429.json",
+            created_at="2026-04-29T16:00:00+10:00",
+        ),
+        output_dir=reports_dir,
+    )
+
+    output_path = generate_weekly_review_summary_from_journals(
+        journal_dir=reports_dir,
+        week_start="2026-05-04",
+        week_end="2026-05-10",
+        output_dir=old_dir,
+        generated_at="2026-05-10T18:00:00+10:00",
+    )
+    weekly = json.loads(output_path.read_text(encoding="utf-8"))["weekly_review_summary"]
+
+    assert output_path.name == "review_weekly_summary_20260504_20260510.json"
+    assert weekly["journal_count"] == 1
+    assert weekly["source_journal_paths"] == [str(reports_dir / "review_journal_20260506.json")]
+    assert weekly["morning_action_counts"]["OPEN"] == 1
 
 
 def test_review_journal_module_does_not_import_broker_storage_or_data_provider():
