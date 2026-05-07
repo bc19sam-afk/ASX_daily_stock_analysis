@@ -121,6 +121,10 @@ def test_preopen_dashboard_close_only_wording_and_action_counts(mock_get_db):
     assert report.startswith("# 🎯 2026-04-29 决策仪表盘\n\n## 开盘前决策驾驶舱")
     assert "**今日结论**" in report
     assert "**今日动作数量**" in report
+    assert "**免费数据质量快照**" in report
+    assert "- 行情：" in report
+    assert "- 估值：" in report
+    assert "- 新闻：" in report
     assert "买入 1 / 加仓 1 / 减仓 1 / 清仓 1 / 观察 1 / BLOCK 1" in report
     assert "**报告可信度**" in report
     assert "**价格口径**：close_only" in report
@@ -303,6 +307,7 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "evidence_matrix",
         "evidence_summary",
         "report_reliability",
+        "data_quality_snapshot",
         "backtest_confidence",
         "score_bucket_calibration",
         "risk_sizing_previews",
@@ -311,7 +316,7 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "watch_trigger_rule",
     }
     assert set(summary.keys()) == expected_top_level_keys
-    assert summary["schema_version"] == "daily_decision_summary.v1.6"
+    assert summary["schema_version"] == "daily_decision_summary.v1.7"
     assert set(summary["action_counts"].keys()) == {
         "buy",
         "add",
@@ -381,6 +386,78 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
     }
     assert summary["blocked_items"][0]["final_action_display"]["actionability"] == "blocked"
     assert summary["blocked_items"][0]["final_action_display"]["can_show_sizing"] is False
+
+
+@patch("src.notification.get_db")
+def test_data_quality_snapshot_summarizes_free_inputs_without_changing_actions(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    results = [
+        _result(
+            code="BHP.AX",
+            name="BHP",
+            final_decision="BUY",
+            position_action="ADD",
+            current_weight=0.20,
+            target_weight=0.25,
+            delta_amount=2500.0,
+            news_summary="No material overnight news.",
+            market_snapshot={
+                "date": "2026-04-28",
+                "close": "50.00",
+                "source": "yfinance",
+                "valuation_snapshot": {
+                    "source": "yfinance",
+                    "as_of_date": "2026-04-28",
+                    "pe_ttm": 14.2,
+                    "pb": 1.7,
+                    "dividend_yield": 0.048,
+                },
+            },
+        ),
+        _result(
+            code="CBA.AX",
+            name="CBA",
+            final_decision="HOLD",
+            position_action="HOLD",
+            market_snapshot={"close": "100.00", "source": "yfinance"},
+            news_summary="",
+            fundamental_analysis="",
+            company_highlights="",
+        ),
+        _result(
+            code="RIO.AX",
+            name="RIO",
+            success=False,
+            error_message="snapshot timeout",
+        ),
+    ]
+
+    report = service.generate_dashboard_report(results, report_date="2026-04-29")
+    summary = service.get_last_daily_decision_summary()
+    snapshot = summary["data_quality_snapshot"]
+
+    assert summary["action_counts"]["total_actions"] == 1
+    assert summary["action_counts"]["add"] == 1
+    assert snapshot["display_only"] is True
+    assert snapshot["free_sources"] == [
+        "market_snapshot",
+        "valuation_snapshot",
+        "evidence_matrix",
+        "report_reliability",
+    ]
+    assert snapshot["counts"]["successful_count"] == 2
+    assert snapshot["counts"]["failed_count"] == 1
+    assert snapshot["market_data"]["available_count"] == 1
+    assert snapshot["market_data"]["missing_or_stale_count"] == 1
+    assert snapshot["valuation"]["available_count"] == 1
+    assert snapshot["valuation"]["field_coverage"]["pe_ttm"] == 1
+    assert snapshot["valuation"]["field_coverage"]["pb"] == 1
+    assert snapshot["valuation"]["field_coverage"]["dividend_yield"] == 1
+    assert snapshot["news"]["missing_or_stale_count"] == 1
+    assert any(item["code"] == "analysis_failed" for item in snapshot["attention"])
+    assert "**免费数据质量快照**" in report
+    assert "估值：1/2 有快照" in report
 
 
 @patch("src.notification.get_db")

@@ -25,6 +25,10 @@ from src.evidence_matrix import (
     render_evidence_summary_lines,
     summarize_evidence_matrix,
 )
+from src.data_quality_snapshot import (
+    build_data_quality_snapshot,
+    render_data_quality_snapshot_lines,
+)
 from src.final_action_display import (
     EXECUTABLE_ACTIONS,
     build_final_action_display,
@@ -385,9 +389,20 @@ def build_daily_decision_summary(
         ),
         settings=risk_sizing_settings,
     )
+    data_quality_snapshot = build_data_quality_snapshot(
+        successful_results=successful_results,
+        failed_results=failed_results,
+        evidence_matrix=evidence_matrix,
+        evidence_summary=evidence_summary,
+        report_reliability=report_reliability,
+        data_quality_flags=data_quality_flags,
+        price_basis_counts=counts,
+        technical_basis_dates=technical_dates,
+        uncovered_holdings=uncovered_holdings,
+    )
 
     return {
-        "schema_version": "daily_decision_summary.v1.6",
+        "schema_version": "daily_decision_summary.v1.7",
         "report_date": report_date,
         "technical_basis_date": technical_basis_date,
         "technical_basis_dates": technical_dates,
@@ -406,6 +421,7 @@ def build_daily_decision_summary(
         "evidence_matrix": evidence_matrix,
         "evidence_summary": evidence_summary,
         "report_reliability": report_reliability,
+        "data_quality_snapshot": data_quality_snapshot,
         "backtest_confidence": backtest_confidence,
         "score_bucket_calibration": score_bucket_calibration,
         "risk_sizing_previews": risk_sizing_previews,
@@ -530,9 +546,12 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         "",
         f"**今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
         f"**今日动作数量**：{_format_action_counts_inline(counts)}",
+    ]
+    lines.extend(render_data_quality_snapshot_lines(summary.get("data_quality_snapshot") or {}))
+    lines.extend([
         "",
         "**当前持仓需要处理什么**",
-    ]
+    ])
 
     if current_holding_actions:
         for item in current_holding_actions[:HOMEPAGE_ACTIONABLE_LIMIT]:
