@@ -44,6 +44,7 @@ ACTION_COUNT_KEYS = ("buy", "add", "reduce", "close", "hold_watch", "blocked")
 DEFAULT_ACTIONABLE_DELTA_AMOUNT = 20.0
 HOMEPAGE_ACTIONABLE_LIMIT = 5
 HOMEPAGE_RISK_LIMIT = 5
+TRIAGE_CARD_PREVIEW_LIMIT = 3
 EXECUTION_CHECKLIST = [
     "确认报告为昨收计划 / 开盘前计划，技术信号基于已收盘日线。",
     "开盘后执行前复核实时价格、盘口流动性和重大新闻。",
@@ -135,6 +136,280 @@ def _build_item(
         format_validation_issue_text=format_validation_issue_text,
     )
     return item
+
+
+def _build_triage_card(
+    *,
+    actionable_items: List[Dict[str, Any]],
+    watch_items: List[Dict[str, Any]],
+    blocked_items: List[Dict[str, Any]],
+    uncovered_holdings: List[Dict[str, Any]],
+    failed_results: List[Any],
+    data_quality_flags: List[Dict[str, Any]],
+    evidence_matrix: Dict[str, List[Dict[str, Any]]],
+    report_reliability: Dict[str, Any],
+    score_bucket_calibration: Dict[str, Any],
+    risk_sizing_comparison: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build a display-only daily review triage card from existing artifacts."""
+    card = {
+        "today_must_review": [],
+        "today_can_ignore": [],
+        "high_value_low_confidence": [],
+        "data_quality_attention": [],
+    }
+
+    for item in actionable_items:
+        card["today_must_review"].append(
+            _triage_item(
+                item,
+                section="today_must_review",
+                reason=_must_review_reason(item),
+                evidence_basis=_triage_evidence_basis(
+                    item,
+                    report_reliability=report_reliability,
+                    source="actionable_items",
+                ),
+                confidence_note="Deterministic action is present; still requires open-price and news review.",
+                source_fields=["actionable_items", "final_action_display", "report_reliability"],
+            )
+        )
+        low_confidence_reasons = _item_low_confidence_reasons(
+            item,
+            evidence_matrix=evidence_matrix,
+            score_bucket_calibration=score_bucket_calibration,
+            risk_sizing_comparison=risk_sizing_comparison,
+        )
+        if low_confidence_reasons:
+            card["high_value_low_confidence"].append(
+                _triage_item(
+                    item,
+                    section="high_value_low_confidence",
+                    reason="Actionable but confidence inputs need review: " + "; ".join(low_confidence_reasons[:3]),
+                    evidence_basis=_triage_evidence_basis(
+                        item,
+                        report_reliability=report_reliability,
+                        source="evidence_matrix",
+                    ),
+                    confidence_note="; ".join(low_confidence_reasons),
+                    source_fields=[
+                        "actionable_items",
+                        "evidence_matrix",
+                        "score_bucket_calibration",
+                        "risk_sizing_comparison",
+                    ],
+                )
+            )
+
+    attention_codes = set()
+    for item in blocked_items:
+        code = _normalize_stock_code(item.get("code"))
+        attention_codes.add(code)
+        blocked_item = dict(item)
+        blocked_item["position_action"] = "BLOCK"
+        card["data_quality_attention"].append(
+            _triage_item(
+                blocked_item,
+                section="data_quality_attention",
+                reason=str(item.get("reason") or "Validation BLOCK; do not treat as actionable."),
+                evidence_basis="validation_status=BLOCK",
+                confidence_note="BLOCK remains a hard stop.",
+                source_fields=["blocked_items", "final_action_display", "data_quality_flags"],
+            )
+        )
+
+    for holding in uncovered_holdings:
+        code = _normalize_stock_code(holding.get("code"))
+        attention_codes.add(code)
+        card["data_quality_attention"].append(
+            {
+                "code": str(holding.get("code") or ""),
+                "name": str(holding.get("name") or holding.get("code") or ""),
+                "section": "data_quality_attention",
+                "reason": "Current holding is not covered by today's stock analysis.",
+                "evidence_basis": "uncovered_holdings",
+                "confidence_note": "Manual review should decide whether this holding needs a separate check.",
+                "source_fields": ["uncovered_holdings"],
+                "position_action": "HOLD",
+                "price_basis": "unknown",
+                "is_current_holding": True,
+            }
+        )
+
+    for result in failed_results:
+        code = _normalize_stock_code(getattr(result, "code", ""))
+        attention_codes.add(code)
+        name = str(getattr(result, "name", None) or code)
+        error = str(getattr(result, "error_message", "") or "analysis failed").strip()
+        card["data_quality_attention"].append(
+            {
+                "code": code,
+                "name": f"{name} ({code})" if code and code not in name else name,
+                "section": "data_quality_attention",
+                "reason": f"Analysis failed: {error}",
+                "evidence_basis": "failed_results",
+                "confidence_note": "No decision should be inferred from a failed analysis.",
+                "source_fields": ["failed_results"],
+                "position_action": "FAILED",
+                "price_basis": "unknown",
+                "is_current_holding": False,
+            }
+        )
+
+    for flag in data_quality_flags:
+        code = str(flag.get("code") or "")
+        if code in {"validation_block", "uncovered_holding", "analysis_failed"}:
+            continue
+        message = str(flag.get("message") or "").strip()
+        if not message:
+            continue
+        card["data_quality_attention"].append(
+            {
+                "code": "REPORT",
+                "name": "Report-level data quality",
+                "section": "data_quality_attention",
+                "reason": message,
+                "evidence_basis": code or "data_quality_flags",
+                "confidence_note": str(flag.get("severity") or "warning"),
+                "source_fields": ["data_quality_flags"],
+                "position_action": "REVIEW",
+                "price_basis": "mixed" if "price" in code else "unknown",
+                "is_current_holding": False,
+            }
+        )
+
+    for item in watch_items:
+        low_confidence_reasons = _item_low_confidence_reasons(
+            item,
+            evidence_matrix=evidence_matrix,
+            score_bucket_calibration=score_bucket_calibration,
+            risk_sizing_comparison=risk_sizing_comparison,
+        )
+        if item.get("is_current_holding") and low_confidence_reasons and _normalize_stock_code(item.get("code")) not in attention_codes:
+            card["data_quality_attention"].append(
+                _triage_item(
+                    item,
+                    section="data_quality_attention",
+                    reason="Watch item has weak data inputs: " + "; ".join(low_confidence_reasons[:2]),
+                    evidence_basis="evidence_matrix",
+                    confidence_note="; ".join(low_confidence_reasons),
+                    source_fields=["watch_items", "evidence_matrix", "score_bucket_calibration"],
+                )
+            )
+            attention_codes.add(_normalize_stock_code(item.get("code")))
+            continue
+        card["today_can_ignore"].append(
+            _triage_item(
+                item,
+                section="today_can_ignore",
+                reason="No deterministic action today; reopen only if the watch trigger changes.",
+                evidence_basis="watch_items",
+                confidence_note=str(item.get("trigger") or WATCH_TRIGGER_RULE),
+                source_fields=["watch_items", "watch_trigger_rule"],
+            )
+        )
+
+    card["counts"] = {
+        key: len(value)
+        for key, value in card.items()
+        if isinstance(value, list)
+    }
+    return card
+
+
+def _triage_item(
+    item: Dict[str, Any],
+    *,
+    section: str,
+    reason: str,
+    evidence_basis: str,
+    confidence_note: str,
+    source_fields: List[str],
+) -> Dict[str, Any]:
+    return {
+        "code": str(item.get("code") or ""),
+        "name": str(item.get("name") or item.get("code") or ""),
+        "section": section,
+        "reason": reason,
+        "evidence_basis": evidence_basis,
+        "confidence_note": confidence_note,
+        "source_fields": list(source_fields),
+        "position_action": str(item.get("position_action") or "HOLD"),
+        "price_basis": str(item.get("price_basis") or "unknown"),
+        "is_current_holding": bool(item.get("is_current_holding")),
+    }
+
+
+def _must_review_reason(item: Dict[str, Any]) -> str:
+    action = str(item.get("position_action") or "HOLD").upper()
+    action_label = {
+        "OPEN": "new position",
+        "ADD": "add to holding",
+        "REDUCE": "reduce holding",
+        "CLOSE": "close holding",
+    }.get(action, "review")
+    delta = _safe_float(item.get("delta_amount"))
+    holding = "current holding" if item.get("is_current_holding") else "non-holding"
+    return f"{action_label}; {holding}; simulated delta {delta:,.2f}."
+
+
+def _triage_evidence_basis(item: Dict[str, Any], *, report_reliability: Dict[str, Any], source: str) -> str:
+    reliability = report_reliability or {}
+    score = reliability.get("score")
+    level = reliability.get("level") or "unknown"
+    return f"{source}; price_basis={item.get('price_basis') or 'unknown'}; reliability={score}/{level}"
+
+
+def _item_low_confidence_reasons(
+    item: Dict[str, Any],
+    *,
+    evidence_matrix: Dict[str, List[Dict[str, Any]]],
+    score_bucket_calibration: Dict[str, Any],
+    risk_sizing_comparison: Dict[str, Dict[str, Any]],
+) -> List[str]:
+    code = _normalize_stock_code(item.get("code"))
+    reasons: List[str] = []
+
+    if str(item.get("price_basis") or "close_only") != "close_only":
+        reasons.append(f"price_basis={item.get('price_basis')}")
+
+    for entry in evidence_matrix.get(code, []):
+        category = str(entry.get("category") or "")
+        status = str(entry.get("status") or "")
+        if category == "announcement" and status == "not_checked":
+            continue
+        if category in {"market_data", "valuation", "news", "backtest"} and status in {
+            "missing",
+            "stale",
+            "not_checked",
+            "unavailable",
+        }:
+            reasons.append(f"{category}={status}")
+
+    bucket_reason = _score_bucket_low_sample_reason(code, score_bucket_calibration)
+    if bucket_reason:
+        reasons.append(bucket_reason)
+
+    comparison = risk_sizing_comparison.get(code) if isinstance(risk_sizing_comparison, dict) else None
+    if isinstance(comparison, dict) and comparison.get("would_change_target") is True:
+        reasons.append("risk_sizing_dry_run_differs")
+
+    return reasons
+
+
+def _score_bucket_low_sample_reason(code: str, calibration: Dict[str, Any]) -> str:
+    if not isinstance(calibration, dict):
+        return ""
+    for current in calibration.get("current_items") or []:
+        if _normalize_stock_code(current.get("code")) != code:
+            continue
+        bucket = str(current.get("bucket") or "")
+        bucket_entry = calibration.get(bucket) if bucket else None
+        if isinstance(bucket_entry, dict):
+            sample_size = int(bucket_entry.get("sample_size") or 0)
+            if sample_size < 20:
+                return f"score_bucket_sample={sample_size}"
+    return ""
 
 
 def build_daily_decision_summary(
@@ -385,9 +660,21 @@ def build_daily_decision_summary(
         ),
         settings=risk_sizing_settings,
     )
+    triage_card = _build_triage_card(
+        actionable_items=actionable_items,
+        watch_items=watch_items,
+        blocked_items=blocked_items,
+        uncovered_holdings=uncovered_holdings,
+        failed_results=failed_results,
+        data_quality_flags=data_quality_flags,
+        evidence_matrix=evidence_matrix,
+        report_reliability=report_reliability,
+        score_bucket_calibration=score_bucket_calibration,
+        risk_sizing_comparison=risk_sizing_comparison,
+    )
 
     return {
-        "schema_version": "daily_decision_summary.v1.6",
+        "schema_version": "daily_decision_summary.v1.7",
         "report_date": report_date,
         "technical_basis_date": technical_basis_date,
         "technical_basis_dates": technical_dates,
@@ -410,6 +697,7 @@ def build_daily_decision_summary(
         "score_bucket_calibration": score_bucket_calibration,
         "risk_sizing_previews": risk_sizing_previews,
         "risk_sizing_comparison": risk_sizing_comparison,
+        "triage_card": triage_card,
         "execution_checklist": list(EXECUTION_CHECKLIST),
         "watch_trigger_rule": WATCH_TRIGGER_RULE,
     }
@@ -505,6 +793,43 @@ def _execution_checklist_inline(checklist: List[str]) -> str:
     return "开盘后确认价格；检查公告和新闻；数据不足则观察；仅作计划。"
 
 
+def _render_triage_card_lines(card: Dict[str, Any]) -> List[str]:
+    if not card:
+        return []
+    sections = [
+        ("today_must_review", "必看"),
+        ("today_can_ignore", "今天不用管"),
+        ("high_value_low_confidence", "高价值但低置信"),
+        ("data_quality_attention", "数据注意"),
+    ]
+    lines = ["", "**今日人工复核卡片**"]
+    for key, label in sections:
+        items = card.get(key) or []
+        if not items:
+            lines.append(f"- {label}：无。")
+            continue
+        lines.append(f"- {label}：{_format_triage_preview(items)}")
+    return lines
+
+
+def _format_triage_preview(items: List[Dict[str, Any]]) -> str:
+    preview = []
+    for item in items[:TRIAGE_CARD_PREVIEW_LIMIT]:
+        name = str(item.get("name") or item.get("code") or "unknown")
+        reason = _compact_reason(str(item.get("reason") or ""))
+        preview.append(f"{name}（{reason}）" if reason else name)
+    omitted = len(items) - len(preview)
+    suffix = f"；另 {omitted} 项" if omitted > 0 else ""
+    return "；".join(preview) + suffix + "。"
+
+
+def _compact_reason(value: str) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= 72:
+        return text
+    return text[:69].rstrip() + "..."
+
+
 def _homepage_banner(price_policy: str) -> str:
     normalized_policy = str(price_policy or "close_only")
     if normalized_policy == "close_only":
@@ -530,9 +855,12 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         "",
         f"**今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
         f"**今日动作数量**：{_format_action_counts_inline(counts)}",
+    ]
+    lines.extend(_render_triage_card_lines(summary.get("triage_card") or {}))
+    lines.extend([
         "",
         "**当前持仓需要处理什么**",
-    ]
+    ])
 
     if current_holding_actions:
         for item in current_holding_actions[:HOMEPAGE_ACTIONABLE_LIMIT]:

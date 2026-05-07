@@ -121,6 +121,11 @@ def test_preopen_dashboard_close_only_wording_and_action_counts(mock_get_db):
     assert report.startswith("# 🎯 2026-04-29 决策仪表盘\n\n## 开盘前决策驾驶舱")
     assert "**今日结论**" in report
     assert "**今日动作数量**" in report
+    assert "**今日人工复核卡片**" in report
+    assert "- 必看：" in report
+    assert "- 今天不用管：" in report
+    assert "- 高价值但低置信：" in report
+    assert "- 数据注意：" in report
     assert "买入 1 / 加仓 1 / 减仓 1 / 清仓 1 / 观察 1 / BLOCK 1" in report
     assert "**报告可信度**" in report
     assert "**价格口径**：close_only" in report
@@ -132,6 +137,14 @@ def test_preopen_dashboard_close_only_wording_and_action_counts(mock_get_db):
     assert summary["technical_basis_date"] == "2026-04-28"
     assert summary["action_counts"]["total_actions"] == 4
     assert summary["action_counts"]["blocked"] == 1
+    assert summary["triage_card"]["counts"]["today_must_review"] == 4
+    assert summary["triage_card"]["counts"]["today_can_ignore"] == 1
+    assert summary["triage_card"]["counts"]["data_quality_attention"] >= 1
+    assert summary["triage_card"]["today_must_review"][0]["source_fields"] == [
+        "actionable_items",
+        "final_action_display",
+        "report_reliability",
+    ]
 
 
 @patch("src.notification.get_db")
@@ -307,11 +320,12 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "score_bucket_calibration",
         "risk_sizing_previews",
         "risk_sizing_comparison",
+        "triage_card",
         "execution_checklist",
         "watch_trigger_rule",
     }
     assert set(summary.keys()) == expected_top_level_keys
-    assert summary["schema_version"] == "daily_decision_summary.v1.6"
+    assert summary["schema_version"] == "daily_decision_summary.v1.7"
     assert set(summary["action_counts"].keys()) == {
         "buy",
         "add",
