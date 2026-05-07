@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import datetime, timezone
+from collections import Counter, defaultdict
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 
 SCHEMA_VERSION = "review_journal.v1"
+WEEKLY_SUMMARY_SCHEMA_VERSION = "review_weekly_summary.v1"
 MANUAL_NOTE_STATUSES = {"executed", "skipped", "partial", "unknown"}
 
 
@@ -96,12 +98,148 @@ def write_review_journal_file(journal: Mapping[str, Any], *, output_dir: str | P
     return path
 
 
+def bootstrap_review_journal_from_artifacts(
+    *,
+    summary_path: str | Path,
+    output_dir: Optional[str | Path] = None,
+    intraday_review_path: Optional[str | Path] = None,
+    created_at: Optional[str] = None,
+    updated_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Create or merge a review journal from local daily and intraday artifacts."""
+    summary_file = Path(summary_path)
+    summary = _read_json_object(summary_file)
+    output_path = Path(output_dir) if output_dir is not None else summary_file.parent
+    journal = build_review_journal_from_summary(
+        summary,
+        source_summary_path=str(summary_file),
+        created_at=created_at,
+    )
+    review_file = _resolve_intraday_review_path(
+        summary=summary,
+        summary_file=summary_file,
+        intraday_review_path=intraday_review_path,
+    )
+    attached_intraday = False
+    if review_file is not None:
+        journal = attach_intraday_review(
+            journal,
+            _read_json_object(review_file),
+            source_review_path=str(review_file),
+            updated_at=updated_at,
+        )
+        attached_intraday = True
+
+    journal_path = write_review_journal_file(journal, output_dir=output_path)
+    return {
+        "journal_path": str(journal_path),
+        "source_summary_path": str(summary_file),
+        "source_intraday_review_path": str(review_file) if review_file is not None else "",
+        "attached_intraday_review": attached_intraday,
+        "preserves_manual_notes": True,
+        "infers_real_fills": False,
+    }
+
+
 def load_review_journal_file(path: str | Path) -> Dict[str, Any]:
     """Load a review journal artifact from disk."""
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or not isinstance(payload.get("review_journal"), dict):
         raise ValueError("Review journal file must contain a review_journal object.")
     return payload
+
+
+def build_weekly_review_summary(
+    journals: Iterable[Mapping[str, Any]],
+    *,
+    week_start: str,
+    week_end: str,
+    source_journal_paths: Optional[List[str]] = None,
+    generated_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build a weekly review summary from local journal artifacts only."""
+    journal_payloads = [_journal_payload(journal) for journal in journals]
+    action_counts: Counter[str] = Counter()
+    intraday_counts: Counter[str] = Counter()
+    manual_note_counts: Counter[str] = Counter()
+    followups: Dict[str, set[str]] = defaultdict(set)
+
+    for payload in journal_payloads:
+        for action in payload.get("morning_actions") or []:
+            code = _normalize_code(action.get("code"))
+            morning_action = str(action.get("morning_action") or "UNKNOWN").strip().upper()
+            validation_status = str(action.get("validation_status") or "").strip().upper()
+            action_counts[morning_action] += 1
+            if validation_status == "BLOCK" or morning_action == "BLOCK":
+                followups[code].add("morning_block")
+        for review in payload.get("intraday_reviews") or []:
+            code = _normalize_code(review.get("code"))
+            status = str(review.get("review_status") or "unknown").strip().lower() or "unknown"
+            intraday_counts[status] += 1
+            if status in {"block", "cancel", "wait", "observe_only"}:
+                followups[code].add(f"intraday_{status}")
+        for note in payload.get("manual_execution_notes") or []:
+            code = _normalize_code(note.get("code"))
+            status = _manual_note_status(str(note.get("status") or "unknown"))
+            manual_note_counts[status] += 1
+            if status in {"skipped", "partial", "unknown"}:
+                followups[code].add(f"manual_{status}")
+
+    return {
+        "weekly_review_summary": {
+            "schema_version": WEEKLY_SUMMARY_SCHEMA_VERSION,
+            "week_start": str(week_start),
+            "week_end": str(week_end),
+            "generated_at": str(generated_at or _now_iso()),
+            "journal_count": len(journal_payloads),
+            "source_journal_paths": list(source_journal_paths or []),
+            "morning_action_counts": dict(sorted(action_counts.items())),
+            "intraday_review_counts": dict(sorted(intraday_counts.items())),
+            "manual_note_counts": dict(sorted(manual_note_counts.items())),
+            "symbols_needing_followup": [
+                {"code": code, "reasons": sorted(reasons)}
+                for code, reasons in sorted(followups.items())
+                if code
+            ],
+            "real_fills_inferred": False,
+            "broker_connected": False,
+        }
+    }
+
+
+def generate_weekly_review_summary_from_journals(
+    *,
+    journal_dir: str | Path,
+    week_start: str,
+    week_end: str,
+    output_dir: Optional[str | Path] = None,
+    generated_at: Optional[str] = None,
+) -> Path:
+    """Load local review journals for a date window and write a weekly summary."""
+    start_date = _parse_date(week_start)
+    end_date = _parse_date(week_end)
+    if end_date < start_date:
+        raise ValueError("week_end must be on or after week_start.")
+
+    source_dir = Path(journal_dir)
+    paths = [
+        path
+        for path in sorted(source_dir.glob("review_journal_*.json"))
+        if _date_in_range(_journal_date_from_path(path), start_date=start_date, end_date=end_date)
+    ]
+    journals = [load_review_journal_file(path) for path in paths]
+    weekly = build_weekly_review_summary(
+        journals,
+        week_start=week_start,
+        week_end=week_end,
+        source_journal_paths=[str(path) for path in paths],
+        generated_at=generated_at,
+    )
+    target_dir = Path(output_dir) if output_dir is not None else source_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+    output_path = target_dir / f"review_weekly_summary_{_date_slug(week_start)}_{_date_slug(week_end)}.json"
+    output_path.write_text(json.dumps(weekly, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    return output_path
 
 
 def merge_review_journals(existing: Mapping[str, Any], incoming: Mapping[str, Any]) -> Dict[str, Any]:
@@ -117,6 +255,41 @@ def merge_review_journals(existing: Mapping[str, Any], incoming: Mapping[str, An
         merged_payload[field] = _append_unique(existing_payload.get(field) or [], incoming_payload.get(field) or [])
     merged_payload["updated_at"] = incoming_payload.get("updated_at") or existing_payload.get("updated_at") or _now_iso()
     return merged
+
+
+def _resolve_intraday_review_path(
+    *,
+    summary: Mapping[str, Any],
+    summary_file: Path,
+    intraday_review_path: Optional[str | Path],
+) -> Optional[Path]:
+    if intraday_review_path is not None:
+        candidate = Path(intraday_review_path)
+        return candidate if candidate.exists() else None
+    candidate = summary_file.parent / f"intraday_review_{_date_slug(summary.get('report_date'))}.json"
+    return candidate if candidate.exists() else None
+
+
+def _read_json_object(path: str | Path) -> Dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path} must contain a JSON object.")
+    return payload
+
+
+def _journal_date_from_path(path: Path) -> Optional[date]:
+    slug = "".join(ch for ch in path.stem if ch.isdigit())
+    if len(slug) < 8:
+        return None
+    return _parse_date(f"{slug[:4]}-{slug[4:6]}-{slug[6:8]}")
+
+
+def _date_in_range(value: Optional[date], *, start_date: date, end_date: date) -> bool:
+    return value is not None and start_date <= value <= end_date
+
+
+def _parse_date(value: str) -> date:
+    return datetime.fromisoformat(str(value)).date()
 
 
 def _morning_actions_from_summary(summary: Mapping[str, Any]) -> List[Dict[str, Any]]:
