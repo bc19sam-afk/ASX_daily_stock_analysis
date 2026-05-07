@@ -146,8 +146,8 @@ def render_data_quality_snapshot_lines(snapshot: Dict[str, Any]) -> List[str]:
         ),
         f"- 新闻：{int(news.get('available_count') or 0)}/{stock_count} 有证据。",
         (
-            f"- 可信度：{reliability.get('score', 'N/A')}/100 "
-            f"({reliability.get('level') or 'unknown'})；{attention_text}"
+            f"- 可信度：{_score_text(reliability.get('score'))} "
+            f"（{_reliability_label(reliability.get('level'))}）；{attention_text}"
         ),
     ]
 
@@ -251,10 +251,24 @@ def _format_field_coverage(field_coverage: Dict[str, Any], stock_count: int) -> 
 def _date_range_text(dates: Iterable[Any]) -> str:
     values = sorted(str(value) for value in dates if str(value or "").strip())
     if not values:
-        return "unknown"
+        return "暂无"
     if len(values) == 1:
         return values[0]
     return f"{values[0]}~{values[-1]}"
+
+
+def _score_text(score: Any) -> str:
+    if score in {None, ""}:
+        return "暂无评分"
+    return f"{score}/100"
+
+
+def _reliability_label(level: Any) -> str:
+    return {
+        "high": "较高",
+        "usable_with_manual_review": "可用但要复核",
+        "low_observe_only": "偏低，只适合观察",
+    }.get(str(level or ""), "未评级")
 
 
 def _display_name(result: Any) -> str:

@@ -151,4 +151,4 @@ def test_dry_run_comparison_keeps_close_only_context_and_action_counts():
     assert summary["action_counts"]["total_actions"] == 1
     assert summary["actionable_items"][0]["target_weight"] == 0.20
     assert summary["actionable_items"][0]["delta_amount"] == 20000.0
-    assert "**价格口径**：close_only；技术基准日 2026-05-04" in report
+    assert "**价格来源**：全部使用昨收数据；技术基准日 2026-05-04" in report
