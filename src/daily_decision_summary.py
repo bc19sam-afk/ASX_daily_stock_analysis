@@ -25,6 +25,10 @@ from src.evidence_matrix import (
     render_evidence_summary_lines,
     summarize_evidence_matrix,
 )
+from src.data_quality_snapshot import (
+    build_data_quality_snapshot,
+    render_data_quality_snapshot_lines,
+)
 from src.final_action_display import (
     EXECUTABLE_ACTIONS,
     build_final_action_display,
@@ -619,6 +623,17 @@ def build_daily_decision_summary(
         evidence_summary=evidence_summary,
         data_quality_flags=data_quality_flags,
     )
+    data_quality_snapshot = build_data_quality_snapshot(
+        successful_results=successful_results,
+        failed_results=failed_results,
+        evidence_matrix=evidence_matrix,
+        evidence_summary=evidence_summary,
+        report_reliability=report_reliability,
+        data_quality_flags=data_quality_flags,
+        price_basis_counts=counts,
+        technical_basis_dates=technical_dates,
+        uncovered_holdings=uncovered_holdings,
+    )
     if backtest_confidence is None:
         backtest_confidence = build_backtest_confidence_panel(
             summary=None,
@@ -693,6 +708,7 @@ def build_daily_decision_summary(
         "evidence_matrix": evidence_matrix,
         "evidence_summary": evidence_summary,
         "report_reliability": report_reliability,
+        "data_quality_snapshot": data_quality_snapshot,
         "backtest_confidence": backtest_confidence,
         "score_bucket_calibration": score_bucket_calibration,
         "risk_sizing_previews": risk_sizing_previews,
@@ -896,6 +912,7 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         f"**价格口径**：{summary.get('price_policy', 'close_only')}；技术基准日 {summary.get('technical_basis_date', 'unknown')}",
         f"**执行前检查**：{_execution_checklist_inline(summary.get('execution_checklist', EXECUTION_CHECKLIST))}",
     ])
+    lines.extend(render_data_quality_snapshot_lines(summary.get("data_quality_snapshot") or {}))
     lines.extend(["", "---", ""])
     return lines
 
