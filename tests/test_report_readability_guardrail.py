@@ -159,6 +159,11 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
 
     assert "**今日结论**" in landing
     assert "**今日动作数量**" in landing
+    assert "**今日人工复核卡片**" in landing
+    assert "- 必看：" in landing
+    assert "- 今天不用管：" in landing
+    assert "- 高价值但低置信：" in landing
+    assert "- 数据注意：" in landing
     assert "**当前持仓需要处理什么**" in landing
     assert "**Top actionable items**" in landing
     assert "**Top risks / BLOCK**" in landing
@@ -189,6 +194,32 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "## 评分校准" in report
     assert "风险仓位参考（Shadow" in report
     assert "风险仓位对比（Dry Run" in report
+
+
+@patch("src.notification.get_db")
+def test_triage_card_reuses_existing_artifacts_without_changing_actions(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+
+    service.generate_dashboard_report(_readability_results(), report_date="2026-04-29")
+    summary = service.get_last_daily_decision_summary()
+    card = summary["triage_card"]
+
+    assert summary["action_counts"]["total_actions"] == 6
+    assert summary["action_counts"]["blocked"] == 1
+    assert card["counts"]["today_must_review"] == 6
+    assert card["counts"]["today_can_ignore"] == 1
+    assert card["counts"]["high_value_low_confidence"] >= 1
+    assert card["counts"]["data_quality_attention"] >= 2
+
+    blocked = [item for item in card["data_quality_attention"] if item["code"] == "NAB.AX"][0]
+    assert blocked["position_action"] == "BLOCK"
+    assert blocked["confidence_note"] == "BLOCK remains a hard stop."
+    assert "blocked_items" in blocked["source_fields"]
+
+    high_value = card["high_value_low_confidence"][0]
+    assert "evidence_matrix" in high_value["source_fields"]
+    assert high_value["section"] == "high_value_low_confidence"
 
 
 @patch("src.notification.get_db")
