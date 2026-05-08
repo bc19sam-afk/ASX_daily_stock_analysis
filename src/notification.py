@@ -957,7 +957,18 @@ class NotificationService:
             price_basis=getattr(result, "execution_price_source", "close_only"),
             technical_basis_date=self._technical_basis_date_for(result),
             validation_status=getattr(result, "validation_status", "PASS"),
+            reference_price=self._conditional_plan_reference_price(result),
         )
+
+    @staticmethod
+    def _conditional_plan_reference_price(result: AnalysisResult) -> Optional[float]:
+        snapshot = getattr(result, "market_snapshot", None) or {}
+        if isinstance(snapshot, dict):
+            for key in ("close", "price", "prev_close"):
+                parsed = NotificationService._to_positive_float(snapshot.get(key))
+                if parsed is not None:
+                    return parsed
+        return NotificationService._to_positive_float(getattr(result, "current_price", None))
 
     @staticmethod
     def _to_markdown_table_cell(value: Any) -> str:

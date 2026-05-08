@@ -44,6 +44,7 @@ def build_conditional_plan_points(
     price_basis: str,
     technical_basis_date: str,
     validation_status: str = "PASS",
+    reference_price: Optional[float] = None,
 ) -> List[ConditionalPlanPoint]:
     """Normalize AI/dashboard price references into non-executable plan points."""
     if str(validation_status or "").upper() == "BLOCK":
@@ -62,6 +63,7 @@ def build_conditional_plan_points(
             value=value,
             price_basis=normalized_basis,
             technical_basis_date=basis_date,
+            reference_price=reference_price,
         )
         points.append(point)
 
@@ -116,6 +118,7 @@ def _build_point(
     value: Any,
     price_basis: str,
     technical_basis_date: str,
+    reference_price: Optional[float],
 ) -> ConditionalPlanPoint:
     if isinstance(value, dict):
         raw_value = _stringify(value.get("price") or value.get("value") or value.get("raw_value") or "")
@@ -124,7 +127,7 @@ def _build_point(
         condition = _stringify(value.get("condition")) or DEFAULT_TRIGGER_CONDITION
         invalidation = _stringify(value.get("invalidation")) or DEFAULT_INVALIDATION
         requires_manual_review = bool(value.get("requires_manual_review", True))
-        price = _coerce_price(value.get("price") or value.get("value") or raw_value)
+        price = _coerce_price(value.get("price") or value.get("value") or raw_value, reference_price=reference_price)
     else:
         raw_value = _stringify(value)
         source_type = _infer_source_type(raw_value)
@@ -132,7 +135,15 @@ def _build_point(
         condition = DEFAULT_TRIGGER_CONDITION
         invalidation = DEFAULT_INVALIDATION
         requires_manual_review = True
-        price = _coerce_price(raw_value)
+        price = _coerce_price(raw_value, reference_price=reference_price)
+
+    if price is not None and not _is_plausible_price(price, reference_price):
+        source_detail = (
+            "提取数值与昨收价偏离过大，已隐藏；请人工复核原文："
+            f"{_short_text(raw_value)}"
+        )
+        raw_value = "需人工复核（原始点位疑似不是股价）"
+        price = None
 
     return ConditionalPlanPoint(
         label=label,
@@ -187,18 +198,42 @@ def _display_value(point: ConditionalPlanPoint) -> str:
     return point.raw_value or "-"
 
 
-def _coerce_price(value: Any) -> Optional[float]:
+def _coerce_price(value: Any, *, reference_price: Optional[float] = None) -> Optional[float]:
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
         parsed = float(value)
         return parsed if math.isfinite(parsed) else None
     text = str(value)
-    match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
-    if not match:
+    matches = list(re.finditer(r"(?<![A-Za-z])[-+]?\d+(?:\.\d+)?", text))
+    if not matches:
         return None
-    parsed = float(match.group(0))
+    candidates = []
+    for match in matches:
+        parsed = float(match.group(0))
+        if math.isfinite(parsed):
+            candidates.append(parsed)
+    if not candidates:
+        return None
+    plausible = [candidate for candidate in candidates if _is_plausible_price(candidate, reference_price)]
+    if plausible and reference_price is not None and reference_price > 0:
+        return min(plausible, key=lambda candidate: abs(candidate - reference_price))
+    parsed = candidates[0]
     return parsed if math.isfinite(parsed) else None
+
+
+def _is_plausible_price(price: float, reference_price: Optional[float]) -> bool:
+    if reference_price is None or not math.isfinite(reference_price) or reference_price <= 0:
+        return True
+    ratio = price / reference_price
+    return 0.4 <= ratio <= 2.5
+
+
+def _short_text(value: Any, limit: int = 80) -> str:
+    text = " ".join(_stringify(value).split())
+    if len(text) <= limit:
+        return text or "-"
+    return text[: limit - 3].rstrip() + "..."
 
 
 def _is_unavailable(value: Any) -> bool:
