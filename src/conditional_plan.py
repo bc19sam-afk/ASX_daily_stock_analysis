@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 PLAN_POINT_ORDER = ("ideal_buy", "secondary_buy", "stop_loss", "take_profit")
@@ -45,6 +45,7 @@ def build_conditional_plan_points(
     technical_basis_date: str,
     validation_status: str = "PASS",
     reference_price: Optional[float] = None,
+    technical_levels: Optional[Dict[str, Any]] = None,
 ) -> List[ConditionalPlanPoint]:
     """Normalize AI/dashboard price references into non-executable plan points."""
     if str(validation_status or "").upper() == "BLOCK":
@@ -64,6 +65,7 @@ def build_conditional_plan_points(
             price_basis=normalized_basis,
             technical_basis_date=basis_date,
             reference_price=reference_price,
+            technical_levels=technical_levels or {},
         )
         points.append(point)
 
@@ -119,6 +121,7 @@ def _build_point(
     price_basis: str,
     technical_basis_date: str,
     reference_price: Optional[float],
+    technical_levels: Dict[str, Any],
 ) -> ConditionalPlanPoint:
     if isinstance(value, dict):
         raw_value = _stringify(value.get("price") or value.get("value") or value.get("raw_value") or "")
@@ -136,6 +139,17 @@ def _build_point(
         invalidation = DEFAULT_INVALIDATION
         requires_manual_review = True
         price = _coerce_price(raw_value, reference_price=reference_price)
+
+    structured = _resolve_structured_plan_price(
+        label=label,
+        raw_value=raw_value,
+        technical_levels=technical_levels,
+        reference_price=reference_price,
+    )
+    if structured is not None:
+        price, structured_source_type, structured_detail = structured
+        source_type = structured_source_type
+        source_detail = structured_detail
 
     if price is not None and not _is_plausible_price(price, reference_price):
         source_detail = (
@@ -196,6 +210,114 @@ def _source_detail_for(source_type: str, raw_value: Any) -> str:
     if source_type == "unavailable":
         return "来源不可用；仅作观察参考，不作为执行价格。"
     return AI_UNVERIFIED_SOURCE_DETAIL
+
+
+def _resolve_structured_plan_price(
+    *,
+    label: str,
+    raw_value: str,
+    technical_levels: Dict[str, Any],
+    reference_price: Optional[float],
+) -> Optional[Tuple[float, str, str]]:
+    text = _stringify(raw_value)
+    if not text:
+        return None
+
+    ma_level = _resolve_ma_level(text, technical_levels)
+    if ma_level is not None:
+        ma_key, price = ma_level
+        return (
+            price,
+            "ma",
+            f"结构化技术指标：{ma_key.upper()}={price:.2f}；原文：{_short_text(text)}",
+        )
+
+    atr_level = _resolve_atr_level(
+        label=label,
+        text=text,
+        technical_levels=technical_levels,
+        reference_price=reference_price,
+    )
+    if atr_level is not None:
+        price, multiplier, atr, direction = atr_level
+        sign = "-" if direction == "down" else "+"
+        return (
+            price,
+            "atr",
+            (
+                f"结构化技术指标：昨收{reference_price:.2f} {sign} "
+                f"{multiplier:g}×ATR({atr:.4f})={price:.2f}；原文：{_short_text(text)}"
+            ),
+        )
+
+    return None
+
+
+def _resolve_ma_level(text: str, technical_levels: Dict[str, Any]) -> Optional[Tuple[str, float]]:
+    normalized = text.lower()
+    periods: List[str] = []
+    for match in re.finditer(r"(?:ma|ema|sma|wma)\s*(5|10|20|50|100|200)(?!\d)", normalized):
+        periods.append(match.group(1))
+    for match in re.finditer(r"(?<!\d)(5|10|20|50|100|200)\s*(?:日|天)?\s*均线", normalized):
+        periods.append(match.group(1))
+    for period in periods:
+        key = f"ma{period}"
+        price = _safe_positive_float(technical_levels.get(key))
+        if price is not None:
+            return key, price
+    return None
+
+
+def _resolve_atr_level(
+    *,
+    label: str,
+    text: str,
+    technical_levels: Dict[str, Any],
+    reference_price: Optional[float],
+) -> Optional[Tuple[float, float, float, str]]:
+    normalized = text.lower()
+    if "atr" not in normalized or reference_price is None or reference_price <= 0 or not math.isfinite(reference_price):
+        return None
+
+    atr = _safe_positive_float(technical_levels.get("atr14"), technical_levels.get("atr"))
+    if atr is None:
+        return None
+
+    multiplier = _extract_atr_multiplier(normalized)
+    direction = _atr_direction(label=label, text=normalized)
+    if direction is None:
+        return None
+
+    price = reference_price - multiplier * atr if direction == "down" else reference_price + multiplier * atr
+    price = round(price, 4)
+    if price <= 0 or not math.isfinite(price):
+        return None
+    return price, multiplier, atr, direction
+
+
+def _extract_atr_multiplier(text: str) -> float:
+    match = re.search(r"(?<![a-z])(\d+(?:\.\d+)?)\s*(?:倍|x)\s*atr(?![a-z])", text, re.IGNORECASE)
+    if not match:
+        match = re.search(r"(?<![a-z])atr\s*(?:×|x|\*)?\s*(\d+(?:\.\d+)?)(?![a-z])", text, re.IGNORECASE)
+    if not match:
+        return 1.0
+    try:
+        parsed = float(match.group(1))
+    except (TypeError, ValueError):
+        return 1.0
+    if parsed <= 0 or not math.isfinite(parsed):
+        return 1.0
+    return parsed
+
+
+def _atr_direction(*, label: str, text: str) -> Optional[str]:
+    if label == "stop_loss" or re.search(r"(止损|失效|跌破|下破|below|risk|invalid)", text, re.IGNORECASE):
+        return "down"
+    if label == "take_profit" or re.search(r"(止盈|目标|突破|上破|above|target|profit)", text, re.IGNORECASE):
+        return "up"
+    if label in {"ideal_buy", "secondary_buy"} and re.search(r"(回撤|回踩|下探|pullback|below)", text, re.IGNORECASE):
+        return "down"
+    return None
 
 
 def _display_value(point: ConditionalPlanPoint) -> str:
@@ -287,6 +409,19 @@ def _should_hide_non_price_numeric_reference(value: Any) -> bool:
     if not text or not re.search(r"\d", text):
         return False
     return _has_budget_or_amount_context(text) and not _has_price_context(text)
+
+
+def _safe_positive_float(*values: Any) -> Optional[float]:
+    for value in values:
+        if value is None or isinstance(value, bool):
+            continue
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(parsed) and parsed > 0:
+            return parsed
+    return None
 
 
 def _short_text(value: Any, limit: int = 80) -> str:

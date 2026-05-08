@@ -81,6 +81,48 @@ class ReportConditionalPricePointsTestCase(unittest.TestCase):
         self.assertIn("| 理想买入观察位 | 30.23 |", report)
         self.assertNotIn("| 理想买入观察位 | 5.00 |", report)
 
+    def test_plan_point_renders_structured_ma_price_when_ai_only_mentions_indicator(self):
+        service = self._build_service()
+        result = self._build_result(
+            name="GOOD GROUP",
+            code="GMG.AX",
+            market_snapshot={"date": "2026-05-07", "close": "30.85", "ma20": "29.76"},
+            dashboard={
+                "battle_plan": {
+                    "sniper_points": {
+                        "ideal_buy": "20日均线支撑",
+                    }
+                }
+            },
+        )
+
+        report = service.generate_single_stock_report(result)
+
+        self.assertIn("| 理想买入观察位 | 29.76 |", report)
+        self.assertIn("结构化技术指标：MA20=29.76", report)
+        self.assertNotIn("| 理想买入观察位 | 20.00 |", report)
+
+    def test_plan_point_renders_structured_atr_stop_price_when_available(self):
+        service = self._build_service()
+        result = self._build_result(
+            name="GOOD GROUP",
+            code="GMG.AX",
+            market_snapshot={"date": "2026-05-07", "close": "30.85", "atr14": 0.42},
+            dashboard={
+                "battle_plan": {
+                    "sniper_points": {
+                        "stop_loss": "1.5倍ATR止损",
+                    }
+                }
+            },
+        )
+
+        report = service.generate_single_stock_report(result)
+
+        self.assertIn("| 风险失效观察位 | 30.22 |", report)
+        self.assertIn("昨收30.85 - 1.5×ATR(0.4200)=30.22", report)
+        self.assertNotIn("| 风险失效观察位 | 1.50 |", report)
+
     def test_plan_point_hides_numeric_reference_that_is_not_a_plausible_stock_price(self):
         service = self._build_service()
         result = self._build_result(

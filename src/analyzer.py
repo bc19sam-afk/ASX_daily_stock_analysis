@@ -1783,6 +1783,26 @@ class GeminiAnalyzer:
             "amount": self._format_amount(today.get('amount')),
         }
 
+        trend_data = context.get('trend_analysis', {}) or {}
+        if isinstance(trend_data, dict):
+            for key in ("ma5", "ma10", "ma20"):
+                value = today.get(key)
+                if value is None:
+                    value = trend_data.get(key)
+                formatted = self._format_price(value)
+                if formatted != 'N/A':
+                    snapshot[key] = formatted
+
+        atr_value = context.get('atr')
+        if atr_value is None and isinstance(trend_data, dict):
+            atr_value = trend_data.get('atr')
+        try:
+            parsed_atr = float(atr_value)
+        except (TypeError, ValueError):
+            parsed_atr = 0.0
+        if math.isfinite(parsed_atr) and parsed_atr > 0:
+            snapshot["atr14"] = round(parsed_atr, 4)
+
         if realtime:
             snapshot.update({
                 "price": self._format_price(realtime.get('price')),

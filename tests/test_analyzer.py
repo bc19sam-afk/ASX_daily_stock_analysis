@@ -146,3 +146,26 @@ def test_parse_response_rejects_non_numeric_backtest_levels_and_dashboard_text()
     assert result.secondary_buy is None
     assert result.stop_loss is None
     assert result.take_profit is None
+
+
+def test_market_snapshot_carries_structured_technical_levels_for_report_display():
+    analyzer = GeminiAnalyzer(api_key=None)
+
+    snapshot = analyzer._build_market_snapshot(
+        {
+            "date": "2026-05-07",
+            "today": {
+                "close": 30.85,
+                "ma5": 30.31,
+                "ma10": 30.02,
+                "ma20": 29.76,
+            },
+            "atr": 0.4213,
+        }
+    )
+
+    assert snapshot["close"] == "30.85"
+    assert snapshot["ma5"] == "30.31"
+    assert snapshot["ma10"] == "30.02"
+    assert snapshot["ma20"] == "29.76"
+    assert snapshot["atr14"] == 0.4213

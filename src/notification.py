@@ -958,6 +958,7 @@ class NotificationService:
             technical_basis_date=self._technical_basis_date_for(result),
             validation_status=getattr(result, "validation_status", "PASS"),
             reference_price=self._conditional_plan_reference_price(result),
+            technical_levels=self._conditional_plan_technical_levels(result),
         )
 
     @staticmethod
@@ -969,6 +970,28 @@ class NotificationService:
                 if parsed is not None:
                     return parsed
         return NotificationService._to_positive_float(getattr(result, "current_price", None))
+
+    @staticmethod
+    def _conditional_plan_technical_levels(result: AnalysisResult) -> Dict[str, Any]:
+        """Collect deterministic technical levels used to render observation prices."""
+        levels: Dict[str, Any] = {}
+        snapshot = getattr(result, "market_snapshot", None) or {}
+        if isinstance(snapshot, dict):
+            for key in ("ma5", "ma10", "ma20", "ma50", "ma100", "ma200", "atr", "atr14"):
+                if snapshot.get(key) is not None:
+                    levels[key] = snapshot.get(key)
+
+        indicators = getattr(result, "technical_indicators", None) or {}
+        if isinstance(indicators, dict):
+            for key in ("ma5", "ma10", "ma20", "ma50", "ma100", "ma200", "atr", "atr14"):
+                if key not in levels and indicators.get(key) is not None:
+                    levels[key] = indicators.get(key)
+
+        for key in ("atr", "atr14"):
+            if key not in levels and getattr(result, key, None) is not None:
+                levels[key] = getattr(result, key)
+
+        return levels
 
     @staticmethod
     def _to_markdown_table_cell(value: Any) -> str:
