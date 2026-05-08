@@ -77,6 +77,48 @@ def test_free_text_indicator_numbers_are_not_rendered_as_prices():
     ]
 
 
+def test_free_text_indicator_reference_uses_structured_ma_level_when_available():
+    points = build_conditional_plan_points(
+        {"ideal_buy": "20日均线支撑"},
+        price_basis="close_only",
+        technical_basis_date="2026-05-07",
+        reference_price=30.85,
+        technical_levels={"ma20": 29.76},
+    )
+
+    assert len(points) == 1
+    assert points[0].price == 29.76
+    assert "结构化技术指标：MA20=29.76" in points[0].source_detail
+
+
+def test_free_text_indicator_reference_prefers_structured_ma_over_ai_price_text():
+    points = build_conditional_plan_points(
+        {"ideal_buy": "股价回踩MA5（约30.23 AUD）且盘中获得买盘支撑"},
+        price_basis="close_only",
+        technical_basis_date="2026-05-07",
+        reference_price=30.85,
+        technical_levels={"ma5": 30.31},
+    )
+
+    assert len(points) == 1
+    assert points[0].price == 30.31
+    assert "结构化技术指标：MA5=30.31" in points[0].source_detail
+
+
+def test_atr_stop_reference_uses_structured_atr_and_close_when_available():
+    points = build_conditional_plan_points(
+        {"stop_loss": "1.5倍ATR止损"},
+        price_basis="close_only",
+        technical_basis_date="2026-05-07",
+        reference_price=30.85,
+        technical_levels={"atr14": 0.42},
+    )
+
+    assert len(points) == 1
+    assert points[0].price == 30.22
+    assert "昨收30.85 - 1.5×ATR(0.4200)=30.22" in points[0].source_detail
+
+
 def test_free_text_parser_keeps_actual_price_when_indicator_period_is_present():
     points = build_conditional_plan_points(
         {"ideal_buy": "股价回踩20日均线（约30.23 AUD）且盘中获得买盘支撑"},
