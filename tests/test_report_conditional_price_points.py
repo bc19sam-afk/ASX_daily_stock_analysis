@@ -52,7 +52,7 @@ class ReportConditionalPricePointsTestCase(unittest.TestCase):
         for phrase in ["来源", "触发条件", "失效条件", "执行前", "人工复核"]:
             self.assertIn(phrase, report)
         self.assertIn("价格口径", report)
-        self.assertIn("close_only", report)
+        self.assertIn("昨收计划（开盘前，不是实时价）", report)
         self.assertIn("技术基准日", report)
         self.assertIn("2026-05-04", report)
         self.assertIn("未验证", report)
@@ -99,7 +99,7 @@ class ReportConditionalPricePointsTestCase(unittest.TestCase):
         report = service.generate_single_stock_report(result)
 
         self.assertIn("| 理想买入观察位 | 29.76 |", report)
-        self.assertIn("结构化技术指标：MA20=29.76", report)
+        self.assertIn("按20日均线真实值显示：29.76", report)
         self.assertNotIn("| 理想买入观察位 | 20.00 |", report)
 
     def test_plan_point_renders_structured_atr_stop_price_when_available(self):
@@ -120,7 +120,7 @@ class ReportConditionalPricePointsTestCase(unittest.TestCase):
         report = service.generate_single_stock_report(result)
 
         self.assertIn("| 风险失效观察位 | 30.22 |", report)
-        self.assertIn("昨收30.85 - 1.5×ATR(0.4200)=30.22", report)
+        self.assertIn("按昨收价30.85减去1.5倍平均波动范围(ATR 0.4200)得到：30.22", report)
         self.assertNotIn("| 风险失效观察位 | 1.50 |", report)
 
     def test_plan_point_hides_numeric_reference_that_is_not_a_plausible_stock_price(self):
