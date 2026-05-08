@@ -144,6 +144,12 @@ def _build_point(
         )
         raw_value = "需人工复核（原始点位疑似不是股价）"
         price = None
+    elif price is None and _should_hide_non_price_numeric_reference(raw_value):
+        source_detail = (
+            "提取数值与昨收价偏离过大，已隐藏；请人工复核原文："
+            f"{_short_text(raw_value)}"
+        )
+        raw_value = "需人工复核（原始点位疑似不是股价）"
 
     return ConditionalPlanPoint(
         label=label,
@@ -210,6 +216,8 @@ def _coerce_price(value: Any, *, reference_price: Optional[float] = None) -> Opt
         return None
     candidates = []
     for match in matches:
+        if _looks_like_non_price_token(text, match):
+            continue
         parsed = float(match.group(0))
         if math.isfinite(parsed):
             candidates.append(parsed)
@@ -227,6 +235,58 @@ def _is_plausible_price(price: float, reference_price: Optional[float]) -> bool:
         return True
     ratio = price / reference_price
     return 0.4 <= ratio <= 2.5
+
+
+def _looks_like_non_price_token(text: str, match: re.Match[str]) -> bool:
+    """Avoid turning indicator periods, percentages, or budgets into price levels."""
+    start, end = match.span()
+    prefix = text[max(0, start - 24) : start].lower()
+    suffix = text[end : min(len(text), end + 24)].lower()
+    local = text[max(0, start - 24) : min(len(text), end + 32)].lower()
+
+    if re.match(r"\s*(?:%|％|pct\b|percent\b|成|倍|x\b|股\b|shares?\b)", suffix, re.IGNORECASE):
+        return True
+
+    if re.match(r"\s*(?:日|天|周|月)\s*(?:均线|线|moving\s+average)?", suffix, re.IGNORECASE):
+        return True
+
+    if re.search(r"(?:ma|ema|sma|wma|rsi|macd|kdj)\s*$", prefix, re.IGNORECASE):
+        return True
+
+    if re.search(r"\b(?:rsi|macd|kdj)\b", local, re.IGNORECASE) and not _has_price_context(local):
+        return True
+
+    if _has_budget_or_amount_context(local) and not _has_price_context(local):
+        return True
+
+    return False
+
+
+def _has_budget_or_amount_context(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(亏损|预算|金额|资金|投入|调出|单笔|risk\s*budget|budget|cash|capital|notional|loss)",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _has_price_context(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(股价|价格|价位|买入价|止损价|目标价|观察位|支撑|阻力|附近|price|level|support|resistance|stop|target|near|around|above|below)",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _should_hide_non_price_numeric_reference(value: Any) -> bool:
+    text = _stringify(value).lower()
+    if not text or not re.search(r"\d", text):
+        return False
+    return _has_budget_or_amount_context(text) and not _has_price_context(text)
 
 
 def _short_text(value: Any, limit: int = 80) -> str:

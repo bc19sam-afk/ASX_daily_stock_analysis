@@ -53,3 +53,61 @@ def test_blocked_symbols_do_not_build_displayable_plan_points():
     )
 
     assert points == []
+
+
+def test_free_text_indicator_numbers_are_not_rendered_as_prices():
+    points = build_conditional_plan_points(
+        {
+            "ideal_buy": "20日均线支撑",
+            "secondary_buy": "回撤5%再观察",
+            "stop_loss": "1.5倍ATR止损",
+            "take_profit": "RSI 50附近反弹",
+        },
+        price_basis="close_only",
+        technical_basis_date="2026-05-07",
+        reference_price=19.8,
+    )
+
+    assert [point.price for point in points] == [None, None, None, None]
+    assert [point.raw_value for point in points] == [
+        "20日均线支撑",
+        "回撤5%再观察",
+        "1.5倍ATR止损",
+        "RSI 50附近反弹",
+    ]
+
+
+def test_free_text_parser_keeps_actual_price_when_indicator_period_is_present():
+    points = build_conditional_plan_points(
+        {"ideal_buy": "股价回踩20日均线（约30.23 AUD）且盘中获得买盘支撑"},
+        price_basis="close_only",
+        technical_basis_date="2026-05-07",
+        reference_price=30.85,
+    )
+
+    assert len(points) == 1
+    assert points[0].price == 30.23
+
+
+def test_free_text_parser_ignores_budget_amount_but_keeps_explicit_price():
+    points = build_conditional_plan_points(
+        {"ideal_buy": "买入价5.00 AUD附近观察，单笔亏损严格控制在100 AUD以内"},
+        price_basis="close_only",
+        technical_basis_date="2026-05-07",
+        reference_price=5.2,
+    )
+
+    assert len(points) == 1
+    assert points[0].price == 5.0
+
+
+def test_free_text_parser_keeps_nearby_price_before_budget_context():
+    points = build_conditional_plan_points(
+        {"ideal_buy": "5.00 AUD附近观察，单笔亏损严格控制在100 AUD以内"},
+        price_basis="close_only",
+        technical_basis_date="2026-05-07",
+        reference_price=5.2,
+    )
+
+    assert len(points) == 1
+    assert points[0].price == 5.0
