@@ -19,9 +19,9 @@ PLAN_POINT_DISPLAY_LABELS = {
 }
 
 DEFAULT_TRIGGER_CONDITION = "开盘后价格仍在允许偏离范围内，且无新增重大利空。"
-DEFAULT_INVALIDATION = "跌破关键均线 / 出现 price-sensitive 利空 / 开盘跳空超过阈值。"
+DEFAULT_INVALIDATION = "跌破关键均线 / 出现重大利空公告或新闻 / 开盘跳空超过阈值。"
 DEFAULT_MANUAL_REVIEW = "必须人工复核实时价格、公告、新闻和流动性。"
-AI_UNVERIFIED_SOURCE_DETAIL = "AI 提取，未验证；仅作观察参考，不作为执行价格。"
+AI_UNVERIFIED_SOURCE_DETAIL = "AI从原文里提取，系统未验证到明确价格依据；仅作观察参考，不作为执行价格。"
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,7 @@ def render_conditional_plan_points_markdown(points: List[ConditionalPlanPoint]) 
             f"{_cell(point.condition)} | "
             f"{_cell(point.invalidation)} | "
             f"{_cell(DEFAULT_MANUAL_REVIEW if point.requires_manual_review else '人工复核状态未声明。')} | "
-            f"{_cell(point.price_basis)} | "
+            f"{_cell(_display_price_basis(point.price_basis))} | "
             f"{_cell(point.technical_basis_date)} |"
         )
     lines.append("")
@@ -202,11 +202,11 @@ def _infer_source_type(value: Any) -> str:
 def _source_detail_for(source_type: str, raw_value: Any) -> str:
     detail = _stringify(raw_value)
     if source_type == "ma":
-        return f"MA / 均线：{detail}" if detail else "MA / 均线"
+        return f"来自均线原文：{detail}" if detail else "来自均线原文"
     if source_type == "atr":
-        return f"ATR：{detail}" if detail else "ATR"
+        return f"来自平均波动范围原文：{detail}" if detail else "来自平均波动范围原文"
     if source_type == "prior_high_low":
-        return f"前高前低：{detail}" if detail else "前高前低"
+        return f"来自前高 / 前低原文：{detail}" if detail else "来自前高 / 前低原文"
     if source_type == "unavailable":
         return "来源不可用；仅作观察参考，不作为执行价格。"
     return AI_UNVERIFIED_SOURCE_DETAIL
@@ -226,10 +226,11 @@ def _resolve_structured_plan_price(
     ma_level = _resolve_ma_level(text, technical_levels)
     if ma_level is not None:
         ma_key, price = ma_level
+        ma_period = ma_key[2:] if ma_key.lower().startswith("ma") else ma_key.upper()
         return (
             price,
             "ma",
-            f"结构化技术指标：{ma_key.upper()}={price:.2f}；原文：{_short_text(text)}",
+            f"按{ma_period}日均线真实值显示：{price:.2f}；原文：{_short_text(text)}",
         )
 
     atr_level = _resolve_atr_level(
@@ -240,13 +241,13 @@ def _resolve_structured_plan_price(
     )
     if atr_level is not None:
         price, multiplier, atr, direction = atr_level
-        sign = "-" if direction == "down" else "+"
+        movement = "减去" if direction == "down" else "加上"
         return (
             price,
             "atr",
             (
-                f"结构化技术指标：昨收{reference_price:.2f} {sign} "
-                f"{multiplier:g}×ATR({atr:.4f})={price:.2f}；原文：{_short_text(text)}"
+                f"按昨收价{reference_price:.2f}{movement}{multiplier:g}倍"
+                f"平均波动范围(ATR {atr:.4f})得到：{price:.2f}；原文：{_short_text(text)}"
             ),
         )
 
@@ -324,6 +325,14 @@ def _display_value(point: ConditionalPlanPoint) -> str:
     if point.price is not None:
         return f"{point.price:.2f}"
     return point.raw_value or "-"
+
+
+def _display_price_basis(value: str) -> str:
+    if value == "close_only":
+        return "昨收计划（开盘前，不是实时价）"
+    if value == "non_executable_reference":
+        return "观察参考（不是下单价）"
+    return value or "观察参考（不是下单价）"
 
 
 def _coerce_price(value: Any, *, reference_price: Optional[float] = None) -> Optional[float]:

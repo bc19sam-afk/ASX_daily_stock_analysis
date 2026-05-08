@@ -88,7 +88,7 @@ def test_free_text_indicator_reference_uses_structured_ma_level_when_available()
 
     assert len(points) == 1
     assert points[0].price == 29.76
-    assert "结构化技术指标：MA20=29.76" in points[0].source_detail
+    assert "按20日均线真实值显示：29.76" in points[0].source_detail
 
 
 def test_free_text_indicator_reference_prefers_structured_ma_over_ai_price_text():
@@ -102,7 +102,7 @@ def test_free_text_indicator_reference_prefers_structured_ma_over_ai_price_text(
 
     assert len(points) == 1
     assert points[0].price == 30.31
-    assert "结构化技术指标：MA5=30.31" in points[0].source_detail
+    assert "按5日均线真实值显示：30.31" in points[0].source_detail
 
 
 def test_atr_stop_reference_uses_structured_atr_and_close_when_available():
@@ -116,7 +116,7 @@ def test_atr_stop_reference_uses_structured_atr_and_close_when_available():
 
     assert len(points) == 1
     assert points[0].price == 30.22
-    assert "昨收30.85 - 1.5×ATR(0.4200)=30.22" in points[0].source_detail
+    assert "按昨收价30.85减去1.5倍平均波动范围(ATR 0.4200)得到：30.22" in points[0].source_detail
 
 
 def test_free_text_parser_keeps_actual_price_when_indicator_period_is_present():
