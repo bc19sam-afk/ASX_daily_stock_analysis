@@ -91,16 +91,16 @@ def _score_price_basis(price_policy: str, counts: Dict[str, Any], flags: List[Di
         return 20
     if policy == "mixed":
         score = 5
-        detail = "价格口径混用，不是纯 close_only 昨收计划。"
+        detail = "价格来源混用，不是纯昨收计划。"
     elif policy == "latest_close":
         score = 14
-        detail = "价格口径为 latest_close，需确认是否仍为昨收计划。"
+        detail = "价格来源为最新收盘数据，需确认是否仍为昨收计划。"
     elif policy == "realtime":
         score = 10
-        detail = "价格口径为 realtime，不是开盘前 close_only 报告口径。"
+        detail = "价格来源包含实时价格，不是纯开盘前昨收计划。"
     else:
         score = 8
-        detail = f"价格口径为 {policy or 'unknown'}，需人工确认。"
+        detail = f"价格来源为 {policy or '未知'}，需人工确认。"
     flags.append(
         {
             "code": "price_basis_mismatch",
@@ -283,5 +283,10 @@ def _int_value(value: Any) -> int:
 
 def _format_counts(counts: Dict[str, Any]) -> str:
     if not counts:
-        return "unknown"
-    return ", ".join(f"{key}={counts.get(key, 0)}" for key in sorted(counts))
+        return "暂无"
+    labels = {
+        "close_only": "昨收",
+        "latest_close": "最新收盘",
+        "realtime": "实时价",
+    }
+    return "，".join(f"{labels.get(key, key)} {counts.get(key, 0)}" for key in sorted(counts))

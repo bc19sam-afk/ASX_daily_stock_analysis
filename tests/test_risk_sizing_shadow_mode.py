@@ -130,4 +130,4 @@ def test_dashboard_renders_shadow_wording_without_changing_close_only_context():
     assert "仅供人工复核，不改变今日 deterministic action" in report
     assert summary["price_policy"] == "close_only"
     assert summary["technical_basis_date"] == "2026-05-04"
-    assert "**价格口径**：close_only；技术基准日 2026-05-04" in report
+    assert "**价格来源**：全部使用昨收数据；技术基准日 2026-05-04" in report

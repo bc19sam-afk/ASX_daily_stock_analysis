@@ -821,7 +821,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         appendix_section = _section_from(report, "## 详情 / 审计附录")
 
-        self.assertIn("**价格口径**：realtime；技术基准日 unknown", report)
+        self.assertIn("**价格来源**：包含实时价格参考；技术基准日 暂无", report)
         self.assertIn("价格口径披露：**1/1** 只使用实时价格，**0/1** 只使用最新收盘，**0/1** 只按收盘口径。", report)
         self.assertIn("| BHP (BHP.AX) | 10.00 | 83.33% | 报告时点实时价估值 | 是 |", appendix_section)
 
@@ -845,7 +845,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         appendix_section = _section_from(report, "## 详情 / 审计附录")
 
-        self.assertIn("**价格口径**：close_only；技术基准日 unknown", report)
+        self.assertIn("**价格来源**：全部使用昨收数据；技术基准日 暂无", report)
         self.assertIn("价格口径披露：**0/1** 只使用实时价格，**0/1** 只使用最新收盘，**1/1** 只按收盘口径。", report)
         self.assertIn("| BHP (BHP.AX) | 10.00 | 83.33% | 收盘基准价估值 | 是 |", appendix_section)
         self.assertNotIn("报告时点实时价估值 | 是 |", appendix_section)

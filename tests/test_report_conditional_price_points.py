@@ -61,6 +61,47 @@ class ReportConditionalPricePointsTestCase(unittest.TestCase):
         self.assertNotIn("| AI参考买入位 | AI风险提示位 | AI参考目标位 |", report)
         self.assertNotIn("### 🎯 操作点位", report)
 
+    def test_plan_point_parser_ignores_ma_period_number_and_uses_actual_price_level(self):
+        service = self._build_service()
+        result = self._build_result(
+            name="GOOD GROUP",
+            code="GMG.AX",
+            market_snapshot={"date": "2026-05-07", "close": "30.85"},
+            dashboard={
+                "battle_plan": {
+                    "sniper_points": {
+                        "ideal_buy": "股价回踩MA5（约30.23 AUD）且盘中获得买盘支撑",
+                    }
+                }
+            },
+        )
+
+        report = service.generate_single_stock_report(result)
+
+        self.assertIn("| 理想买入观察位 | 30.23 |", report)
+        self.assertNotIn("| 理想买入观察位 | 5.00 |", report)
+
+    def test_plan_point_hides_numeric_reference_that_is_not_a_plausible_stock_price(self):
+        service = self._build_service()
+        result = self._build_result(
+            name="LINDSAY AU",
+            code="LAU.AX",
+            market_snapshot={"date": "2026-05-07", "close": "0.62"},
+            dashboard={
+                "battle_plan": {
+                    "sniper_points": {
+                        "ideal_buy": "单笔亏损严格控制在100 AUD以内",
+                    }
+                }
+            },
+        )
+
+        report = service.generate_single_stock_report(result)
+
+        self.assertIn("| 理想买入观察位 | 需人工复核（原始点位疑似不是股价） |", report)
+        self.assertIn("提取数值与昨收价偏离过大，已隐藏", report)
+        self.assertNotIn("| 理想买入观察位 | 100.00 |", report)
+
     @patch("src.notification.get_db")
     def test_dashboard_observation_appendix_renders_conditions_not_naked_reference_points(self, mock_get_db):
         mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100000.0, "holdings": []}
