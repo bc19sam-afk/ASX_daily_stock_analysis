@@ -41,21 +41,29 @@ def markdown_to_html_document(markdown_text: str) -> str:
                 padding: 15px;
                 max-width: 900px;
                 margin: 0 auto;
+                background: #f7f9fc;
             }
             h1 {
                 font-size: 20px;
-                border-bottom: 1px solid #eaecef;
-                padding-bottom: 0.3em;
+                border: 1px solid #d8e1ee;
+                border-left: 5px solid #2563eb;
+                border-radius: 8px;
+                padding: 12px 14px;
                 margin-top: 1.2em;
                 margin-bottom: 0.8em;
-                color: #0366d6;
+                color: #0f172a;
+                background: #ffffff;
             }
             h2 {
                 font-size: 18px;
-                border-bottom: 1px solid #eaecef;
-                padding-bottom: 0.3em;
+                border: 1px solid #d8e1ee;
+                border-left: 4px solid #2563eb;
+                border-radius: 8px;
+                padding: 9px 12px;
                 margin-top: 1.0em;
                 margin-bottom: 0.6em;
+                color: #0f172a;
+                background: #ffffff;
             }
             h3 {
                 font-size: 16px;
@@ -67,20 +75,25 @@ def markdown_to_html_document(markdown_text: str) -> str:
                 margin-bottom: 8px;
             }
             table {
-                border-collapse: collapse;
+                border-collapse: separate;
+                border-spacing: 0;
                 width: 100%;
                 margin: 12px 0;
                 display: block;
                 overflow-x: auto;
                 font-size: 13px;
+                background: #ffffff;
+                border: 1px solid #d8e1ee;
+                border-radius: 8px;
             }
             th, td {
-                border: 1px solid #dfe2e5;
+                border: 0;
+                border-bottom: 1px solid #dfe2e5;
                 padding: 6px 10px;
                 text-align: left;
             }
             th {
-                background-color: #f6f8fa;
+                background-color: #eef2f7;
                 font-weight: 600;
             }
             tr:nth-child(2n) {
@@ -90,10 +103,12 @@ def markdown_to_html_document(markdown_text: str) -> str:
                 background-color: #f1f8ff;
             }
             blockquote {
-                color: #6a737d;
-                border-left: 0.25em solid #dfe2e5;
-                padding: 0 1em;
+                color: #334155;
+                border-left: 4px solid #2563eb;
+                padding: 8px 12px;
                 margin: 0 0 10px 0;
+                background: #eef6ff;
+                border-radius: 6px;
             }
             code {
                 padding: 0.2em 0.4em;
@@ -170,21 +185,27 @@ def markdown_to_archive_html_document(markdown_text: str) -> str:
                 max-width: 980px;
                 margin: 0 auto;
                 padding: 20px;
-                background: #ffffff;
+                background: #f7f9fc;
             }
             h1 {
                 font-size: 24px;
                 margin: 0 0 14px 0;
-                padding-bottom: 8px;
-                border-bottom: 2px solid #111827;
+                padding: 14px 16px;
+                border: 1px solid #d8e1ee;
+                border-left: 6px solid #2563eb;
+                border-radius: 8px;
                 color: #111827;
+                background: #ffffff;
             }
             h2 {
                 font-size: 19px;
                 margin: 24px 0 10px 0;
-                padding-bottom: 6px;
-                border-bottom: 1px solid #d8dee4;
+                padding: 10px 12px;
+                border: 1px solid #d8e1ee;
+                border-left: 5px solid #2563eb;
+                border-radius: 8px;
                 color: #111827;
+                background: #ffffff;
                 break-after: avoid;
             }
             h3 {
@@ -199,24 +220,31 @@ def markdown_to_archive_html_document(markdown_text: str) -> str:
                 margin: 8px 0 12px 0;
                 padding: 8px 12px;
                 color: #334155;
-                background: #f8fafc;
+                background: #eef6ff;
                 border-left: 4px solid #2563eb;
+                border-radius: 6px;
             }
             table {
-                border-collapse: collapse;
+                border-collapse: separate;
+                border-spacing: 0;
                 width: 100%;
                 margin: 10px 0 14px 0;
                 font-size: 13px;
+                background: #ffffff;
+                border: 1px solid #d0d7de;
+                border-radius: 8px;
+                overflow: hidden;
                 break-inside: avoid;
             }
             th, td {
-                border: 1px solid #d0d7de;
+                border: 0;
+                border-bottom: 1px solid #d0d7de;
                 padding: 7px 9px;
                 text-align: left;
                 vertical-align: top;
             }
             th {
-                background: #f3f4f6;
+                background: #eef2f7;
                 font-weight: 700;
             }
             tr:nth-child(2n) {

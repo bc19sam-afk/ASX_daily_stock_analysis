@@ -48,7 +48,7 @@ ACTION_COUNT_KEYS = ("buy", "add", "reduce", "close", "hold_watch", "blocked")
 DEFAULT_ACTIONABLE_DELTA_AMOUNT = 20.0
 HOMEPAGE_ACTIONABLE_LIMIT = 5
 HOMEPAGE_RISK_LIMIT = 5
-TRIAGE_CARD_PREVIEW_LIMIT = 3
+TRIAGE_CARD_PREVIEW_LIMIT = 2
 EXECUTION_CHECKLIST = [
     "确认报告为昨收计划 / 开盘前计划，技术信号基于已收盘日线。",
     "开盘后执行前复核实时价格、盘口流动性和重大新闻。",
@@ -741,6 +741,14 @@ def build_daily_decision_summary(
 
 
 def _format_action_item(item: Dict[str, Any]) -> str:
+    fields = _action_display_fields(item)
+    return (
+        f"{fields['name']}：{fields['action_label']}，"
+        f"目标仓位 {fields['target_weight']}，{fields['amount_text']}"
+    )
+
+
+def _action_display_fields(item: Dict[str, Any]) -> Dict[str, str]:
     action = str(item.get("position_action") or "HOLD").upper()
     action_label = {
         "OPEN": "买入/新开仓",
@@ -756,7 +764,35 @@ def _format_action_item(item: Dict[str, Any]) -> str:
         amount_text = f"计划调出约 {abs(delta_amount):,.2f}"
     else:
         amount_text = "暂无调仓金额"
-    return f"{item.get('name')}：{action_label}，目标仓位 {target_weight:.2%}，{amount_text}"
+    return {
+        "name": str(item.get("name") or item.get("code") or "未知标的"),
+        "action_label": action_label,
+        "target_weight": f"{target_weight:.2%}",
+        "amount_text": amount_text,
+    }
+
+
+def _render_action_table_lines(items: List[Dict[str, Any]]) -> List[str]:
+    if not items:
+        return []
+    lines = [
+        "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 |",
+        "| --- | --- | ---: | ---: |",
+    ]
+    for item in items[:HOMEPAGE_ACTIONABLE_LIMIT]:
+        fields = _action_display_fields(item)
+        lines.append(
+            "| "
+            f"{_table_cell(fields['name'])} | "
+            f"{_table_cell(fields['action_label'])} | "
+            f"{_table_cell(fields['target_weight'])} | "
+            f"{_table_cell(fields['amount_text'])} |"
+        )
+    return lines
+
+
+def _table_cell(value: Any) -> str:
+    return str(value or "").replace("|", "\\|").replace("\n", " ").strip()
 
 
 def _today_conclusion(
@@ -840,18 +876,18 @@ def _render_triage_card_lines(card: Dict[str, Any]) -> List[str]:
     if not card:
         return []
     sections = [
-        ("today_must_review", "必看"),
-        ("today_can_ignore", "今天不用管"),
-        ("high_value_low_confidence", "值得看但证据不足"),
-        ("data_quality_attention", "数据需要先确认"),
+        ("today_must_review", "先看这几只"),
+        ("today_can_ignore", "低优先级"),
+        ("high_value_low_confidence", "有机会但证据不足"),
+        ("data_quality_attention", "先补数据再判断"),
     ]
     lines = ["", "**今日人工复核卡片**"]
     for key, label in sections:
         items = card.get(key) or []
         if not items:
-            lines.append(f"- {label}：无。")
+            lines.append(f"- **{label}**：无。")
             continue
-        lines.append(f"- {label}：{_format_triage_preview(items)}")
+        lines.append(f"- **{label}**：{_format_triage_preview(items)}")
     return lines
 
 
@@ -868,9 +904,9 @@ def _format_triage_preview(items: List[Dict[str, Any]]) -> str:
 
 def _compact_reason(value: str) -> str:
     text = " ".join(str(value or "").split())
-    if len(text) <= 72:
+    if len(text) <= 54:
         return text
-    return text[:69].rstrip() + "..."
+    return text[:51].rstrip() + "..."
 
 
 def _homepage_banner(price_policy: str) -> str:
@@ -923,18 +959,18 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
     ])
 
     if current_holding_actions:
-        for item in current_holding_actions[:HOMEPAGE_ACTIONABLE_LIMIT]:
-            lines.append(f"- {_format_action_item(item)}。")
+        lines.extend(_render_action_table_lines(current_holding_actions))
     else:
         lines.append("- 当前持仓暂无必须调仓动作；继续按昨收计划观察。")
     if uncovered_holdings:
+        if current_holding_actions:
+            lines.append("")
         lines.append(f"- 另有 {len(uncovered_holdings)} 只当前持仓未覆盖今日分析，执行前先补齐或人工确认。")
 
     lines.extend(["", "**今日重点股票**"])
     actionable_items = summary.get("actionable_items") or []
     if actionable_items:
-        for item in actionable_items[:HOMEPAGE_ACTIONABLE_LIMIT]:
-            lines.append(f"- {_format_action_item(item)}。")
+        lines.extend(_render_action_table_lines(actionable_items))
     else:
         if watch_items:
             names = "、".join(str(item.get("name")) for item in watch_items[:HOMEPAGE_ACTIONABLE_LIMIT])

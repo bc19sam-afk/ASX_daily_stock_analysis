@@ -160,10 +160,10 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "**今日结论**" in landing
     assert "**今日动作数量**" in landing
     assert "**今日人工复核卡片**" in landing
-    assert "- 必看：" in landing
-    assert "- 今天不用管：" in landing
-    assert "- 值得看但证据不足：" in landing
-    assert "- 数据需要先确认：" in landing
+    assert "- **先看这几只**：" in landing
+    assert "- **低优先级**：" in landing
+    assert "- **有机会但证据不足**：" in landing
+    assert "- **先补数据再判断**：" in landing
     assert "**当前持仓需要处理什么**" in landing
     assert "**今日重点股票**" in landing
     assert "**主要风险 / 暂停动作**" in landing
@@ -180,7 +180,11 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "validation BLOCK，仅观察" not in landing
 
     actionable_section = _section_between(landing, "**今日重点股票**", "**主要风险 / 暂停动作**")
-    actionable_lines = [line for line in actionable_section.splitlines() if line.startswith("- ")]
+    assert "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 |" in actionable_section
+    actionable_lines = [
+        line for line in actionable_section.splitlines()
+        if line.startswith("| ") and not line.startswith("| ---") and "标的" not in line
+    ]
     assert len(actionable_lines) == 5
 
     risk_section = _section_between(landing, "**主要风险 / 暂停动作**", "**报告可信度**")
@@ -194,6 +198,7 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "## 评分校准" in report
     assert "风险仓位参考（Shadow" in report
     assert "风险仓位对比（Dry Run" in report
+    assert "| 项目 | 今天状态 |" in landing
 
 
 @patch("src.notification.get_db")
@@ -282,9 +287,9 @@ def test_dashboard_homepage_surfaces_holdings_counts_and_single_line_checklist(m
     landing = _landing_section(report)
 
     assert "**今日动作数量**：买入 2 / 加仓 2 / 减仓 1 / 清仓 1 / 观察 1 / 阻断（BLOCK）1" in landing
-    assert "BHP (BHP.AX)：加仓" in landing
-    assert "CSL (CSL.AX)：减仓" in landing
-    assert "TLS (TLS.AX)：清仓" in landing
+    assert "| BHP (BHP.AX) | 加仓 | 24.00% | 计划投入约 4,000.00 |" in landing
+    assert "| CSL (CSL.AX) | 减仓 | 12.00% | 计划调出约 6,000.00 |" in landing
+    assert "| TLS (TLS.AX) | 清仓 | 0.00% | 计划调出约 12,000.00 |" in landing
     assert "另有 1 只当前持仓未覆盖今日分析" in landing
     assert "技术基准日 2026-04-27~2026-04-28" in landing
     assert "开盘后确认价格；检查公告和新闻；数据不足则观察；仅作计划。" in landing
@@ -333,3 +338,5 @@ def test_archive_html_still_contains_compact_homepage_text(tmp_path: Path):
 
     assert "<h2>开盘前决策驾驶舱</h2>" in html
     assert "今日结论" in html
+    assert "border-radius: 8px" in html
+    assert "background: #f7f9fc" in html

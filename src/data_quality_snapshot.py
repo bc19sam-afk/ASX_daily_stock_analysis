@@ -131,23 +131,19 @@ def render_data_quality_snapshot_lines(snapshot: Dict[str, Any]) -> List[str]:
     if not attention:
         attention_text = "无报告级数据注意项。"
     else:
-        attention_text = "；".join(_compact(item.get("reason")) for item in attention if item.get("reason"))
+        attention_text = _join_attention(item.get("reason") for item in attention if item.get("reason"))
 
     return [
         "",
         "**免费数据质量快照**",
+        "| 项目 | 今天状态 |",
+        "| --- | --- |",
+        f"| 行情 | {int(market.get('available_count') or 0)}/{stock_count} 可用；基准日 {date_text} |",
+        f"| 估值 | {int(valuation.get('available_count') or 0)}/{stock_count} 有快照；{valuation_text} |",
+        f"| 新闻 | {int(news.get('available_count') or 0)}/{stock_count} 有证据 |",
         (
-            f"- 行情：{int(market.get('available_count') or 0)}/{stock_count} 可用；"
-            f"基准日 {date_text}。"
-        ),
-        (
-            f"- 估值：{int(valuation.get('available_count') or 0)}/{stock_count} 有快照；"
-            f"{valuation_text}。"
-        ),
-        f"- 新闻：{int(news.get('available_count') or 0)}/{stock_count} 有证据。",
-        (
-            f"- 可信度：{_score_text(reliability.get('score'))} "
-            f"（{_reliability_label(reliability.get('level'))}）；{attention_text}"
+            f"| 可信度 | {_score_text(reliability.get('score'))} "
+            f"（{_reliability_label(reliability.get('level'))}）；{attention_text} |"
         ),
     ]
 
@@ -284,6 +280,15 @@ def _compact(value: Any, limit: int = 64) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3].rstrip() + "..."
+
+
+def _join_attention(values: Iterable[Any]) -> str:
+    parts = []
+    for value in values:
+        text = _compact(value).rstrip("。；;,.，")
+        if text:
+            parts.append(text)
+    return "；".join(parts) + ("。" if parts else "")
 
 
 def _has_value(value: Any) -> bool:
