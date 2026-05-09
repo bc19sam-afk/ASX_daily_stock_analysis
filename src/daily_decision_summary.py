@@ -34,7 +34,12 @@ from src.final_action_display import (
     build_final_action_display,
     is_effective_executable_action,
 )
-from src.report_reliability import build_report_reliability, render_report_reliability_lines
+from src.report_reliability import (
+    LEVEL_LABELS,
+    build_report_reliability,
+    normalize_reliability_reason,
+    render_report_reliability_lines,
+)
 from src.core.risk_sizing import (
     RiskSizingSettings,
     build_risk_sizing_comparisons,
@@ -825,17 +830,13 @@ def _report_reliability_sentence(reliability: Dict[str, Any]) -> str:
     if not reliability:
         return "未生成可信度摘要。"
     level = str(reliability.get("level") or "low_observe_only")
-    label = {
-        "high": "可直接作为开盘前计划",
-        "usable_with_manual_review": "可用，但需人工确认",
-        "low_observe_only": "仅观察",
-    }.get(level, "仅观察")
+    label = LEVEL_LABELS.get(level, LEVEL_LABELS["low_observe_only"])
     reasons = [
-        str(flag.get("message") or "").strip()
+        normalize_reliability_reason(flag.get("message"))
         for flag in (reliability.get("flags") or [])
-        if str(flag.get("code") or "") != "low_reliability" and str(flag.get("message") or "").strip()
+        if str(flag.get("code") or "") != "low_reliability" and normalize_reliability_reason(flag.get("message"))
     ]
-    reason = reasons[0] if reasons else "无重大扣分项。"
+    reason = f"{'；'.join(reasons[:3])}。" if reasons else "无重大扣分项。"
     return f"{int(reliability.get('score') or 0)}/100，{label}；{reason}"
 
 

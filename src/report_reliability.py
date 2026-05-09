@@ -11,6 +11,7 @@ LEVEL_LABELS = {
     "usable_with_manual_review": "可用但需人工复核",
     "low_observe_only": "仅观察",
 }
+TRAILING_REASON_PUNCTUATION = "。；;,.，.!！？?"
 
 
 def build_report_reliability(
@@ -59,22 +60,27 @@ def render_report_reliability_lines(reliability: Dict[str, Any]) -> List[str]:
     flags = reliability.get("flags") or []
     warning = next((flag for flag in flags if flag.get("code") == "low_reliability"), None)
     reasons = [
-        str(flag.get("message") or "").strip()
+        normalize_reliability_reason(flag.get("message"))
         for flag in flags
-        if flag.get("code") != "low_reliability" and str(flag.get("message") or "").strip()
+        if flag.get("code") != "low_reliability" and normalize_reliability_reason(flag.get("message"))
     ]
     lines = [
         f"**报告可信度：{score} / 100**",
         f"- 等级：{label}（{level}）",
     ]
     if reasons:
-        lines.append(f"- 主要扣分项：{'；'.join(reasons[:3])}")
+        lines.append(f"- 主要扣分项：{'；'.join(reasons[:3])}。")
     else:
         lines.append("- 主要扣分项：无重大扣分项。")
     if warning:
         lines.append(f"- {warning.get('message')}")
     lines.append("")
     return lines
+
+
+def normalize_reliability_reason(message: Any) -> str:
+    """Return a compact reason that can be joined with Chinese punctuation."""
+    return str(message or "").strip().rstrip(TRAILING_REASON_PUNCTUATION)
 
 
 def _stock_count(matrix: Dict[str, List[Dict[str, Any]]], summary: Dict[str, Any]) -> int:

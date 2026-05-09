@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from src.analyzer import AnalysisResult
 from src.daily_decision_summary import build_daily_decision_summary
 from src.notification import NotificationService
-from src.report_reliability import build_report_reliability
+from src.report_reliability import build_report_reliability, normalize_reliability_reason
 
 
 def _result(**overrides) -> AnalysisResult:
@@ -150,6 +150,34 @@ def test_low_reliability_report_renders_observe_only_warning(monkeypatch):
     assert "报告可信度：" in report
     assert "仅观察" in report
     assert "报告可信度偏低：不建议直接依据本报告执行，仅用于观察和人工复核。" in report
+
+
+def test_homepage_reliability_is_conservative_when_all_announcements_and_backtests_unchecked(monkeypatch):
+    service = NotificationService.__new__(NotificationService)
+    service._report_summary_only = False
+    service._report_timezone = "Australia/Sydney"
+    service._last_daily_decision_summary = None
+    monkeypatch.setattr(
+        "src.notification.get_db",
+        lambda: type("DB", (), {"get_portfolio_overview": lambda self: {"cash": 10000.0, "holdings": []}})(),
+    )
+    results = [_result(code=f"T{i:02d}.AX", name=f"T{i:02d}", backtest_summary={}) for i in range(14)]
+
+    report = service.generate_dashboard_report(results, report_date="2026-05-08")
+
+    assert "可直接作为开盘前计划" not in report
+    assert "**报告可信度**：90/100，可作为开盘前人工复核计划" in report
+    assert "等级：可作为开盘前人工复核计划（high）" in report
+    assert "14 只股票 ASX 官方公告未检查" in report
+    assert "14/14 只股票回测证据未检查" in report
+
+
+def test_reliability_reason_cleanup_strips_common_ascii_and_chinese_punctuation():
+    assert normalize_reliability_reason("External source unavailable.") == "External source unavailable"
+    assert normalize_reliability_reason("External source unavailable,") == "External source unavailable"
+    assert normalize_reliability_reason("External source unavailable!") == "External source unavailable"
+    assert normalize_reliability_reason("External source unavailable?") == "External source unavailable"
+    assert normalize_reliability_reason("公告未检查。") == "公告未检查"
 
 
 def test_report_reliability_builder_does_not_need_action_fields():
