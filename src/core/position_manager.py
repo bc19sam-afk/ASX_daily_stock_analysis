@@ -34,6 +34,10 @@ class PositionManager:
         available_cash = max(float(available_cash or 0.0), 0.0)
         total_value = max(float(total_value or 0.0), 0.0)
         final_decision = str(final_decision or "HOLD").upper()
+        event_risk = str(event_risk or "MEDIUM").upper()
+        risk_note = "高事件风险，可执行动作降级为仅观察" if event_risk == "HIGH" else ""
+        if event_risk == "HIGH" and final_decision in {"BUY", "SELL"}:
+            final_decision = "HOLD"
 
         risk_cap = self._risk_cap(
             market_regime=market_regime,
@@ -65,6 +69,8 @@ class PositionManager:
             f"final_decision={final_decision}, regime={market_regime}, risk={event_risk}, "
             f"data_quality={data_quality_flag}, avg_cost={round(float(avg_cost or 0.0), 4)}"
         )
+        if risk_note:
+            reason = f"{risk_note}；{reason}"
         return PositionDecision(
             action=action,
             target_weight=target_weight,

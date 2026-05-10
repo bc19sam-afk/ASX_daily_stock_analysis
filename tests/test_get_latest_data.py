@@ -116,6 +116,8 @@ class GetLatestDataTestCase(unittest.TestCase):
         raw_dates = [row["date"] for row in context["raw_data"]]
         self.assertEqual(raw_dates, [date(2024, 1, 1), date(2024, 1, 2)])
         self.assertNotIn("2024-01-03", context["price_history_table"])
+        self.assertFalse(context["allows_current_only_data"])
+        self.assertEqual(context["current_only_data_policy"], "disabled_for_historical_context")
 
 
 if __name__ == "__main__":

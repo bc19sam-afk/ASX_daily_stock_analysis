@@ -442,7 +442,7 @@ class BacktestEngine:
         cw = abs(float(current_weight or 0.0))
         invested = max(tw, cw) > cls._WEIGHT_EPSILON
 
-        if final in ("BUY", "SELL", "HOLD") or action in ("OPEN", "ADD", "HOLD", "REDUCE", "CLOSE"):
+        if action in ("OPEN", "ADD", "HOLD", "REDUCE", "CLOSE"):
             position = "long"
             direction = "flat"
             if action in ("OPEN", "ADD"):
@@ -460,34 +460,30 @@ class BacktestEngine:
             elif action == "HOLD":
                 position = "long" if invested else "cash"
                 direction = "not_down" if invested else "flat"
-            else:
-                # Decision-only fallback within structured path
-                if final == "BUY":
-                    position = "long"
-                    direction = "up"
-                elif final == "SELL":
-                    position = "cash"
-                    direction = "down"
-                else:
-                    position = "long" if invested else "cash"
-                    direction = "not_down" if invested else "flat"
 
-            if final == "BUY":
-                direction = "up"
-                position = "long"
-            elif final == "SELL":
+            if final == "SELL" and action in ("REDUCE", "CLOSE"):
                 direction = "down"
-                if action not in ("OPEN", "ADD"):
-                    position = "cash" if not invested or action == "CLOSE" else "long"
-            elif final == "HOLD" and action == "":
-                position = "long" if invested else "cash"
-                direction = "not_down" if invested else "flat"
-
-            source = "final_decision" if final in ("BUY", "SELL", "HOLD") else "position_action"
+                position = "cash" if action == "CLOSE" else ("long" if invested else "cash")
             return {
                 "position_recommendation": position,
                 "direction_expected": direction,
-                "decision_source": source,
+                "decision_source": "position_action",
+            }
+
+        if final in ("BUY", "SELL", "HOLD"):
+            if final == "BUY":
+                position = "long"
+                direction = "up"
+            elif final == "SELL":
+                position = "cash"
+                direction = "down"
+            else:
+                position = "long" if invested else "cash"
+                direction = "not_down" if invested else "flat"
+            return {
+                "position_recommendation": position,
+                "direction_expected": direction,
+                "decision_source": "final_decision",
             }
 
         if alpha in ("BUY", "SELL", "HOLD"):

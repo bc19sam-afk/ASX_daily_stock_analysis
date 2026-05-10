@@ -145,7 +145,7 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         holdings = self.db.get_portfolio_positions(only_open=True)
         self.assertEqual(len(holdings), 2)
 
-    def test_llm_event_risk_does_not_change_position_decision(self):
+    def test_high_event_risk_downgrades_buy_to_hold(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=8000, equity_value=2000, total_value=10000)
         self.db.upsert_portfolio_position(
             code="LLM",
@@ -175,10 +175,40 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
             persist=False,
         )
 
-        self.assertEqual(high_risk.final_decision, low_risk.final_decision)
-        self.assertEqual(high_risk.position_action, low_risk.position_action)
-        self.assertEqual(high_risk.target_weight, low_risk.target_weight)
-        self.assertEqual(high_risk.delta_amount, low_risk.delta_amount)
+        self.assertEqual(low_risk.final_decision, "BUY")
+        self.assertIn(low_risk.position_action, {"ADD", "OPEN"})
+        self.assertEqual(high_risk.final_decision, "HOLD")
+        self.assertEqual(high_risk.position_action, "HOLD")
+        self.assertAlmostEqual(high_risk.target_weight, 0.2)
+        self.assertAlmostEqual(high_risk.delta_amount, 0.0)
+        self.assertIn("高事件风险", high_risk.action_reason)
+
+    def test_high_event_risk_downgrades_sell_to_hold(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=8000, equity_value=2000, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="HISELL",
+            name="HISELL",
+            quantity=20,
+            avg_cost=100,
+            current_price=100,
+            weight=0.2,
+            market_value=2000,
+        )
+
+        result = self._result("HISELL", final_decision="SELL", market_regime="NEUTRAL")
+        result.event_risk = "HIGH"
+        self.pipeline._apply_position_management(
+            result=result,
+            query_id="q_llm_high_sell",
+            current_price=100,
+            persist=False,
+        )
+
+        self.assertEqual(result.final_decision, "HOLD")
+        self.assertEqual(result.position_action, "HOLD")
+        self.assertAlmostEqual(result.target_weight, 0.2)
+        self.assertAlmostEqual(result.delta_amount, 0.0)
+        self.assertIn("高事件风险", result.action_reason)
 
     def test_concurrent_api_updates_are_serialized_and_consistent(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)

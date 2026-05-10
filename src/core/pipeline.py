@@ -302,20 +302,23 @@ class StockAnalysisPipeline:
             
             # Step 5.5: 注入资金面数据（直接从df_attrs读取，无需重复调用yfinance）
             try:
-                insider_desc = df_attrs.get('insider_desc', '')
-                inst_desc = df_attrs.get('inst_desc', '')
-                if insider_desc or inst_desc:
-                    context['Insider_Desc'] = insider_desc
-                    context['Inst_Desc'] = inst_desc
-                    logger.info(f"[{code}] 资金面数据已注入 context")
-                else:
-                    logger.debug(f"[{code}] df_attrs 无资金面数据，跳过注入")
+                if context.get('allows_current_only_data', True):
+                    insider_desc = df_attrs.get('insider_desc', '')
+                    inst_desc = df_attrs.get('inst_desc', '')
+                    if insider_desc or inst_desc:
+                        context['Insider_Desc'] = insider_desc
+                        context['Inst_Desc'] = inst_desc
+                        logger.info(f"[{code}] 资金面数据已注入 context")
+                    else:
+                        logger.debug(f"[{code}] df_attrs 无资金面数据，跳过注入")
 
-                # 注入基本面数据
-                fundamentals = df_attrs.get('fundamentals', {})
-                if fundamentals:
-                    context['fundamentals'] = fundamentals
-                    logger.info(f"[{code}] 基本面数据已注入 context: {list(fundamentals.keys())}")
+                    # 注入基本面数据
+                    fundamentals = df_attrs.get('fundamentals', {})
+                    if fundamentals:
+                        context['fundamentals'] = fundamentals
+                        logger.info(f"[{code}] 基本面数据已注入 context: {list(fundamentals.keys())}")
+                else:
+                    logger.info(f"[{code}] 历史上下文禁用 current-only 基本面/持仓数据注入")
             except Exception as e:
                 logger.warning(f"[{code}] 资金面数据注入失败（已跳过）：{e}")
 
@@ -498,8 +501,10 @@ class StockAnalysisPipeline:
         # - BUY 可降级到 HOLD
         # - HOLD 不直接降到 SELL
         # - SELL 维持 SELL
-        # LLM overlay（news_sentiment/event_risk/sector_tone）只用于解释展示，
-        # 不参与主动作合成。
+        # LLM overlay 中 news_sentiment/sector_tone 只用于解释展示。
+        # event_risk=HIGH 是保守风控硬约束：不得与 BUY/OPEN/ADD 共存。
+        if event_risk == "HIGH":
+            return "HOLD"
         if alpha_decision == "SELL":
             return "SELL"
         if alpha_decision == "HOLD":
@@ -557,6 +562,10 @@ class StockAnalysisPipeline:
         result.data_quality_flag = data_quality_flag
         result.final_decision = final_decision
         result.watchlist_state = "ACTIVE"
+        if event_risk == "HIGH" and alpha_decision in ("BUY", "SELL"):
+            note = "高事件风险，可执行动作已降级为仅观察"
+            if note not in (result.risk_warning or ""):
+                result.risk_warning = f"{result.risk_warning}；{note}" if result.risk_warning else note
 
     @staticmethod
     def _classify_backtest_quality(backtest_summary: Optional[Dict[str, Any]]) -> str:
@@ -772,6 +781,13 @@ class StockAnalysisPipeline:
         current_price: Optional[float],
         persist: bool = True,
     ) -> None:
+        if str(getattr(result, "event_risk", "") or "").upper() == "HIGH" and str(
+            getattr(result, "final_decision", "") or ""
+        ).upper() in {"BUY", "SELL"}:
+            result.final_decision = "HOLD"
+            note = "高事件风险，可执行动作已降级为仅观察"
+            if note not in (result.risk_warning or ""):
+                result.risk_warning = f"{result.risk_warning}；{note}" if result.risk_warning else note
         if persist:
             with self.db.get_portfolio_write_lock():
                 self._apply_position_management_unlocked(

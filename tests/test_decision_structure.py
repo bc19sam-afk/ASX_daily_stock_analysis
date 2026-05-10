@@ -55,7 +55,7 @@ class DecisionStructureTestCase(unittest.TestCase):
             "SELL",
         )
 
-    def test_llm_overlay_fields_do_not_change_final_decision(self):
+    def test_llm_overlay_high_event_risk_forces_hold_but_other_overlays_remain_display_only(self):
         baseline = StockAnalysisPipeline._synthesize_final_decision(
             alpha_decision="BUY",
             market_regime="NEUTRAL",
@@ -73,9 +73,18 @@ class DecisionStructureTestCase(unittest.TestCase):
             sector_tone="NEG",
             data_quality_flag="OK",
         )
+        adverse_display_only_overlay = StockAnalysisPipeline._synthesize_final_decision(
+            alpha_decision="BUY",
+            market_regime="NEUTRAL",
+            news_sentiment="NEG",
+            event_risk="LOW",
+            sector_tone="NEG",
+            data_quality_flag="OK",
+        )
 
         self.assertEqual(baseline, "BUY")
-        self.assertEqual(adverse_llm_overlay, baseline)
+        self.assertEqual(adverse_llm_overlay, "HOLD")
+        self.assertEqual(adverse_display_only_overlay, baseline)
 
     def test_market_regime_inference(self):
         self.assertEqual(StockAnalysisPipeline._infer_market_regime(None), "NEUTRAL")

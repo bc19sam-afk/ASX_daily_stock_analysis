@@ -25,6 +25,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
     retry_if_exception_type,
+    retry_if_not_exception_type,
     before_sleep_log,
 )
 
@@ -358,7 +359,7 @@ class YfinanceFetcher(BaseFetcher):
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type(Exception),
+        retry=retry_if_exception_type(Exception) & retry_if_not_exception_type(DataFetchError),
         before_sleep=before_sleep_log(logger, logging.WARNING),
     )
     def get_daily_data(self, stock_code: str, start_date: str = None, end_date: str = None, days: int = 300) -> pd.DataFrame:
@@ -372,6 +373,8 @@ class YfinanceFetcher(BaseFetcher):
             logger.info(f"[{stock_code}] 正在从 Yahoo Finance 获取数据...")
             ticker = yf.Ticker(ticker_symbol)
             daily_cutoff = end_date or self._resolve_default_daily_cutoff()
+            if not daily_cutoff:
+                raise DataFetchError(f"[{stock_code}] Yahoo 日线截止日无法解析，已停止使用可能未收盘的日线数据")
             if start_date and end_date:
                 df = ticker.history(start=start_date, end=end_date)
             else:
@@ -445,11 +448,13 @@ class YfinanceFetcher(BaseFetcher):
             # 格式化日期
             if "date" in df.columns:
                 df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None).dt.strftime("%Y-%m-%d")
-                if daily_cutoff:
+                try:
                     cutoff = pd.to_datetime(daily_cutoff).date()
-                    df = df[pd.to_datetime(df["date"]).dt.date <= cutoff].copy()
-                    if df.empty:
-                        raise DataFetchError(f"[{stock_code}] 未获取到 {daily_cutoff} 及以前的已收盘日线数据")
+                except Exception as exc:
+                    raise DataFetchError(f"[{stock_code}] Yahoo 日线截止日解析失败，已停止使用可能未收盘的日线数据: {daily_cutoff}") from exc
+                df = df[pd.to_datetime(df["date"]).dt.date <= cutoff].copy()
+                if df.empty:
+                    raise DataFetchError(f"[{stock_code}] 未获取到 {daily_cutoff} 及以前的已收盘日线数据")
 
             # 确保按日期升序排列（旧→新），pct_change() 依赖此顺序
             if "date" in df.columns:
@@ -495,7 +500,7 @@ class YfinanceFetcher(BaseFetcher):
                 market_timezone=getattr(cfg, "market_timezone", "Australia/Sydney"),
             ).isoformat()
         except Exception as exc:
-            logger.debug("无法解析 Yahoo 日线默认截止日，保留原始返回范围: %s", exc)
+            logger.warning("无法解析 Yahoo 日线默认截止日，停止默认日线获取: %s", exc)
             return None
 
     def get_realtime_quote(self, stock_code: str) -> Optional[UnifiedRealtimeQuote]:

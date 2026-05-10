@@ -139,14 +139,15 @@ class BacktestService:
                     self._try_fill_daily_data(code=analysis.code, analysis_date=analysis_date, eval_window_days=eval_window_days)
                     forward_bars = self.stock_repo.get_forward_bars(code=analysis.code, analysis_date=analysis_date, eval_window_days=int(eval_window_days))
                 structured_levels = self._extract_structured_backtest_levels(analysis)
+                decision_fields = self._resolve_backtest_decision_fields(analysis)
                 evaluation = BacktestEngine.evaluate_single(
                     operation_advice=analysis.operation_advice,
-                    alpha_decision=getattr(analysis, "alpha_decision", None),
-                    final_decision=getattr(analysis, "final_decision", None),
-                    position_action=getattr(analysis, "position_action", None),
-                    target_weight=getattr(analysis, "target_weight", None),
-                    current_weight=getattr(analysis, "current_weight", None),
-                    delta_amount=getattr(analysis, "delta_amount", None),
+                    alpha_decision=decision_fields["alpha_decision"],
+                    final_decision=decision_fields["final_decision"],
+                    position_action=decision_fields["position_action"],
+                    target_weight=decision_fields["target_weight"],
+                    current_weight=decision_fields["current_weight"],
+                    delta_amount=decision_fields["delta_amount"],
                     analysis_date=analysis_date,
                     start_price=float(start_price),
                     forward_bars=forward_bars,
@@ -199,22 +200,49 @@ class BacktestService:
 
     @classmethod
     def _extract_structured_backtest_levels(cls, analysis: Any) -> Dict[str, Optional[float]]:
-        raw_result = getattr(analysis, "raw_result", None)
-        if not raw_result:
-            return {"ideal_buy": None, "stop_loss": None, "take_profit": None}
-
-        try:
-            data = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return {"ideal_buy": None, "stop_loss": None, "take_profit": None}
-
-        if not isinstance(data, dict):
+        data = cls._extract_raw_result_dict(analysis)
+        if data is None:
             return {"ideal_buy": None, "stop_loss": None, "take_profit": None}
 
         return {
             "ideal_buy": cls._coerce_structured_number(data.get("ideal_buy")),
             "stop_loss": cls._coerce_structured_number(data.get("stop_loss")),
             "take_profit": cls._coerce_structured_number(data.get("take_profit")),
+        }
+
+    @classmethod
+    def _extract_raw_result_dict(cls, analysis: Any) -> Optional[Dict[str, Any]]:
+        raw_result = getattr(analysis, "raw_result", None)
+        if not raw_result:
+            return None
+        try:
+            data = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    @classmethod
+    def _resolve_backtest_decision_fields(cls, analysis: Any) -> Dict[str, Any]:
+        current_weight = getattr(analysis, "current_weight", None)
+        raw = cls._extract_raw_result_dict(analysis) or {}
+        validation_status = str(raw.get("validation_status") or getattr(analysis, "validation_status", "") or "").upper()
+        analysis_status = str(raw.get("analysis_status") or getattr(analysis, "analysis_status", "OK") or "OK").upper()
+        if validation_status == "BLOCK" or analysis_status != "OK":
+            return {
+                "alpha_decision": "HOLD",
+                "final_decision": "HOLD",
+                "position_action": "HOLD",
+                "target_weight": current_weight,
+                "current_weight": current_weight,
+                "delta_amount": 0.0,
+            }
+        return {
+            "alpha_decision": getattr(analysis, "alpha_decision", None),
+            "final_decision": getattr(analysis, "final_decision", None),
+            "position_action": getattr(analysis, "position_action", None),
+            "target_weight": getattr(analysis, "target_weight", None),
+            "current_weight": current_weight,
+            "delta_amount": getattr(analysis, "delta_amount", None),
         }
 
     @classmethod
