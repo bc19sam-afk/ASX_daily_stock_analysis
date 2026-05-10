@@ -50,6 +50,37 @@
 - Status recorded on 2026-05-06 after main commit `a0a0456`.
 - Pause all feature development until the next real daily report has been reviewed.
 - Do not start P1-3b-3, realtime quote adapters, new roadmap items, broker integration, automatic trading, database migrations, workflow changes, or `close_only` changes without separate authorization.
+- Stabilization / safety / contract / logging / date-consistency / dependency cleanup work may proceed only as small PRs from latest `origin/main`; do not submit old dirty worktree diffs directly.
+
+## 2026-05-10 Stabilization Merge Chain
+
+This chain closed the safety, contract, logging, dependency, date-consistency, and intraday-review visibility work without changing the automatic trading boundary, broker integration, ASX `close_only` default, or scheduling behavior.
+
+| PR | Purpose | Merge commit |
+| --- | --- | --- |
+| #130 | API v1 optional auth guard | `82b26bbb092f372ef278c7f3c09849f7b4cfcbc8` |
+| #128 | P0 decision safety + backtest visibility | `ecb83ebfd08f42b197e50bcbfc417c918c75374b` |
+| #129 | P1 data leakage + risk controls | `4309971e6dfe04a3ac9d4782d158b030218f4b38` |
+| #131 | Security-sensitive logging hardening | `0d1ddcb9dcaf4b8bff17735cb5adda17568fa68a` |
+| #132 | P2 reliability and contract gaps | `abfb0ed8ce2a394bb0e523bb915f08c44c4f516c` |
+| #133 | Frontend npm audit findings | `a1fadc6dcec10421e543bd002a3c1929e0be662f` |
+| #134 | API auth / OpenAPI contract | `7fdff336cfd06bc54d67d5005206a0f7408c4394` |
+| #135 | Report / technical basis date consistency | `858d87b3e48adc0650e56af08e39a507d5cf4ea0` |
+| #136 | Intraday review manual checks | `60e43609a6360649c5852291b847f35e0d0f6f75` |
+
+Final main after #136: `60e43609a6360649c5852291b847f35e0d0f6f75`.
+
+Verification summary:
+
+- Backend full pytest after the stabilization chain: `634 passed, 7 warnings`.
+- Frontend npm audit after #133: `0 vulnerabilities`.
+- PR3 intraday review targeted test after #136: `3 passed`.
+
+Process notes:
+
+- Old dirty worktree changes must be backed up and split into small PRs from latest `origin/main`.
+- Do not apply old patches wholesale; inspect and migrate only the still-relevant hunks.
+- Keep future stabilization PRs scoped: one task per PR, no automatic trading, no broker writes, no ASX `close_only` default changes, and no scheduling changes unless separately authorized.
 
 ## Run Log
 

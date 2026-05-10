@@ -83,6 +83,12 @@ docs: 更新 README 部署说明
 | web-gate | 前端变更时执行 `npm run lint` + `npm run build` | ✅（触发时） |
 | network-smoke | 定时/手动执行 `pytest -m network` + `test.sh quick`（非阻断） | ❌（观测项） |
 
+当前 CI 后端准绳为 Python 3.11。更高版本本地运行时（例如 Python 3.14）出现的第三方依赖弃用警告，只有在导致测试失败、构建失败或报告生成失败时才视为阻断；不要为了消除非阻断 warning 直接改依赖版本或 lockfile。
+
+Windows 本地运行 `pytest` 时，测试通过后偶尔会出现 `pytest-current` 临时目录清理的 `PermissionError`。如果命令退出码为 0 且测试统计为 passed，该提示按本地清理噪音处理；若退出码非 0，则按真实失败排查。
+
+如果当前工作区已有无关 dirty files，不要直接混入新 PR。先从最新 `origin/main` 创建干净 worktree / 分支，只迁移当前任务需要的最小 diff；旧 dirty patch 只能作为参考，不应整包应用或直接覆盖生成文件。
+
 **本地运行检查：**
 
 ```bash
