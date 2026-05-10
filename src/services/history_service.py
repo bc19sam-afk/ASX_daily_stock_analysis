@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
 from src.core.validator import normalize_validation_status
+from src.services.signal_history_stats_service import SignalHistoryStatsService
 from src.storage import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,7 @@ class HistoryService:
             sentiment_label = self._get_sentiment_label(
                 record.sentiment_score if record.sentiment_score is not None else 50
             )
+            similar_signal_performance = self._build_similar_signal_performance(record, raw_result)
             
             return {
                 "query_id": record.query_id,
@@ -185,6 +187,7 @@ class HistoryService:
                 "event_risk": record.event_risk,
                 "sector_tone": record.sector_tone,
                 "data_quality_flag": record.data_quality_flag,
+                "similar_signal_performance": similar_signal_performance,
                 "ideal_buy": str(record.ideal_buy) if record.ideal_buy else None,
                 "secondary_buy": str(record.secondary_buy) if record.secondary_buy else None,
                 "stop_loss": str(record.stop_loss) if record.stop_loss else None,
@@ -198,6 +201,24 @@ class HistoryService:
         except Exception as e:
             logger.error(f"查询历史详情失败: {e}", exc_info=True)
             return None
+
+    def _build_similar_signal_performance(self, record: Any, raw_result: Any) -> Dict[str, Any]:
+        """Build display-only similar signal stats without affecting decisions."""
+        try:
+            return SignalHistoryStatsService(self.db).build_for_record(record, raw_result)
+        except Exception as exc:
+            logger.warning("构建类似信号历史表现失败，仅返回不可用状态: %s", exc)
+            return {
+                "contract_version": "similar_signal_history_v1",
+                "display_only": True,
+                "note": "仅供历史参考，不改变当前建议。",
+                "status": "insufficient_data",
+                "reason": "stats_unavailable",
+                "sample_size": 0,
+                "low_sample": True,
+                "warning": "样本较少，参考价值有限",
+                "windows": [],
+            }
 
     def get_news_intel(self, query_id: str, limit: int = 20) -> List[Dict[str, str]]:
         """

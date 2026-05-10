@@ -238,6 +238,7 @@ def get_history_detail(
             event_risk=result.get("event_risk"),
             sector_tone=result.get("sector_tone"),
             data_quality_flag=result.get("data_quality_flag"),
+            similar_signal_performance=result.get("similar_signal_performance"),
         )
         
         strategy = ReportStrategy(

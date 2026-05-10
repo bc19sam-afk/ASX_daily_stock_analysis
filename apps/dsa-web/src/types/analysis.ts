@@ -30,6 +30,37 @@ export interface ReportMeta {
 /** 情绪标签 */
 export type SentimentLabel = '极度悲观' | '悲观' | '中性' | '乐观' | '极度乐观';
 
+export interface SimilarSignalWindowStats {
+  horizonDays: number;
+  sampleSize: number;
+  lowSample: boolean;
+  confidenceLabel: string;
+  winRate?: number | null;
+  averageReturn?: number | null;
+  medianReturn?: number | null;
+  maxDrawdown?: number | null;
+  skippedCount?: number;
+  skipReasons?: Record<string, number>;
+  basisPriceSources?: Record<string, number>;
+}
+
+export interface SimilarSignalPerformance {
+  contractVersion: string;
+  displayOnly: true;
+  note: string;
+  status: 'ok' | 'insufficient_data' | string;
+  reason?: string;
+  similarityLabel?: string;
+  analysisBasisDate?: string | null;
+  basisDateSource?: string | null;
+  sampleSize: number;
+  lowSample: boolean;
+  warning?: string | null;
+  skippedCount?: number;
+  skipReasons?: Record<string, number>;
+  windows: SimilarSignalWindowStats[];
+}
+
 /** 报告概览区 */
 export interface ReportSummary {
   analysisSummary: string;
@@ -53,6 +84,7 @@ export interface ReportSummary {
   eventRisk?: 'LOW' | 'MEDIUM' | 'HIGH' | string;
   sectorTone?: 'POS' | 'NEU' | 'NEG' | string;
   dataQualityFlag?: 'OK' | 'MISSING' | string;
+  similarSignalPerformance?: SimilarSignalPerformance;
 }
 
 /** 策略点位区 */
