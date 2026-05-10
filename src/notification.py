@@ -896,16 +896,21 @@ class NotificationService:
                     "---",
                     "",
                 ])
+            if blocked_results:
+                report_lines.extend(["## ⚠️ 暂不决策（仅观察）", ""])
+                for result in blocked_results:
+                    report_lines.extend(self._format_non_actionable_report_lines(result))
+                    report_lines.extend(["", "---", ""])
         
         if failed_results:
             report_lines.extend([
                 "",
-                "## ⚠️ 分析失败 / 需重跑",
+                "## ⚠️ 暂不决策（分析失败）",
                 "",
             ])
             for result in failed_results:
-                reason = str(getattr(result, "error_message", "") or "未知错误")
-                report_lines.append(f"- {result.name}({result.code})：{reason[:120]}")
+                report_lines.extend(self._format_non_actionable_report_lines(result, failed=True))
+                report_lines.extend(["", "---", ""])
 
         # 底部信息（去除免责声明）
         report_lines.extend([
@@ -1522,6 +1527,52 @@ class NotificationService:
         if truncate is not None:
             reason = reason[:truncate]
         return f"- {stock_name}：{reason}"
+
+    def _format_non_actionable_report_lines(
+        self,
+        result: AnalysisResult,
+        *,
+        failed: bool = False,
+    ) -> List[str]:
+        stock_name = self._escape_md(self._format_stock_display_name(result.name, result.code))
+        reason = self._human_non_actionable_reason(result, failed=failed)
+        return [
+            f"### {stock_name}",
+            "",
+            "- **状态**：暂不决策",
+            "- **动作**：仅观察",
+            f"- **原因**：{reason}",
+            "- **当前建议**：仅观察，不买入、不加仓、不减仓。",
+            "- **建议人工检查**：行情数据是否完整、上一交易日收盘价是否正常、AI 分析是否生成失败。",
+        ]
+
+    def _human_non_actionable_reason(self, result: AnalysisResult, *, failed: bool = False) -> str:
+        raw_parts: List[str] = []
+        raw_parts.extend(str(item or "") for item in (getattr(result, "validation_issues", None) or []))
+        for value in (
+            getattr(result, "error_message", None),
+            getattr(result, "risk_warning", None),
+            getattr(result, "action_reason", None),
+        ):
+            if value:
+                raw_parts.append(str(value))
+        text = " ".join(raw_parts).lower()
+
+        reasons: List[str] = []
+        if any(token in text for token in ("schema", "json", "text_fallback", "fallback", "格式", "解析")):
+            reasons.append("AI 输出格式异常，系统无法可靠读取完整分析结论。")
+        if failed or any(token in text for token in ("analysis_status", "failed", "degraded", "失败", "未配置")):
+            reasons.append("本次分析失败或结果不完整，可靠性不足。")
+        if any(token in text for token in ("missing_critical_data", "缺少", "缺失", "关键")):
+            reasons.append("关键行情数据缺失，无法形成稳定判断。")
+        if any(token in text for token in ("stale_daily_context", "日线基准已过期", "过期", "不是最新")):
+            reasons.append("日线数据不是最新可用交易日。")
+        if any(token in text for token in ("mixed_price_basis", "价格口径混用", "口径混用", "实时价格")):
+            reasons.append("报告里混用了不同价格基准，不能作为执行依据。")
+
+        if not reasons:
+            reasons.append("本次分析数据或 AI 输出不完整，结果不够可靠。")
+        return " ".join(dict.fromkeys(reasons))
 
     def _format_primary_action_text(self, result: AnalysisResult) -> str:
         display = self._build_final_action_display(result)
