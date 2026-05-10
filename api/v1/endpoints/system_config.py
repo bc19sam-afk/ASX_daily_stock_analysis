@@ -62,6 +62,7 @@ def get_system_config(
     responses={
         200: {"description": "Configuration updated"},
         400: {"description": "Validation failed", "model": SystemConfigValidationErrorResponse},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
         409: {"description": "Version conflict", "model": SystemConfigConflictResponse},
         500: {"description": "Internal server error", "model": ErrorResponse},
     },
@@ -115,6 +116,7 @@ def update_system_config(
     response_model=ValidateSystemConfigResponse,
     responses={
         200: {"description": "Validation completed"},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
         500: {"description": "Internal server error", "model": ErrorResponse},
     },
     summary="Validate system configuration",
@@ -144,6 +146,7 @@ def validate_system_config(
     response_model=SystemConfigSchemaResponse,
     responses={
         200: {"description": "Schema loaded"},
+        401: {"description": "Unauthorized", "model": ErrorResponse},
         500: {"description": "Internal server error", "model": ErrorResponse},
     },
     summary="Get system configuration schema",

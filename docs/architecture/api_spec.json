@@ -2,7 +2,7 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Daily Stock Analysis API",
-    "description": "ASX-first 自选股分析系统 API（面向人工决策辅助，不做自动交易）\n\n## 功能模块\n- 股票分析：触发 AI 智能分析\n- 历史记录：查询历史分析报告\n- 股票数据：获取行情数据\n\n## 产品定位\n- 默认按 ASX/AU 交易日历与时区运行\n- 兼容 AU/US 标的统一报告流程\n- 重点保证报告口径一致、时间基准清楚、避免误导用户\n\n## 认证方式\n当前版本暂无认证要求",
+    "description": "ASX-first 自选股分析系统 API（面向人工决策辅助，不做自动交易）\n\n## 功能模块\n- 股票分析：触发 AI 智能分析\n- 历史记录：查询历史分析报告\n- 股票数据：获取行情数据\n\n## 产品定位\n- 默认按 ASX/AU 交易日历与时区运行\n- 兼容 AU/US 标的统一报告流程\n- 重点保证报告口径一致、时间基准清楚、避免误导用户\n\n## 认证方式\n支持可选 Bearer Token 认证；生产或公网访问建议开启。启用 API_AUTH_ENABLED=true 后，受保护的 /api/v1 路由需要 Authorization: Bearer <token>。",
     "version": "1.0.0",
     "contact": {
       "name": "Daily Stock Analysis Team"
@@ -390,7 +390,7 @@
           "SystemConfig"
         ],
         "summary": "获取系统配置",
-        "description": "读取当前系统配置并返回分类后的字段列表。敏感字段返回真实值，前端自行控制显示/隐藏。",
+        "description": "读取当前系统配置并返回分类后的字段列表。敏感字段默认返回掩码值，并通过 is_masked / has_value 标识真实值是否存在。",
         "operationId": "getSystemConfig",
         "parameters": [
           {
@@ -415,7 +415,7 @@
             }
           },
           "401": {
-            "description": "未认证",
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -434,7 +434,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiBearerAuth": []
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -493,8 +498,23 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiBearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/system/config/validate": {
@@ -535,8 +555,23 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiBearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/system/config/schema": {
@@ -567,8 +602,23 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiBearerAuth": []
+          }
+        ]
       }
     }
   },
@@ -1364,7 +1414,7 @@
           },
           "value": {
             "type": "string",
-            "description": "当前配置值（敏感字段返回真实值）"
+            "description": "当前配置值（敏感字段默认返回掩码值）"
           },
           "raw_value_exists": {
             "type": "boolean",
@@ -1636,6 +1686,14 @@
           "error",
           "message"
         ]
+      }
+    },
+    "securitySchemes": {
+      "ApiBearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "opaque token",
+        "description": "Optional Bearer token authentication. Required for protected API routes when API_AUTH_ENABLED=true."
       }
     }
   }

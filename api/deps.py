@@ -22,7 +22,7 @@ from src.storage import DatabaseManager
 from src.config import get_config, Config
 from src.services.system_config_service import SystemConfigService
 
-api_auth_scheme = HTTPBearer(auto_error=False)
+api_auth_scheme = HTTPBearer(auto_error=False, scheme_name="ApiBearerAuth")
 
 
 def _env_flag_enabled(value: str) -> bool:
