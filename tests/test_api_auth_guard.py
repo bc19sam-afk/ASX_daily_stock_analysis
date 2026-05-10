@@ -182,9 +182,19 @@ def test_static_api_spec_preserves_analysis_validation_action_contract():
     report = spec["components"]["schemas"]["AnalysisReport"]
     meta_props = report["properties"]["meta"]["properties"]
     summary_props = report["properties"]["summary"]["properties"]
+    details_props = report["properties"]["details"]["properties"]
 
     assert "analysis_status" in meta_props
     assert "validation_status" in meta_props
+    for field in (
+        "report_date",
+        "technical_basis_date",
+        "price_policy",
+        "execution_price_source",
+    ):
+        assert field in meta_props
+    assert "raw_result" not in details_props
+    assert "context_snapshot" not in details_props
     for field in (
         "analysis_status",
         "validation_status",
@@ -201,9 +211,19 @@ def test_runtime_openapi_preserves_analysis_validation_action_contract(client):
     spec = client.app.openapi()
     meta_props = spec["components"]["schemas"]["ReportMeta"]["properties"]
     summary_props = spec["components"]["schemas"]["ReportSummary"]["properties"]
+    details_props = spec["components"]["schemas"]["ReportDetails"]["properties"]
 
     assert "analysis_status" in meta_props
     assert "validation_status" in meta_props
+    for field in (
+        "report_date",
+        "technical_basis_date",
+        "price_policy",
+        "execution_price_source",
+    ):
+        assert field in meta_props
+    assert "raw_result" not in details_props
+    assert "context_snapshot" not in details_props
     for field in (
         "analysis_status",
         "validation_status",

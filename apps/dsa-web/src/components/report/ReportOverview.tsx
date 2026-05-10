@@ -39,6 +39,24 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
     return `${sign}${value.toFixed(2)}%`;
   };
 
+  const formatDateLabel = (value: string | undefined): string => {
+    if (!value) return '未记录';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    return formatDateTime(value);
+  };
+
+  const pricePolicyLabel = (value: string | undefined): string => {
+    const normalized = (value || '').toLowerCase();
+    if (normalized === 'close_only') return '昨收/已收盘日线';
+    if (normalized === 'latest_close') return '最新收盘价';
+    if (normalized === 'realtime') return '实时价格';
+    if (normalized === 'mixed') return '混合价格口径';
+    return value || '未记录';
+  };
+
+  const reportDate = meta.reportDate || meta.createdAt?.slice(0, 10);
+  const pricePolicy = meta.pricePolicy || meta.executionPriceSource;
+
   return (
     <div className="space-y-4">
       {/* 主信息区 - 两列布局 */}
@@ -75,6 +93,20 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
                     </svg>
                     {formatDateTime(meta.createdAt)}
                   </span>
+                </div>
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-lg border border-white/5 bg-surface/50 px-2.5 py-2">
+                    <span className="block text-muted">报告日</span>
+                    <span className="font-mono text-white">{formatDateLabel(reportDate)}</span>
+                  </div>
+                  <div className="rounded-lg border border-white/5 bg-surface/50 px-2.5 py-2">
+                    <span className="block text-muted">技术基准日</span>
+                    <span className="font-mono text-white">{formatDateLabel(meta.technicalBasisDate)}</span>
+                  </div>
+                  <div className="rounded-lg border border-white/5 bg-surface/50 px-2.5 py-2">
+                    <span className="block text-muted">价格口径</span>
+                    <span className="text-white">{pricePolicyLabel(pricePolicy)}</span>
+                  </div>
                 </div>
               </div>
             </div>

@@ -32,6 +32,18 @@ def _read_report_overview() -> str:
     ).read_text(encoding="utf-8")
 
 
+def _read_report_details() -> str:
+    return (
+        Path(__file__).resolve().parents[1]
+        / "apps"
+        / "dsa-web"
+        / "src"
+        / "components"
+        / "report"
+        / "ReportDetails.tsx"
+    ).read_text(encoding="utf-8")
+
+
 def _interface_block(source: str, name: str) -> str:
     start = source.index(f"export interface {name}")
     next_interface = source.find("export interface ", start + 1)
@@ -79,6 +91,25 @@ def test_api_spec_analysis_report_declares_validation_and_action_contract():
         assert field in summary_props
 
 
+def test_api_spec_analysis_report_declares_public_basis_fields_without_raw_debug_payload():
+    spec = _load_api_spec()
+    report = spec["components"]["schemas"]["AnalysisReport"]
+    meta_props = report["properties"]["meta"]["properties"]
+    details_props = report["properties"]["details"]["properties"]
+
+    for field in (
+        "report_date",
+        "technical_basis_date",
+        "price_policy",
+        "execution_price_source",
+    ):
+        assert field in meta_props
+
+    assert "最后已收盘交易日" in meta_props["technical_basis_date"]["description"]
+    assert "raw_result" not in details_props
+    assert "context_snapshot" not in details_props
+
+
 def test_api_spec_analysis_report_declares_display_only_similar_signal_stats():
     spec = _load_api_spec()
     summary_props = spec["components"]["schemas"]["AnalysisReport"]["properties"]["summary"]["properties"]
@@ -108,6 +139,37 @@ def test_frontend_analysis_types_include_validation_and_action_contract_fields()
         "actionReason",
     ):
         assert field in frontend_types
+
+
+def test_frontend_analysis_types_and_components_omit_raw_debug_report_details():
+    frontend_types = _read_frontend_types()
+    report_details = _read_report_details()
+    report_overview = _read_report_overview()
+
+    for field in (
+        "reportDate",
+        "technicalBasisDate",
+        "pricePolicy",
+        "executionPriceSource",
+    ):
+        assert field in frontend_types
+
+    details_interface = _interface_block(frontend_types, "ReportDetails")
+    for forbidden in (
+        "rawResult",
+        "contextSnapshot",
+        "raw_result",
+        "context_snapshot",
+        "Copy",
+        "原始分析结果",
+        "分析快照",
+    ):
+        assert forbidden not in details_interface
+        assert forbidden not in report_details
+
+    assert "报告日" in report_overview
+    assert "技术基准日" in report_overview
+    assert "价格口径" in report_overview
 
 
 def test_frontend_analysis_types_include_display_only_similar_signal_stats():

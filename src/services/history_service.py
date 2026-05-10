@@ -159,6 +159,8 @@ class HistoryService:
                 record.sentiment_score if record.sentiment_score is not None else 50
             )
             similar_signal_performance = self._build_similar_signal_performance(record, raw_result)
+            price_snapshot = self._extract_price_snapshot(context_snapshot)
+            report_context = self._build_public_report_context(record, raw_result, context_snapshot)
             
             return {
                 "query_id": record.query_id,
@@ -166,6 +168,12 @@ class HistoryService:
                 "stock_name": record.name,
                 "report_type": record.report_type,
                 "created_at": record.created_at.isoformat() if record.created_at else None,
+                "report_date": report_context.get("report_date"),
+                "technical_basis_date": report_context.get("technical_basis_date"),
+                "price_policy": report_context.get("price_policy"),
+                "execution_price_source": report_context.get("execution_price_source"),
+                "current_price": price_snapshot.get("current_price"),
+                "change_pct": price_snapshot.get("change_pct"),
                 "analysis_status": raw_result.get("analysis_status") if isinstance(raw_result, dict) else None,
                 "validation_status": validation_status,
                 "validation_issues": validation_issues,
@@ -193,8 +201,6 @@ class HistoryService:
                 "stop_loss": str(record.stop_loss) if record.stop_loss else None,
                 "take_profit": str(record.take_profit) if record.take_profit else None,
                 "news_content": record.news_content,
-                "raw_result": raw_result,
-                "context_snapshot": context_snapshot,
                 "portfolio": self.db.get_portfolio_overview(),
             }
             
@@ -219,6 +225,135 @@ class HistoryService:
                 "warning": "样本较少，参考价值有限",
                 "windows": [],
             }
+
+    def _build_public_report_context(
+        self,
+        record: Any,
+        raw_result: Any,
+        context_snapshot: Any,
+    ) -> Dict[str, Optional[str]]:
+        raw = raw_result if isinstance(raw_result, dict) else {}
+        context = context_snapshot if isinstance(context_snapshot, dict) else {}
+        created_at = getattr(record, "created_at", None)
+
+        report_date = (
+            self._first_string(
+                raw,
+                ("report_date",),
+                ("summary", "report_date"),
+                ("meta", "report_date"),
+            )
+            or self._date_part(created_at)
+        )
+        technical_basis_date = self._first_string(
+            raw,
+            ("technical_basis_date",),
+            ("market_basis_date",),
+            ("snapshot_basis_date",),
+            ("summary", "technical_basis_date"),
+            ("meta", "technical_basis_date"),
+            ("market_snapshot", "date"),
+            context,
+            ("technical_basis_date",),
+            ("market_basis_date",),
+            ("snapshot_basis_date",),
+            ("enhanced_context", "technical_basis_date"),
+            ("enhanced_context", "market_basis_date"),
+            ("enhanced_context", "snapshot_basis_date"),
+            ("enhanced_context", "date"),
+        )
+        execution_price_source = self._first_string(
+            raw,
+            ("execution_price_source",),
+            ("summary", "execution_price_source"),
+            ("meta", "execution_price_source"),
+            context,
+            ("execution_price_source",),
+            ("enhanced_context", "execution_price_source"),
+        )
+        price_policy = self._first_string(
+            raw,
+            ("price_policy",),
+            ("summary", "price_policy"),
+            ("meta", "price_policy"),
+            context,
+            ("price_policy",),
+            ("enhanced_context", "price_policy"),
+        ) or execution_price_source
+
+        return {
+            "report_date": report_date,
+            "technical_basis_date": technical_basis_date,
+            "price_policy": price_policy,
+            "execution_price_source": execution_price_source,
+        }
+
+    def _extract_price_snapshot(self, context_snapshot: Any) -> Dict[str, Optional[float]]:
+        if not isinstance(context_snapshot, dict):
+            return {"current_price": None, "change_pct": None}
+
+        enhanced_context = context_snapshot.get("enhanced_context") or {}
+        realtime = enhanced_context.get("realtime") or {}
+        current_price = realtime.get("price")
+        change_pct = realtime.get("change_pct") or realtime.get("change_60d")
+
+        if current_price is None:
+            realtime_quote_raw = context_snapshot.get("realtime_quote_raw") or {}
+            current_price = realtime_quote_raw.get("price")
+            change_pct = change_pct or realtime_quote_raw.get("change_pct") or realtime_quote_raw.get("pct_chg")
+
+        return {
+            "current_price": self._coerce_float(current_price),
+            "change_pct": self._coerce_float(change_pct),
+        }
+
+    @classmethod
+    def _first_string(cls, first_mapping: Any, *paths_and_mappings: Any) -> Optional[str]:
+        current_mapping = first_mapping if isinstance(first_mapping, dict) else {}
+        for item in paths_and_mappings:
+            if isinstance(item, dict):
+                current_mapping = item
+                continue
+            value = cls._nested_value(current_mapping, item)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+        return None
+
+    @staticmethod
+    def _nested_value(mapping: Dict[str, Any], path: Any) -> Any:
+        value: Any = mapping
+        for part in path:
+            if not isinstance(value, dict):
+                return None
+            value = value.get(part)
+        return value
+
+    @staticmethod
+    def _date_part(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date().isoformat()
+        text = str(value).strip()
+        if not text:
+            return None
+        if "T" in text:
+            return text.split("T", 1)[0]
+        if " " in text:
+            return text.split(" ", 1)[0]
+        return text[:10] if len(text) >= 10 else text
+
+    @staticmethod
+    def _coerce_float(value: Any) -> Optional[float]:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     def get_news_intel(self, query_id: str, limit: int = 20) -> List[Dict[str, str]]:
         """

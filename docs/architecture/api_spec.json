@@ -1053,6 +1053,22 @@
                 "type": "string",
                 "format": "date-time"
               },
+              "report_date": {
+                "type": "string",
+                "description": "报告生成/展示日期"
+              },
+              "technical_basis_date": {
+                "type": "string",
+                "description": "技术信号和日线数据使用的最后已收盘交易日"
+              },
+              "price_policy": {
+                "type": "string",
+                "description": "报告价格口径(close_only/latest_close/realtime/mixed/unknown)"
+              },
+              "execution_price_source": {
+                "type": "string",
+                "description": "分析动作字段使用的价格来源"
+              },
               "analysis_status": {
                 "type": "string",
                 "description": "外层分析状态(OK/DEGRADED/FAILED)"
@@ -1196,14 +1212,6 @@
               "news_content": {
                 "type": "string",
                 "description": "新闻摘要"
-              },
-              "raw_result": {
-                "type": "object",
-                "description": "原始分析结果（JSON）"
-              },
-              "context_snapshot": {
-                "type": "object",
-                "description": "分析时上下文快照（JSON）"
               }
             }
           }

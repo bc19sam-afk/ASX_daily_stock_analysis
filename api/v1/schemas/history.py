@@ -105,6 +105,13 @@ class ReportMeta(BaseModel):
     stock_name: Optional[str] = Field(None, description="股票名称")
     report_type: Optional[str] = Field(None, description="报告类型")
     created_at: Optional[str] = Field(None, description="创建时间")
+    report_date: Optional[str] = Field(None, description="报告生成/展示日期")
+    technical_basis_date: Optional[str] = Field(
+        None,
+        description="技术信号和日线数据使用的最后已收盘交易日",
+    )
+    price_policy: Optional[str] = Field(None, description="报告价格口径(close_only/latest_close/realtime/mixed/unknown)")
+    execution_price_source: Optional[str] = Field(None, description="分析动作字段使用的价格来源")
     current_price: Optional[float] = Field(None, description="分析时股价")
     change_pct: Optional[float] = Field(None, description="分析时涨跌幅(%)")
     analysis_status: Optional[str] = Field(None, description="外层分析状态(OK/DEGRADED/FAILED)")
@@ -159,8 +166,6 @@ class ReportDetails(BaseModel):
     """报告详情区"""
 
     news_content: Optional[str] = Field(None, description="新闻摘要")
-    raw_result: Optional[Any] = Field(None, description="原始分析结果(JSON)")
-    context_snapshot: Optional[Any] = Field(None, description="分析时上下文快照(JSON)")
 
 
 class AnalysisReport(BaseModel):

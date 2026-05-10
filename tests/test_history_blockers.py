@@ -181,6 +181,59 @@ class HistoryBlockersTestCase(unittest.TestCase):
         self.assertAlmostEqual(report.summary.current_weight, 2 / 3, places=4)
         self.assertAlmostEqual(report.summary.target_weight, 2 / 3, places=4)
 
+    def test_history_detail_uses_public_basis_fields_without_raw_debug_payload(self) -> None:
+        db = DatabaseManager(self._db_url("history_public_context.db"))
+        service = HistoryService(db)
+
+        result = AnalysisResult(
+            code="BHP.AX",
+            name="BHP",
+            sentiment_score=65,
+            trend_prediction="震荡",
+            operation_advice="观察",
+            analysis_summary="等待收盘确认",
+            market_snapshot={"date": "2026-05-07", "close": "50.00", "source": "yfinance"},
+            execution_price_source="close_only",
+            raw_response="internal raw LLM response must stay private",
+        )
+        db.save_analysis_history(
+            result=result,
+            query_id="query-history-public-context",
+            report_type="detailed",
+            news_content="公开新闻摘要",
+            context_snapshot={
+                "enhanced_context": {
+                    "date": "2026-05-07",
+                    "realtime": {"price": 51.2, "change_pct": 1.5},
+                },
+                "debug_payload": "internal context must stay private",
+            },
+        )
+
+        detail = service.get_history_detail("query-history-public-context")
+        self.assertIsNotNone(detail)
+        self.assertNotIn("raw_result", detail)
+        self.assertNotIn("context_snapshot", detail)
+        self.assertEqual(detail["technical_basis_date"], "2026-05-07")
+        self.assertEqual(detail["price_policy"], "close_only")
+        self.assertEqual(detail["execution_price_source"], "close_only")
+        self.assertEqual(detail["current_price"], 51.2)
+        self.assertEqual(detail["change_pct"], 1.5)
+
+        report = history_endpoint.get_history_detail("query-history-public-context", db_manager=db)
+        payload = report.model_dump()
+        payload_text = report.model_dump_json()
+
+        self.assertEqual(payload["meta"]["technical_basis_date"], "2026-05-07")
+        self.assertEqual(payload["meta"]["price_policy"], "close_only")
+        self.assertEqual(payload["meta"]["execution_price_source"], "close_only")
+        self.assertEqual(payload["details"]["news_content"], "公开新闻摘要")
+        self.assertNotIn("raw_result", payload["details"])
+        self.assertNotIn("context_snapshot", payload["details"])
+        self.assertNotIn("raw_response", payload_text)
+        self.assertNotIn("internal raw LLM response", payload_text)
+        self.assertNotIn("debug_payload", payload_text)
+
     def test_history_detail_normalizes_warn_to_pass(self) -> None:
         db = DatabaseManager(self._db_url("history_warn.db"))
         service = HistoryService(db)
@@ -206,6 +259,31 @@ class HistoryBlockersTestCase(unittest.TestCase):
         detail = service.get_history_detail("query-history-warn")
 
         self.assertEqual(detail["validation_status"], "PASS")
+
+    def test_history_detail_does_not_use_created_at_as_technical_basis_date(self) -> None:
+        db = DatabaseManager(self._db_url("history_no_basis.db"))
+        service = HistoryService(db)
+
+        result = AnalysisResult(
+            code="TLS.AX",
+            name="Telstra",
+            sentiment_score=50,
+            trend_prediction="震荡",
+            operation_advice="观察",
+            analysis_summary="缺少可信技术基准日",
+        )
+        db.save_analysis_history(
+            result=result,
+            query_id="query-history-no-basis",
+            report_type="detailed",
+            news_content="",
+        )
+
+        detail = service.get_history_detail("query-history-no-basis")
+
+        self.assertIsNotNone(detail)
+        self.assertIsNotNone(detail["report_date"])
+        self.assertIsNone(detail["technical_basis_date"])
 
     def test_migration_script_skips_when_db_is_missing(self) -> None:
         missing_path = os.path.join(self._temp_dir.name, "missing.db")
