@@ -26,6 +26,7 @@ from src.gemini_key_manager import (
     is_transient_gemini_error,
     is_valid_gemini_api_key,
 )
+from src.security_logging import log_sensitive_payload, summarize_sensitive_payload_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -1234,10 +1235,10 @@ class GeminiAnalyzer:
             logger.info(f"[LLM配置] Prompt 长度: {len(prompt)} 字符")
             logger.info(f"[LLM配置] 是否包含新闻: {'是' if news_context else '否'}")
             
-            # 记录完整 prompt 到日志（INFO级别记录摘要，DEBUG记录完整）
-            prompt_preview = prompt[:500] + "..." if len(prompt) > 500 else prompt
-            logger.info(f"[LLM Prompt 预览]\n{prompt_preview}")
-            logger.debug(f"=== 完整 Prompt ({len(prompt)}字符) ===\n{prompt}\n=== End Prompt ===")
+            logger.info(
+                summarize_sensitive_payload_for_log("[LLM Prompt]", prompt, allow_full=False)
+            )
+            log_sensitive_payload(logger, logging.DEBUG, "[LLM Prompt]", prompt)
 
             # 设置生成配置（从配置文件读取温度参数）
             config = get_config()
@@ -1262,10 +1263,10 @@ class GeminiAnalyzer:
             # 记录响应信息
             logger.info(f"[LLM返回] {api_provider} API 响应成功, 耗时 {elapsed:.2f}s, 响应长度 {len(response_text)} 字符")
             
-            # 记录响应预览（INFO级别）和完整响应（DEBUG级别）
-            response_preview = response_text[:300] + "..." if len(response_text) > 300 else response_text
-            logger.info(f"[LLM返回 预览]\n{response_preview}")
-            logger.debug(f"=== {api_provider} 完整响应 ({len(response_text)}字符) ===\n{response_text}\n=== End Response ===")
+            logger.info(
+                summarize_sensitive_payload_for_log(f"[{api_provider} LLM Response]", response_text, allow_full=False)
+            )
+            log_sensitive_payload(logger, logging.DEBUG, f"[{api_provider} LLM Response]", response_text)
             
             # 解析响应
             result = self._parse_response(response_text, code, name)

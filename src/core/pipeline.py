@@ -34,6 +34,7 @@ from src.core.position_manager import PositionManager
 from src.core.pipeline_notifications import send_single_stock_notification
 from src.core.pipeline_validation import apply_validation_gate as apply_pipeline_validation_gate
 from src.market_calendar import is_pre_market_open
+from src.security_logging import log_sensitive_payload
 from bot.models import BotMessage
 
 
@@ -265,7 +266,7 @@ class StockAnalysisPipeline:
                         len(r.results) for r in intel_results.values() if r.success
                     )
                     logger.info(f"[{code}] 情报搜索完成: 共 {total_results} 条结果")
-                    logger.debug(f"[{code}] 情报搜索结果:\n{news_context}")
+                    log_sensitive_payload(logger, logging.DEBUG, f"[{code}] 情报搜索结果", news_context)
 
                     # 保存新闻情报到数据库（用于后续复盘与查询）
                     try:
@@ -1670,7 +1671,7 @@ class StockAnalysisPipeline:
                 if NotificationChannel.WECHAT in channels:
                     dashboard_content = self.notifier.generate_wechat_dashboard(results)
                     logger.info(f"企业微信仪表盘长度: {len(dashboard_content)} 字符")
-                    logger.debug(f"企业微信推送内容:\n{dashboard_content}")
+                    log_sensitive_payload(logger, logging.DEBUG, "企业微信推送内容", dashboard_content)
                     wechat_success = self.notifier.send_to_wechat(dashboard_content)
 
                 # 其他渠道：发完整报告（避免自定义 Webhook 被 wechat 截断逻辑污染）

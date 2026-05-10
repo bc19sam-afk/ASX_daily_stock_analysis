@@ -43,6 +43,7 @@ except ImportError:
 from src.config import get_config
 from src.analyzer import AnalysisResult
 from src.core.validator import normalize_validation_status
+from src.security_logging import redact_log_text, summarize_http_response_for_log
 from src.daily_decision_summary import (
     DEFAULT_ACTIONABLE_DELTA_AMOUNT,
     build_daily_decision_summary,
@@ -3233,7 +3234,7 @@ class NotificationService:
     def _send_feishu_message(self, content: str) -> bool:
         """发送单条飞书消息（优先使用 Markdown 卡片）"""
         def _post_payload(payload: Dict[str, Any]) -> bool:
-            logger.debug(f"飞书请求 URL: {self._feishu_url}")
+            logger.debug("飞书请求 URL: [redacted-url]")
             logger.debug(f"飞书请求 payload 长度: {len(content)} 字符")
 
             response = requests.post(
@@ -3244,7 +3245,13 @@ class NotificationService:
             )
 
             logger.debug(f"飞书响应状态码: {response.status_code}")
-            logger.debug(f"飞书响应内容: {response.text}")
+            logger.debug(
+                summarize_http_response_for_log(
+                    "Feishu",
+                    status_code=response.status_code,
+                    body=response.text,
+                )
+            )
 
             if response.status_code == 200:
                 result = response.json()
@@ -3255,12 +3262,25 @@ class NotificationService:
                 else:
                     error_msg = result.get('msg') or result.get('StatusMessage', '未知错误')
                     error_code = result.get('code') or result.get('StatusCode', 'N/A')
-                    logger.error(f"飞书返回错误 [code={error_code}]: {error_msg}")
-                    logger.error(f"完整响应: {result}")
+                    logger.error(f"飞书返回错误 [code={error_code}]: {redact_log_text(error_msg)}")
+                    logger.error(
+                        summarize_http_response_for_log(
+                            "Feishu",
+                            status_code=response.status_code,
+                            body=response.text,
+                            message=error_msg,
+                        )
+                    )
                     return False
             else:
                 logger.error(f"飞书请求失败: HTTP {response.status_code}")
-                logger.error(f"响应内容: {response.text}")
+                logger.error(
+                    summarize_http_response_for_log(
+                        "Feishu",
+                        status_code=response.status_code,
+                        body=response.text,
+                    )
+                )
                 return False
 
         # 1) 优先使用交互卡片（支持 Markdown 渲染）
