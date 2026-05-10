@@ -192,6 +192,7 @@ def test_static_api_spec_preserves_analysis_validation_action_contract():
         "final_decision",
         "position_action",
         "action_reason",
+        "similar_signal_performance",
     ):
         assert field in summary_props
 
@@ -210,5 +211,6 @@ def test_runtime_openapi_preserves_analysis_validation_action_contract(client):
         "final_decision",
         "position_action",
         "action_reason",
+        "similar_signal_performance",
     ):
         assert field in summary_props

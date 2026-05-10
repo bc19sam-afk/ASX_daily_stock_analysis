@@ -1160,6 +1160,10 @@
               "data_quality_flag": {
                 "type": "string",
                 "description": "数据质量闸门(OK/MISSING)"
+              },
+              "similar_signal_performance": {
+                "type": "object",
+                "description": "类似历史信号的事后表现统计，仅供历史参考，不改变当前建议"
               }
             }
           },

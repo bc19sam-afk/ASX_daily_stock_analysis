@@ -9,7 +9,7 @@
 2. 定义分析报告完整模型
 """
 
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -140,6 +140,10 @@ class ReportSummary(BaseModel):
     event_risk: Optional[str] = Field(None, description="事件风险(LOW/MEDIUM/HIGH)")
     sector_tone: Optional[str] = Field(None, description="板块语气(POS/NEU/NEG)")
     data_quality_flag: Optional[str] = Field(None, description="数据质量闸门(OK/MISSING)")
+    similar_signal_performance: Optional[Dict[str, Any]] = Field(
+        None,
+        description="类似历史信号的事后表现统计，仅供历史参考，不改变当前建议",
+    )
 
 
 class ReportStrategy(BaseModel):

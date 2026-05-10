@@ -16,6 +16,8 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
   meta,
   summary
 }) => {
+  const signalStats = summary.similarSignalPerformance;
+
   // 根据涨跌幅获取颜色
   const getPriceChangeColor = (changePct: number | undefined): string => {
     if (changePct === undefined || changePct === null) return 'text-muted';
@@ -29,6 +31,12 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
     if (changePct === undefined || changePct === null) return '--';
     const sign = changePct > 0 ? '+' : '';
     return `${sign}${changePct.toFixed(2)}%`;
+  };
+
+  const formatPercentMetric = (value: number | null | undefined): string => {
+    if (value === undefined || value === null || Number.isNaN(value)) return '--';
+    const sign = value > 0 ? '+' : '';
+    return `${sign}${value.toFixed(2)}%`;
   };
 
   return (
@@ -128,6 +136,47 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
           </Card>
         </div>
       </div>
+
+      {signalStats && signalStats.windows?.length > 0 && (
+        <Card variant="bordered" padding="md">
+          <div className="mb-3">
+            <span className="label-uppercase">SIGNAL HISTORY</span>
+            <h3 className="mt-1 text-lg font-semibold text-white">类似信号历史表现</h3>
+            <p className="mt-1 text-xs text-muted">
+              仅供历史参考，不改变当前建议。
+              {signalStats.warning ? ` ${signalStats.warning}` : ''}
+            </p>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-white/5">
+            <table className="min-w-full divide-y divide-white/5 text-left text-xs">
+              <thead className="bg-elevated text-muted">
+                <tr>
+                  <th className="px-3 py-2 font-medium">周期</th>
+                  <th className="px-3 py-2 font-medium">样本</th>
+                  <th className="px-3 py-2 font-medium">可信度</th>
+                  <th className="px-3 py-2 font-medium">胜率</th>
+                  <th className="px-3 py-2 font-medium">平均收益</th>
+                  <th className="px-3 py-2 font-medium">中位收益</th>
+                  <th className="px-3 py-2 font-medium">最大回撤</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {signalStats.windows.map((window) => (
+                  <tr key={window.horizonDays} className="bg-surface/30">
+                    <td className="px-3 py-2 font-mono text-white">{window.horizonDays}日</td>
+                    <td className="px-3 py-2 font-mono text-white">{window.sampleSize}</td>
+                    <td className="px-3 py-2 text-muted">{window.confidenceLabel}</td>
+                    <td className="px-3 py-2 font-mono text-white">{formatPercentMetric(window.winRate)}</td>
+                    <td className="px-3 py-2 font-mono text-white">{formatPercentMetric(window.averageReturn)}</td>
+                    <td className="px-3 py-2 font-mono text-white">{formatPercentMetric(window.medianReturn)}</td>
+                    <td className="px-3 py-2 font-mono text-warning">{formatPercentMetric(window.maxDrawdown)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   );
 };
