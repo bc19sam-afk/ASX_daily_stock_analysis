@@ -54,6 +54,26 @@ def test_config_endpoint_returns_401_when_auth_enabled_without_token(client, mon
     assert response.json()["error"] == "unauthorized"
 
 
+def test_v1_analysis_task_list_requires_auth_when_enabled(client, monkeypatch):
+    monkeypatch.setenv("API_AUTH_ENABLED", "true")
+    monkeypatch.setenv("API_AUTH_TOKEN", "expected-token")
+
+    response = client.get("/api/v1/analysis/tasks")
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "unauthorized"
+
+
+def test_v1_mutation_endpoint_requires_auth_when_enabled(client, monkeypatch):
+    monkeypatch.setenv("API_AUTH_ENABLED", "true")
+    monkeypatch.setenv("API_AUTH_TOKEN", "expected-token")
+
+    response = client.post("/api/v1/paper-portfolio/apply", json={"results": []})
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "unauthorized"
+
+
 def test_config_endpoint_returns_401_for_wrong_bearer_token(client, monkeypatch):
     monkeypatch.setenv("API_AUTH_ENABLED", "true")
     monkeypatch.setenv("API_AUTH_TOKEN", "expected-token")
@@ -73,6 +93,18 @@ def test_config_endpoint_accepts_correct_bearer_token(client, monkeypatch):
 
     response = client.get(
         "/api/v1/system/config",
+        headers={"Authorization": "Bearer expected-token"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_v1_routes_accept_correct_bearer_token_when_auth_enabled(client, monkeypatch):
+    monkeypatch.setenv("API_AUTH_ENABLED", "true")
+    monkeypatch.setenv("API_AUTH_TOKEN", "expected-token")
+
+    response = client.get(
+        "/api/v1/analysis/tasks",
         headers={"Authorization": "Bearer expected-token"},
     )
 

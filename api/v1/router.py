@@ -9,12 +9,13 @@ API v1 路由聚合
 2. 统一添加 /api/v1 前缀
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from api.deps import require_api_auth
 from api.v1.endpoints import analysis, history, stocks, backtest, system_config, paper_portfolio
 
 # 创建 v1 版本主路由
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_auth)])
 
 router.include_router(
     analysis.router,
