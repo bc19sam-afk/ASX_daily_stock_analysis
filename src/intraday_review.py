@@ -196,6 +196,26 @@ def _render_file_review_markdown(payload: Mapping[str, Any]) -> str:
             )
         )
 
+    manual_check_items = [
+        item
+        for item in payload.get("items") or []
+        if item.get("required_checks")
+    ]
+    if manual_check_items:
+        lines.extend(
+            [
+                "",
+                "## 人工复核清单",
+                "",
+                "以下检查必须由人工完成；盘中复核不自动下单，也不连接券商。",
+            ]
+        )
+        for item in manual_check_items:
+            code = _markdown_cell(str(item.get("code") or "未知标的"))
+            lines.extend(["", f"### {code}"])
+            for check in item.get("required_checks") or []:
+                lines.append(f"- {_markdown_cell(str(check))}")
+
     warnings = payload.get("warnings") or []
     if warnings:
         lines.extend(["", "## Warnings"])
