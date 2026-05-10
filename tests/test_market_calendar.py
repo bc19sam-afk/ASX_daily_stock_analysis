@@ -1,8 +1,10 @@
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from src.market_calendar import (
+    get_market_report_date,
     get_last_closed_trading_date,
     is_market_closed,
     is_trading_day,
@@ -98,6 +100,41 @@ def test_last_closed_trading_day_around_easter_tuesday_skips_holidays():
         market_timezone="Australia/Sydney",
     )
     assert last_closed.isoformat() == "2026-04-02"
+
+
+def test_market_report_date_before_asx_open_on_monday_uses_previous_trading_day():
+    now = datetime(2026, 3, 30, 8, 30, tzinfo=ZoneInfo("Australia/Sydney"))
+
+    report_date = get_market_report_date(now, calendar="ASX", market_timezone="Australia/Sydney")
+
+    assert report_date.isoformat() == "2026-03-27"
+
+
+def test_market_report_date_after_asx_close_uses_current_trading_day():
+    now = datetime(2026, 3, 30, 17, 30, tzinfo=ZoneInfo("Australia/Sydney"))
+
+    report_date = get_market_report_date(now, calendar="ASX", market_timezone="Australia/Sydney")
+
+    assert report_date.isoformat() == "2026-03-30"
+
+
+def test_market_report_date_skips_weekend_and_easter_holidays():
+    now = datetime(2026, 4, 7, 8, 30, tzinfo=ZoneInfo("Australia/Sydney"))
+
+    report_date = get_market_report_date(now, calendar="ASX", market_timezone="Australia/Sydney")
+
+    assert report_date.isoformat() == "2026-04-02"
+
+
+def test_market_report_date_invalid_timezone_fails_closed():
+    now = datetime(2026, 4, 7, 8, 30, tzinfo=ZoneInfo("Australia/Sydney"))
+
+    try:
+        get_market_report_date(now, calendar="ASX", market_timezone="Invalid/Zone")
+    except Exception as exc:
+        assert "Invalid/Zone" in str(exc) or exc.__class__.__name__ == "ZoneInfoNotFoundError"
+    else:
+        raise AssertionError("invalid timezone should fail closed")
 
 
 def test_base_fetcher_end_date_uses_last_closed_trading_day(monkeypatch):

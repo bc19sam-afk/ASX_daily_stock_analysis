@@ -273,6 +273,7 @@ class NotificationService:
         self._source_message = source_message
         self._context_channels: List[str] = []
         self._last_daily_decision_summary: Optional[Dict[str, Any]] = None
+        self._last_report_date: Optional[str] = None
         
         # 各渠道的 Webhook URL
         self._wechat_url = config.wechat_webhook_url
@@ -360,6 +361,14 @@ class NotificationService:
             return datetime.now(ZoneInfo(self._report_timezone))
         except Exception:
             return datetime.now()
+
+    def _default_report_date(self, now: Optional[datetime] = None) -> str:
+        """Return the report generation/display date in the configured report timezone."""
+        report_now = now or self._now_in_report_tz()
+        return report_now.strftime("%Y-%m-%d")
+
+    def _remember_report_date(self, report_date: str) -> None:
+        self._last_report_date = report_date
     
     def _detect_all_channels(self) -> List[NotificationChannel]:
         """
@@ -689,7 +698,8 @@ class NotificationService:
             Markdown 格式的日报内容
         """
         if report_date is None:
-            report_date = self._now_in_report_tz().strftime('%Y-%m-%d')
+            report_date = self._default_report_date()
+        self._remember_report_date(report_date)
         generated_at = self._now_in_report_tz()
 
         # 标题
@@ -1267,7 +1277,8 @@ class NotificationService:
         if generated_at is None:
             generated_at = self._now_in_report_tz()
         if report_date is None:
-            report_date = generated_at.strftime("%Y-%m-%d")
+            report_date = self._default_report_date(generated_at)
+        self._remember_report_date(report_date)
         if overview is None:
             try:
                 overview = get_db().get_portfolio_overview()
@@ -1726,7 +1737,8 @@ class NotificationService:
             Markdown 格式的决策仪表盘日报
         """
         if report_date is None:
-            report_date = self._now_in_report_tz().strftime('%Y-%m-%d')
+            report_date = self._default_report_date()
+        self._remember_report_date(report_date)
         generated_at = self._now_in_report_tz()
 
         # 按评分排序（高分在前）
@@ -2182,7 +2194,11 @@ class NotificationService:
         
         return "\n".join(report_lines)
     
-    def generate_wechat_dashboard(self, results: List[AnalysisResult]) -> str:
+    def generate_wechat_dashboard(
+        self,
+        results: List[AnalysisResult],
+        report_date: Optional[str] = None,
+    ) -> str:
         """
         生成企业微信决策仪表盘精简版（控制在4000字符内）
         
@@ -2195,7 +2211,9 @@ class NotificationService:
             精简版决策仪表盘
         """
         generated_at = self._now_in_report_tz()
-        report_date = generated_at.strftime('%Y-%m-%d')
+        if report_date is None:
+            report_date = self._default_report_date(generated_at)
+        self._remember_report_date(report_date)
         
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -2403,7 +2421,11 @@ class NotificationService:
         
         return content
     
-    def generate_wechat_summary(self, results: List[AnalysisResult]) -> str:
+    def generate_wechat_summary(
+        self,
+        results: List[AnalysisResult],
+        report_date: Optional[str] = None,
+    ) -> str:
         """
         生成企业微信精简版日报（控制在4000字符内）
 
@@ -2414,7 +2436,9 @@ class NotificationService:
             精简版 Markdown 内容
         """
         generated_at = self._now_in_report_tz()
-        report_date = generated_at.strftime('%Y-%m-%d')
+        if report_date is None:
+            report_date = self._default_report_date(generated_at)
+        self._remember_report_date(report_date)
 
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -4791,6 +4815,8 @@ class NotificationService:
         content: str, 
         filename: Optional[str] = None,
         reports_dir: Optional[Any] = None,
+        *,
+        report_date: Optional[str] = None,
     ) -> str:
         """
         保存日报到本地文件
@@ -4805,7 +4831,8 @@ class NotificationService:
         from pathlib import Path
         
         if filename is None:
-            date_str = self._now_in_report_tz().strftime('%Y%m%d')
+            resolved_report_date = report_date or getattr(self, "_last_report_date", None) or self._default_report_date()
+            date_str = resolved_report_date.replace("-", "")
             filename = f"report_{date_str}.md"
         
         # 确保 reports 目录存在（默认使用项目根目录下的 reports）
@@ -4827,6 +4854,7 @@ class NotificationService:
         *,
         markdown_filepath: Optional[str] = None,
         reports_dir: Optional[Any] = None,
+        report_date: Optional[str] = None,
     ) -> str:
         """Save a text-based, print-friendly HTML archive for the daily report."""
         from pathlib import Path
@@ -4834,7 +4862,8 @@ class NotificationService:
         if filename is None and markdown_filepath:
             filename = Path(markdown_filepath).with_suffix(".html").name
         if filename is None:
-            date_str = self._now_in_report_tz().strftime("%Y%m%d")
+            resolved_report_date = report_date or getattr(self, "_last_report_date", None) or self._default_report_date()
+            date_str = resolved_report_date.replace("-", "")
             filename = f"report_{date_str}.html"
         if not filename.endswith(".html"):
             filename = f"{Path(filename).stem}.html"
@@ -4859,7 +4888,11 @@ class NotificationService:
         from pathlib import Path
 
         if filename is None:
-            report_date = str(summary.get("report_date") or self._now_in_report_tz().strftime("%Y-%m-%d"))
+            report_date = str(
+                summary.get("report_date")
+                or getattr(self, "_last_report_date", None)
+                or self._default_report_date()
+            )
             filename = f"daily_decision_summary_{report_date.replace('-', '')}.json"
         reports_path = Path(reports_dir) if reports_dir is not None else Path(__file__).parent.parent / "reports"
         reports_path.mkdir(parents=True, exist_ok=True)

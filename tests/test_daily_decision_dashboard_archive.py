@@ -518,6 +518,82 @@ def test_report_archive_filenames_use_report_timezone(monkeypatch, tmp_path: Pat
     assert summary_path.name == "daily_decision_summary_20260430.json"
 
 
+def test_report_archive_filename_preserves_rendered_report_date_across_close(monkeypatch, tmp_path: Path):
+    service = _service()
+    timestamps = iter(
+        [
+            datetime(2026, 3, 30, 15, 59, tzinfo=ZoneInfo("Australia/Sydney")),
+            datetime(2026, 3, 30, 16, 1, tzinfo=ZoneInfo("Australia/Sydney")),
+        ]
+    )
+    monkeypatch.setattr(service, "_now_in_report_tz", lambda: next(timestamps))
+
+    report = service.generate_dashboard_report(
+        [_result(market_snapshot={"date": "2026-03-27", "close": "50.00", "source": "yfinance"})]
+    )
+    md_path = Path(service.save_report_to_file(report, reports_dir=tmp_path))
+    html_path = Path(service.save_report_archive_html(report, reports_dir=tmp_path))
+
+    assert report.startswith("# 🎯 2026-03-30 决策仪表盘")
+    assert "技术基准日 2026-03-27" in report
+    assert md_path.name == "report_20260330.md"
+    assert html_path.name == "report_20260330.html"
+
+
+def test_daily_decision_summary_filename_preserves_explicit_report_date(monkeypatch, tmp_path: Path):
+    service = _service()
+    monkeypatch.setattr(
+        service,
+        "_now_in_report_tz",
+        lambda: datetime(2026, 4, 30, 1, 15, tzinfo=ZoneInfo("Australia/Sydney")),
+    )
+
+    summary_path = Path(
+        service.save_daily_decision_summary_to_file({"report_date": "2026-04-29"}, reports_dir=tmp_path)
+    )
+
+    assert summary_path.name == "daily_decision_summary_20260429.json"
+
+
+def test_default_dashboard_report_date_uses_report_run_date_with_technical_basis(monkeypatch):
+    service = _service()
+    monkeypatch.setattr(
+        service,
+        "_now_in_report_tz",
+        lambda: datetime(2026, 3, 30, 8, 30, tzinfo=ZoneInfo("Australia/Sydney")),
+    )
+
+    report = service.generate_dashboard_report(
+        [_result(market_snapshot={"date": "2026-03-27", "close": "50.00", "source": "yfinance"})]
+    )
+    daily_summary = service.get_last_daily_decision_summary()
+
+    assert report.startswith("# 🎯 2026-03-30 决策仪表盘")
+    assert "**价格来源**：全部使用昨收数据；技术基准日 2026-03-27" in report
+    assert daily_summary["report_date"] == "2026-03-30"
+    assert daily_summary["technical_basis_date"] == "2026-03-27"
+
+
+def test_default_wechat_report_dates_use_report_run_date(monkeypatch):
+    service = _service()
+    monkeypatch.setattr(
+        service,
+        "_now_in_report_tz",
+        lambda: datetime(2026, 3, 30, 8, 30, tzinfo=ZoneInfo("Australia/Sydney")),
+    )
+
+    result = _result(market_snapshot={"date": "2026-03-27", "close": "50.00", "source": "yfinance"})
+    dashboard = service.generate_wechat_dashboard([result])
+    summary = service.generate_wechat_summary([result])
+
+    assert dashboard.startswith("## 🎯 2026-03-30 决策仪表盘")
+    assert summary.startswith("## 📅 2026-03-30 股票分析报告")
+    assert "技术基准日 2026-03-27" in dashboard
+    assert "2026-03-27 日线（收盘口径）" in summary
+    assert "reports/report_20260330.md" in summary
+    assert service.get_last_daily_decision_summary()["report_date"] == "2026-03-30"
+
+
 def test_default_push_titles_use_report_timezone(monkeypatch):
     service = _service()
     monkeypatch.setattr(
