@@ -247,10 +247,30 @@ class BacktestEngineTestCase(unittest.TestCase):
             take_profit=None,
             config=cfg,
         )
-        self.assertEqual(res["decision_source"], "final_decision")
+        self.assertEqual(res["decision_source"], "position_action")
         self.assertEqual(res["direction_expected"], "down")
         self.assertEqual(res["position_recommendation"], "cash")
         self.assertEqual(res["outcome"], "win")
+
+    def test_final_decision_does_not_override_explicit_position_action_for_buy_signals(self):
+        cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)
+        bars = self._bars(date(2024, 1, 1), [101.0, 100.5, 100.0], highs=[101.5, 101.0, 100.5], lows=[100.0, 99.8, 99.5])
+        res = BacktestEngine.evaluate_single(
+            operation_advice="买入",
+            final_decision="BUY",
+            position_action="HOLD",
+            target_weight=0.0,
+            current_weight=0.2,
+            analysis_date=date(2024, 1, 1),
+            start_price=100,
+            forward_bars=bars,
+            stop_loss=None,
+            take_profit=None,
+            config=cfg,
+        )
+        self.assertEqual(res["decision_source"], "position_action")
+        self.assertEqual(res["position_recommendation"], "long")
+        self.assertEqual(res["direction_expected"], "not_down")
 
     def test_hold_invested_vs_hold_near_zero_exposure(self):
         cfg = EvaluationConfig(eval_window_days=3, neutral_band_pct=2.0)

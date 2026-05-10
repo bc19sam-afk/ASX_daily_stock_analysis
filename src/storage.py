@@ -1873,6 +1873,7 @@ class DatabaseManager:
         Returns:
             包含今日数据、昨日对比等信息的字典
         """
+        explicit_target_date = target_date is not None
         if target_date is None:
             target_date = date.today()
         
@@ -1890,6 +1891,12 @@ class DatabaseManager:
             'code': code,
             'date': today_data.date.isoformat(),
             'today': today_data.to_dict(),
+            'allows_current_only_data': not explicit_target_date,
+            'current_only_data_policy': (
+                'disabled_for_historical_context'
+                if explicit_target_date
+                else 'allowed_for_current_analysis'
+            ),
         }
         
         if yesterday_data:

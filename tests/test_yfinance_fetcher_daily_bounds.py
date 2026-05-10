@@ -4,7 +4,7 @@ import sys
 from types import SimpleNamespace
 
 import pandas as pd
-
+import pytest
 from data_provider.yfinance_fetcher import YfinanceFetcher
 
 
@@ -39,3 +39,29 @@ def test_default_yfinance_daily_pull_trims_after_last_closed_date(monkeypatch):
 
     assert df["date"].tolist() == ["2026-04-27", "2026-04-28"]
     assert "2026-04-29" not in set(df["date"])
+
+
+def test_default_yfinance_daily_pull_fails_closed_when_cutoff_unavailable(monkeypatch):
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _symbol: _FakeTicker()))
+    monkeypatch.setattr(
+        YfinanceFetcher,
+        "_resolve_default_daily_cutoff",
+        staticmethod(lambda: None),
+    )
+    monkeypatch.setattr(YfinanceFetcher, "_get_enhanced_data", lambda self, _code, df: df)
+
+    with pytest.raises(Exception, match="截止日"):
+        YfinanceFetcher().get_daily_data("CBA.AX", days=3)
+
+
+def test_default_yfinance_daily_pull_fails_closed_when_cutoff_cannot_parse(monkeypatch):
+    monkeypatch.setitem(sys.modules, "yfinance", SimpleNamespace(Ticker=lambda _symbol: _FakeTicker()))
+    monkeypatch.setattr(
+        YfinanceFetcher,
+        "_resolve_default_daily_cutoff",
+        staticmethod(lambda: "not-a-date"),
+    )
+    monkeypatch.setattr(YfinanceFetcher, "_get_enhanced_data", lambda self, _code, df: df)
+
+    with pytest.raises(Exception, match="截止日"):
+        YfinanceFetcher().get_daily_data("CBA.AX", days=3)

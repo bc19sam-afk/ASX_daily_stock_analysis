@@ -1,5 +1,7 @@
 import unittest
 
+import pandas as pd
+
 from src.analyzer import AnalysisResult, GeminiAnalyzer
 
 
@@ -101,6 +103,39 @@ class TestFundamentalSanitization(unittest.TestCase):
         self.assertEqual(guarded.fundamental_analysis, "基本面稳定")
         self.assertEqual(guarded.confidence_level, "高")
         self.assertEqual(guarded.data_quality_flag, "OK")
+
+    def test_historical_prompt_excludes_current_only_fundamentals_and_holders(self) -> None:
+        context = {
+            "code": "CBA.AX",
+            "date": "2024-01-02",
+            "today": {"close": 99.1},
+            "allows_current_only_data": False,
+            "fundamentals": {
+                "PE": 15.2,
+                "股息率": "4.10%",
+            },
+            "history_data": pd.DataFrame(
+                [
+                    {
+                        "date": "2024-01-02",
+                        "close": 99.1,
+                        "pct_chg": 1.2,
+                        "volume": 1000,
+                        "Insider_Desc": "近期内部人净买入 1000 股",
+                        "Inst_Desc": "机构合计持股 42.00%",
+                    }
+                ]
+            ),
+        }
+
+        prompt = self.analyzer._format_prompt(context, "CBA")
+
+        self.assertEqual(context["fundamentals"], {})
+        self.assertNotIn("15.2", prompt)
+        self.assertNotIn("4.10%", prompt)
+        self.assertNotIn("近期内部人净买入", prompt)
+        self.assertNotIn("机构合计持股", prompt)
+        self.assertIn("资金面数据缺失", prompt)
 
 
 if __name__ == "__main__":

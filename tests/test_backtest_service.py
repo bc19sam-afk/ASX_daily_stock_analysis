@@ -136,7 +136,7 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(result.final_decision, "BUY")
         self.assertEqual(result.position_action, "OPEN")
         self.assertAlmostEqual(result.target_weight, 0.2)
-        self.assertEqual(result.decision_source, "final_decision")
+        self.assertEqual(result.decision_source, "position_action")
         self.assertEqual(result.position_recommendation, "long")
         self.assertEqual(result.direction_expected, "up")
 
@@ -343,7 +343,7 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(item["outcome"], "win")
         self.assertEqual(item["direction_expected"], "up")
         self.assertTrue(item["direction_correct"])
-        self.assertEqual(item["decision_source"], "final_decision")
+        self.assertEqual(item["decision_source"], "position_action")
 
     def test_structured_fields_win_over_conflicting_legacy_operation_advice(self) -> None:
         old_created_at = datetime(2024, 1, 1, 0, 0, 0)
@@ -386,10 +386,62 @@ class BacktestServiceTestCase(unittest.TestCase):
             self.assertEqual(row.operation_advice, "买入")
             self.assertEqual(row.final_decision, "SELL")
             self.assertEqual(row.position_action, "CLOSE")
-            self.assertEqual(row.decision_source, "final_decision")
+            self.assertEqual(row.decision_source, "position_action")
             self.assertEqual(row.direction_expected, "down")
             self.assertEqual(row.position_recommendation, "cash")
             self.assertEqual(row.outcome, "win")
+
+    def test_blocked_analysis_history_is_backtested_as_no_trade(self) -> None:
+        old_created_at = datetime(2024, 1, 1, 0, 0, 0)
+        with self.db.get_session() as session:
+            session.add(
+                AnalysisHistory(
+                    query_id="q_blocked",
+                    code="300009",
+                    name="Blocked",
+                    report_type="simple",
+                    sentiment_score=80,
+                    operation_advice="买入",
+                    trend_prediction="看多",
+                    analysis_summary="blocked",
+                    alpha_decision="BUY",
+                    final_decision="BUY",
+                    position_action="ADD",
+                    target_weight=0.3,
+                    current_weight=0.2,
+                    delta_amount=3000.0,
+                    raw_result=json.dumps(
+                        {
+                            "validation_status": "BLOCK",
+                            "validation_issues": ["mixed price basis"],
+                            "analysis_status": "OK",
+                        }
+                    ),
+                    created_at=old_created_at,
+                    context_snapshot='{"enhanced_context": {"date": "2024-01-01"}}',
+                )
+            )
+            session.add(StockDaily(code="300009", date=date(2024, 1, 1), open=30.0, high=31.0, low=29.0, close=30.0))
+            session.add_all(
+                [
+                    StockDaily(code="300009", date=date(2024, 1, 2), open=30.5, high=32.0, low=30.0, close=31.0),
+                    StockDaily(code="300009", date=date(2024, 1, 3), open=31.0, high=32.5, low=30.5, close=31.5),
+                    StockDaily(code="300009", date=date(2024, 1, 4), open=31.5, high=33.0, low=31.0, close=32.0),
+                ]
+            )
+            session.commit()
+
+        service = BacktestService(self.db)
+        stats = service.run_backtest(code="300009", force=False, eval_window_days=3, min_age_days=0, limit=10)
+        self.assertEqual(stats["saved"], 1)
+        with self.db.get_session() as session:
+            row = session.query(BacktestResult).filter(BacktestResult.code == "300009").one()
+            self.assertEqual(row.final_decision, "HOLD")
+            self.assertEqual(row.position_action, "HOLD")
+            self.assertEqual(row.target_weight, 0.2)
+            self.assertEqual(row.delta_amount, 0.0)
+            self.assertEqual(row.decision_source, "position_action")
+            self.assertEqual(row.direction_expected, "not_down")
 
     def test_position_action_source_not_overridden_by_alpha_decision(self) -> None:
         old_created_at = datetime(2024, 1, 1, 0, 0, 0)

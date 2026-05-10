@@ -1304,12 +1304,16 @@ class GeminiAnalyzer:
     # =======================================================
     def _generate_history_table(self, history_data: List[Dict[str, Any]]) -> str:
         """补充历史数据表格"""
-        if not history_data:
+        if hasattr(history_data, "to_dict"):
+            history_rows = history_data.to_dict("records")
+        else:
+            history_rows = list(history_data or [])
+        if not history_rows:
             return "暂无历史数据"
 
         lines = []
         # 取最近 30 天的数据
-        recent = history_data[-30:]
+        recent = history_rows[-30:]
         recent.reverse() 
 
         for r in recent:
@@ -1345,6 +1349,25 @@ class GeminiAnalyzer:
             
         return "\n".join(lines)
 
+    @staticmethod
+    def _first_available_context_value(context: Dict[str, Any], *keys: str) -> Any:
+        """Return the first present context value without truth-testing DataFrames."""
+        for key in keys:
+            if key in context and context.get(key) is not None:
+                return context.get(key)
+        return None
+
+    @staticmethod
+    def _has_history_rows(value: Any) -> bool:
+        if value is None:
+            return False
+        if hasattr(value, "empty"):
+            return not bool(value.empty)
+        try:
+            return len(value) > 0
+        except TypeError:
+            return bool(value)
+
     # =======================================================
     # [修改方法] 格式化 Prompt
     # =======================================================
@@ -1358,11 +1381,16 @@ class GeminiAnalyzer:
         格式化分析提示词（决策仪表盘 v2.0）
         """
         code = context.get('code', 'Unknown')
+        current_only_allowed = bool(context.get('allows_current_only_data', True))
+        if not current_only_allowed:
+            context.pop('fundamentals', None)
+            context.pop('Insider_Desc', None)
+            context.pop('Inst_Desc', None)
 
         # 尝试从 history_data DataFrame 中提取资金面数据注入 context
         # （兼容 yfinance_fetcher 将数据写在 DataFrame 列里的做法）
-        raw_data = context.get('history_data') or context.get('kline') or context.get('history')
-        if raw_data is not None and hasattr(raw_data, 'columns'):
+        raw_data = self._first_available_context_value(context, 'history_data', 'kline', 'history')
+        if current_only_allowed and raw_data is not None and hasattr(raw_data, 'columns'):
             if 'Insider_Desc' in raw_data.columns and 'Insider_Desc' not in context:
                 context['Insider_Desc'] = raw_data['Insider_Desc'].iloc[-1]
             if 'Inst_Desc' in raw_data.columns and 'Inst_Desc' not in context:
@@ -1381,9 +1409,9 @@ class GeminiAnalyzer:
         # 如果没有现成表格，尝试从原始数据生成
         if not price_table or price_table == 'N/A':
             # 尝试所有可能的字段名 (history_data, kline, history)
-            raw_data = context.get('history_data') or context.get('kline') or context.get('history')
+            raw_data = self._first_available_context_value(context, 'history_data', 'kline', 'history')
             
-            if raw_data:
+            if self._has_history_rows(raw_data):
                 price_table = self._generate_history_table(raw_data)
             else:
                 # 打印一下有哪些 key，方便调试
