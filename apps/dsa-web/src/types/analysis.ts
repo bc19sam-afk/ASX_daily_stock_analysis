@@ -21,6 +21,10 @@ export interface ReportMeta {
   stockName: string;
   reportType: 'simple' | 'detailed';
   createdAt: string;
+  reportDate?: string;
+  technicalBasisDate?: string;
+  pricePolicy?: 'close_only' | 'latest_close' | 'realtime' | 'mixed' | 'unknown' | string;
+  executionPriceSource?: 'close_only' | 'latest_close' | 'realtime' | 'mixed' | 'unknown' | string;
   currentPrice?: number;
   changePct?: number;
   analysisStatus?: 'OK' | 'DEGRADED' | 'FAILED' | string;
@@ -98,8 +102,6 @@ export interface ReportStrategy {
 /** 详情区（可折叠） */
 export interface ReportDetails {
   newsContent?: string;
-  rawResult?: Record<string, unknown>;
-  contextSnapshot?: Record<string, unknown>;
 }
 
 /** 完整分析报告 */

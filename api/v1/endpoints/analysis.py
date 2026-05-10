@@ -76,6 +76,41 @@ def _extract_validation_payload(raw_result: Any) -> Dict[str, Any]:
     }
 
 
+def _date_part(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    text = str(value).strip()
+    if not text:
+        return None
+    if "T" in text:
+        return text.split("T", 1)[0]
+    if " " in text:
+        return text.split(" ", 1)[0]
+    return text[:10] if len(text) >= 10 else text
+
+
+def _nested_value(mapping: Dict[str, Any], *path: str) -> Any:
+    value: Any = mapping
+    for part in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
+def _first_text(mapping: Dict[str, Any], *paths: tuple[str, ...]) -> Optional[str]:
+    for path in paths:
+        value = _nested_value(mapping, *path)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
 # ============================================================
 # POST /analyze - 触发股票分析
 # ============================================================
@@ -572,13 +607,41 @@ def _build_analysis_report(
     summary_data = report_data.get("summary", {})
     strategy_data = report_data.get("strategy", {})
     details_data = report_data.get("details", {})
+    created_at = meta_data.get("created_at", datetime.now().isoformat())
+    report_date = meta_data.get("report_date") or _date_part(created_at)
+    technical_basis_date = _first_text(
+        meta_data,
+        ("technical_basis_date",),
+        ("market_basis_date",),
+        ("snapshot_basis_date",),
+        ("market_snapshot", "date"),
+    ) or _first_text(
+        summary_data,
+        ("technical_basis_date",),
+    )
+    execution_price_source = _first_text(
+        meta_data,
+        ("execution_price_source",),
+    ) or _first_text(
+        summary_data,
+        ("execution_price_source",),
+    )
+    price_policy = (
+        _first_text(meta_data, ("price_policy",))
+        or _first_text(summary_data, ("price_policy",))
+        or execution_price_source
+    )
 
     meta = ReportMeta(
         query_id=meta_data.get("query_id", query_id),
         stock_code=meta_data.get("stock_code", stock_code),
         stock_name=meta_data.get("stock_name", stock_name),
         report_type=meta_data.get("report_type", "full"),
-        created_at=meta_data.get("created_at", datetime.now().isoformat()),
+        created_at=created_at,
+        report_date=report_date,
+        technical_basis_date=technical_basis_date,
+        price_policy=price_policy,
+        execution_price_source=execution_price_source,
         current_price=meta_data.get("current_price"),
         change_pct=meta_data.get("change_pct"),
         analysis_status=meta_data.get("analysis_status") or summary_data.get("analysis_status"),
@@ -622,8 +685,6 @@ def _build_analysis_report(
     if details_data:
         details = ReportDetails(
             news_content=details_data.get("news_summary") or details_data.get("news_content"),
-            raw_result=details_data,
-            context_snapshot=None
         )
 
     return AnalysisReport(
