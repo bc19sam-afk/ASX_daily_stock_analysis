@@ -167,3 +167,17 @@ def get_last_closed_trading_date(
     while not is_trading_day(candidate, calendar):
         candidate -= timedelta(days=1)
     return candidate
+
+
+def get_market_report_date(
+    now: datetime | None = None,
+    *,
+    calendar: str | None = "ASX",
+    market_timezone: str | None = None,
+) -> date:
+    """Return the closed-market basis date for cache checks and daily signals."""
+    return get_last_closed_trading_date(
+        now,
+        calendar=calendar,
+        market_timezone=market_timezone,
+    )

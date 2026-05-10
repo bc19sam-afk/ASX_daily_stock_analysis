@@ -33,7 +33,7 @@ from src.stock_analyzer import StockTrendAnalyzer, TrendAnalysisResult
 from src.core.position_manager import PositionManager
 from src.core.pipeline_notifications import send_single_stock_notification
 from src.core.pipeline_validation import apply_validation_gate as apply_pipeline_validation_gate
-from src.market_calendar import is_pre_market_open
+from src.market_calendar import get_market_report_date, is_pre_market_open
 from src.security_logging import log_sensitive_payload
 from bot.models import BotMessage
 
@@ -48,6 +48,27 @@ def _now_in_timezone_safe(timezone_name: str) -> datetime:
     except Exception as exc:
         logger.warning("无效市场时区 %s，已回退到系统本地时间: %s", timezone_name, exc)
         return datetime.now()
+
+
+def _market_report_date_safe(config: Config) -> date:
+    """Return the last closed market session used for cache and close-only data."""
+    market_timezone = getattr(config, "market_timezone", "Australia/Sydney")
+    market_now = _now_in_timezone_safe(market_timezone)
+    try:
+        return get_market_report_date(
+            market_now,
+            calendar=getattr(config, "market_calendar", "ASX"),
+            market_timezone=market_timezone,
+        )
+    except Exception as exc:
+        logger.error("无法解析市场报告日期，停止使用缓存日期: %s", exc)
+        raise ValueError("无法解析市场报告日期，请检查 market_calendar / market_timezone 配置") from exc
+
+
+def _report_run_date_safe(config: Config) -> date:
+    """Return the market-local report generation date used for labels."""
+    market_timezone = getattr(config, "market_timezone", "Australia/Sydney")
+    return _now_in_timezone_safe(market_timezone).date()
 
 
 class StockAnalysisPipeline:
@@ -140,8 +161,7 @@ class StockAnalysisPipeline:
             Tuple[是否成功, 错误信息]
         """
         try:
-            market_timezone = getattr(self.config, "market_timezone", "Australia/Sydney")
-            today = _now_in_timezone_safe(market_timezone).date()
+            today = _market_report_date_safe(self.config)
             
             # 断点续传检查：如果今日数据已存在，跳过
             if not force_refresh and self.db.has_today_data(code, today):
@@ -1558,7 +1578,8 @@ class StockAnalysisPipeline:
         # dry-run 模式下，数据获取成功即视为成功
         if dry_run:
             # 检查哪些股票的数据今天已存在
-            success_count = sum(1 for code in stock_codes if self.db.has_today_data(code))
+            cache_date = _market_report_date_safe(self.config)
+            success_count = sum(1 for code in stock_codes if self.db.has_today_data(code, cache_date))
             fail_count = len(stock_codes) - success_count
         else:
             success_count = len(results)
@@ -1601,8 +1622,7 @@ class StockAnalysisPipeline:
                 logger.info("生成组合决策总结...")
                 portfolio_summary = self.analyzer.generate_portfolio_summary(results)
                 if portfolio_summary:
-                    market_tz = getattr(self.config, "market_timezone", "Australia/Sydney")
-                    report_day = _now_in_timezone_safe(market_tz).date().isoformat()
+                    report_day = _report_run_date_safe(self.config).isoformat()
                     invalid_snapshot_tokens = {"", "none", "null", "n/a", "unknown"}
 
                     def _normalize_snapshot_date(value: Any) -> Optional[str]:
@@ -1640,17 +1660,19 @@ class StockAnalysisPipeline:
                 results,
                 portfolio_summary_section=portfolio_summary_section,
             )
+            daily_summary = self.notifier.get_last_daily_decision_summary()
+            report_date = str((daily_summary or {}).get("report_date") or "")
             
             # 保存到本地
-            filepath = self.notifier.save_report_to_file(report)
+            filepath = self.notifier.save_report_to_file(report, report_date=report_date or None)
             logger.info(f"决策仪表盘日报已保存: {filepath}")
             try:
                 html_path = self.notifier.save_report_archive_html(
                     report,
                     markdown_filepath=filepath,
+                    report_date=report_date or None,
                 )
                 logger.info(f"HTML归档日报已保存: {html_path}")
-                daily_summary = self.notifier.get_last_daily_decision_summary()
                 if daily_summary:
                     summary_path = self.notifier.save_daily_decision_summary_to_file(daily_summary)
                     logger.info(f"daily_decision_summary 已保存: {summary_path}")
@@ -1669,7 +1691,10 @@ class StockAnalysisPipeline:
                 # 企业微信：只发精简版（平台限制）
                 wechat_success = False
                 if NotificationChannel.WECHAT in channels:
-                    dashboard_content = self.notifier.generate_wechat_dashboard(results)
+                    dashboard_content = self.notifier.generate_wechat_dashboard(
+                        results,
+                        report_date=report_date or None,
+                    )
                     logger.info(f"企业微信仪表盘长度: {len(dashboard_content)} 字符")
                     log_sensitive_payload(logger, logging.DEBUG, "企业微信推送内容", dashboard_content)
                     wechat_success = self.notifier.send_to_wechat(dashboard_content)
@@ -1700,7 +1725,10 @@ class StockAnalysisPipeline:
                                 key = tuple(recs) if recs else None
                                 emails_to_results[key].append(r)
                             for key, group_results in emails_to_results.items():
-                                grp_report = self.notifier.generate_dashboard_report(group_results)
+                                grp_report = self.notifier.generate_dashboard_report(
+                                    group_results,
+                                    report_date=report_date or None,
+                                )
                                 if key is None:
                                     non_wechat_success = self.notifier.send_to_email(grp_report) or non_wechat_success
                                 else:

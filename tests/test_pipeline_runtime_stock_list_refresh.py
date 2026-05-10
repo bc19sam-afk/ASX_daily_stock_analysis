@@ -16,7 +16,7 @@ def test_pipeline_run_refreshes_stock_list_on_reused_config(monkeypatch, tmp_pat
     monkeypatch.setattr(
         "src.core.pipeline.get_db",
         lambda: SimpleNamespace(
-            has_today_data=lambda code: False,
+            has_today_data=lambda code, target_date=None: False,
         ),
     )
     monkeypatch.setattr(
