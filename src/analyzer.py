@@ -1211,6 +1211,10 @@ class GeminiAnalyzer:
                 success=False,
                 analysis_status='FAILED',
                 error_message='Gemini API Key 未配置',
+                validation_status='BLOCK',
+                validation_issues=['analysis_status=FAILED: Gemini API Key 未配置'],
+                final_decision="HOLD",
+                position_action="HOLD",
             )
         
         try:
@@ -1288,6 +1292,10 @@ class GeminiAnalyzer:
                 success=False,
                 analysis_status='FAILED',
                 error_message=str(e),
+                validation_status='BLOCK',
+                validation_issues=[f'analysis_status=FAILED: {str(e)[:100]}'],
+                final_decision="HOLD",
+                position_action="HOLD",
             )
     
 
@@ -1934,6 +1942,10 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
             success=True,
             analysis_status='DEGRADED',
             error_message=reason,
+            validation_status='BLOCK',
+            validation_issues=[f"analysis_status=DEGRADED: {reason}"],
+            final_decision="HOLD",
+            position_action="HOLD",
         )
 
     def _parse_response(
@@ -2114,6 +2126,10 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
             raw_response=response_text,
             success=True,
             analysis_status='DEGRADED',
+            validation_status='BLOCK',
+            validation_issues=["analysis_status=DEGRADED: text_fallback"],
+            final_decision="HOLD",
+            position_action="HOLD",
         )
 
     @staticmethod

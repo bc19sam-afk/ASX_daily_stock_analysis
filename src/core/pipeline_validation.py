@@ -100,6 +100,26 @@ def apply_validation_gate(
         market_calendar=market_calendar,
         now=now,
     )
+    analysis_status = str(getattr(result, "analysis_status", "OK") or "OK").strip().upper()
+    if analysis_status != "OK":
+        outcome = ValidationOutcome(
+            validation_status="BLOCK",
+            validation_issues=_dedupe(
+                [
+                    *list(outcome.validation_issues or []),
+                    f"analysis_status={analysis_status}",
+                ]
+            ),
+            blocked_reason=_dedupe(
+                [
+                    *list(outcome.blocked_reason or []),
+                    "analysis_status_not_ok",
+                ]
+            ),
+            mixed_price_basis=outcome.mixed_price_basis,
+            stale_daily_context=outcome.stale_daily_context,
+            missing_critical_data=outcome.missing_critical_data,
+        )
     result.validation_status = outcome.validation_status
     result.validation_issues = list(outcome.validation_issues)
 
@@ -114,3 +134,14 @@ def apply_validation_gate(
         query_id=query_id,
     )
     return outcome
+
+
+def _dedupe(items: List[str]) -> List[str]:
+    seen = set()
+    result: List[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result

@@ -96,6 +96,27 @@ class GetLatestDataTestCase(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].code, "600519")
 
+    def test_get_analysis_context_target_date_excludes_future_daily_rows(self) -> None:
+        """target_date 历史上下文不得读取目标日之后的日线。"""
+        with self.db.get_session() as session:
+            session.add_all([
+                StockDaily(code="BHP.AX", date=date(2024, 1, 1), open=10.0, high=11.0, low=9.0, close=10.0, volume=1000),
+                StockDaily(code="BHP.AX", date=date(2024, 1, 2), open=11.0, high=12.0, low=10.0, close=11.0, volume=1100),
+                StockDaily(code="BHP.AX", date=date(2024, 1, 3), open=12.0, high=13.0, low=11.0, close=12.0, volume=1200),
+            ])
+            session.commit()
+
+        context = self.db.get_analysis_context("BHP.AX", target_date=date(2024, 1, 2))
+
+        self.assertIsNotNone(context)
+        assert context is not None
+        self.assertEqual(context["date"], "2024-01-02")
+        self.assertEqual(context["today"]["date"], date(2024, 1, 2))
+        self.assertEqual(context["yesterday"]["date"], date(2024, 1, 1))
+        raw_dates = [row["date"] for row in context["raw_data"]]
+        self.assertEqual(raw_dates, [date(2024, 1, 1), date(2024, 1, 2)])
+        self.assertNotIn("2024-01-03", context["price_history_table"])
+
 
 if __name__ == "__main__":
     unittest.main()

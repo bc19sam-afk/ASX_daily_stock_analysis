@@ -96,29 +96,48 @@ class BacktestService:
             try:
                 analysis_date = self._resolve_analysis_date(analysis)
                 if analysis_date is None:
-                    errors += 1
-                    results_to_save.append(BacktestResult(
-                        analysis_history_id=analysis.id, code=analysis.code, eval_window_days=int(eval_window_days),
-                        engine_version=str(engine_version), eval_status="error", evaluated_at=datetime.now(),
-                        operation_advice=analysis.operation_advice,
-                    ))
-                    continue
-                start_daily = self.stock_repo.get_start_daily(code=analysis.code, analysis_date=analysis_date)
-                if start_daily is None or start_daily.close is None:
-                    self._try_fill_daily_data(code=analysis.code, analysis_date=analysis_date, eval_window_days=eval_window_days)
-                    start_daily = self.stock_repo.get_start_daily(code=analysis.code, analysis_date=analysis_date)
-                if start_daily is None or start_daily.close is None:
                     insufficient += 1
-                    results_to_save.append(BacktestResult(
-                        analysis_history_id=analysis.id, code=analysis.code, analysis_date=analysis_date,
-                        eval_window_days=int(eval_window_days), engine_version=str(engine_version),
-                        eval_status="insufficient_data", evaluated_at=datetime.now(), operation_advice=analysis.operation_advice,
+                    results_to_save.append(self._build_insufficient_result(
+                        analysis=analysis,
+                        analysis_date=None,
+                        eval_window_days=eval_window_days,
+                        engine_version=str(engine_version),
                     ))
                     continue
-                forward_bars = self.stock_repo.get_forward_bars(code=analysis.code, analysis_date=start_daily.date, eval_window_days=int(eval_window_days))
+                start_price = self._extract_saved_execution_price(analysis)
+                forward_bars = self.stock_repo.get_forward_bars(
+                    code=analysis.code,
+                    analysis_date=analysis_date,
+                    eval_window_days=int(eval_window_days),
+                )
+                if start_price is None:
+                    entry_daily = forward_bars[0] if forward_bars else None
+                    if entry_daily is None or entry_daily.open is None:
+                        self._try_fill_daily_data(
+                            code=analysis.code,
+                            analysis_date=analysis_date,
+                            eval_window_days=eval_window_days,
+                        )
+                        forward_bars = self.stock_repo.get_forward_bars(
+                            code=analysis.code,
+                            analysis_date=analysis_date,
+                            eval_window_days=int(eval_window_days),
+                        )
+                        entry_daily = forward_bars[0] if forward_bars else None
+                    if entry_daily is not None and entry_daily.open is not None:
+                        start_price = self._coerce_structured_number(entry_daily.open)
+                if start_price is None:
+                    insufficient += 1
+                    results_to_save.append(self._build_insufficient_result(
+                        analysis=analysis,
+                        analysis_date=analysis_date,
+                        eval_window_days=eval_window_days,
+                        engine_version=str(engine_version),
+                    ))
+                    continue
                 if len(forward_bars) < int(eval_window_days):
-                    self._try_fill_daily_data(code=analysis.code, analysis_date=start_daily.date, eval_window_days=eval_window_days)
-                    forward_bars = self.stock_repo.get_forward_bars(code=analysis.code, analysis_date=start_daily.date, eval_window_days=int(eval_window_days))
+                    self._try_fill_daily_data(code=analysis.code, analysis_date=analysis_date, eval_window_days=eval_window_days)
+                    forward_bars = self.stock_repo.get_forward_bars(code=analysis.code, analysis_date=analysis_date, eval_window_days=int(eval_window_days))
                 structured_levels = self._extract_structured_backtest_levels(analysis)
                 evaluation = BacktestEngine.evaluate_single(
                     operation_advice=analysis.operation_advice,
@@ -128,8 +147,8 @@ class BacktestService:
                     target_weight=getattr(analysis, "target_weight", None),
                     current_weight=getattr(analysis, "current_weight", None),
                     delta_amount=getattr(analysis, "delta_amount", None),
-                    analysis_date=start_daily.date,
-                    start_price=float(start_daily.close),
+                    analysis_date=analysis_date,
+                    start_price=float(start_price),
                     forward_bars=forward_bars,
                     stop_loss=structured_levels.get("stop_loss"),
                     take_profit=structured_levels.get("take_profit"),
@@ -197,6 +216,52 @@ class BacktestService:
             "stop_loss": cls._coerce_structured_number(data.get("stop_loss")),
             "take_profit": cls._coerce_structured_number(data.get("take_profit")),
         }
+
+    @classmethod
+    def _extract_saved_execution_price(cls, analysis: Any) -> Optional[float]:
+        raw_result = getattr(analysis, "raw_result", None)
+        if not raw_result:
+            return None
+        try:
+            data = json.loads(raw_result) if isinstance(raw_result, str) else raw_result
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+
+        source = str(data.get("execution_price_source") or "").strip().lower()
+        if source not in {"realtime", "execution", "broker", "manual"}:
+            return None
+        for key in ("execution_price", "current_price"):
+            price = cls._coerce_structured_number(data.get(key))
+            if price is not None:
+                return price
+        return None
+
+    @staticmethod
+    def _build_insufficient_result(
+        *,
+        analysis: Any,
+        analysis_date: Optional[date],
+        eval_window_days: int,
+        engine_version: str,
+    ) -> BacktestResult:
+        return BacktestResult(
+            analysis_history_id=analysis.id,
+            code=analysis.code,
+            analysis_date=analysis_date,
+            eval_window_days=int(eval_window_days),
+            engine_version=str(engine_version),
+            eval_status="insufficient_data",
+            evaluated_at=datetime.now(),
+            operation_advice=analysis.operation_advice,
+            alpha_decision=getattr(analysis, "alpha_decision", None),
+            final_decision=getattr(analysis, "final_decision", None),
+            position_action=getattr(analysis, "position_action", None),
+            target_weight=getattr(analysis, "target_weight", None),
+            current_weight=getattr(analysis, "current_weight", None),
+            delta_amount=getattr(analysis, "delta_amount", None),
+        )
 
     @staticmethod
     def _coerce_structured_number(value: Any) -> Optional[float]:
@@ -291,8 +356,6 @@ class BacktestService:
         parsed = self.repo.parse_analysis_date_from_snapshot(analysis.context_snapshot)
         if parsed:
             return parsed
-        if getattr(analysis, "created_at", None):
-            return analysis.created_at.date()
         logger.warning(f"无法确定分析日期，跳过记录: {analysis.code}#{getattr(analysis, 'id', '?')}")
         return None
 

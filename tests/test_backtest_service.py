@@ -11,6 +11,7 @@ import json
 import tempfile
 import unittest
 from datetime import date, datetime
+from unittest.mock import patch
 
 from src.config import Config
 from src.core.backtest_engine import OVERALL_SENTINEL_CODE
@@ -70,12 +71,14 @@ class BacktestServiceTestCase(unittest.TestCase):
                 )
             )
 
-            # Forward bars (3 days) that hit take-profit on day1
+            # Forward bars (3 days) that hit take-profit on day1.
+            # Jan 2 open is intentionally different from Jan 1 close to prove
+            # backtests do not default to the analysis-day close as entry.
             session.add_all(
                 [
-                    StockDaily(code="600519", date=date(2024, 1, 2), high=111.0, low=100.0, close=105.0),
-                    StockDaily(code="600519", date=date(2024, 1, 3), high=108.0, low=103.0, close=106.0),
-                    StockDaily(code="600519", date=date(2024, 1, 4), high=109.0, low=104.0, close=107.0),
+                    StockDaily(code="600519", date=date(2024, 1, 2), open=103.0, high=111.0, low=100.0, close=105.0),
+                    StockDaily(code="600519", date=date(2024, 1, 3), open=105.5, high=108.0, low=103.0, close=106.0),
+                    StockDaily(code="600519", date=date(2024, 1, 4), open=106.5, high=109.0, low=104.0, close=107.0),
                 ]
             )
             session.commit()
@@ -92,9 +95,9 @@ class BacktestServiceTestCase(unittest.TestCase):
         with self.db.get_session() as session:
             session.add(StockDaily(code=code, date=date(2024, 1, 1), open=start_price, high=start_price + 1, low=start_price - 1, close=start_price))
             session.add_all([
-                StockDaily(code=code, date=date(2024, 1, 2), high=111.0, low=94.0, close=105.0),
-                StockDaily(code=code, date=date(2024, 1, 3), high=108.0, low=96.0, close=106.0),
-                StockDaily(code=code, date=date(2024, 1, 4), high=109.0, low=97.0, close=107.0),
+                StockDaily(code=code, date=date(2024, 1, 2), open=start_price + 3, high=111.0, low=94.0, close=105.0),
+                StockDaily(code=code, date=date(2024, 1, 3), open=105.5, high=108.0, low=96.0, close=106.0),
+                StockDaily(code=code, date=date(2024, 1, 4), open=106.5, high=109.0, low=97.0, close=107.0),
             ])
             session.commit()
 
@@ -138,9 +141,9 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(result.direction_expected, "up")
 
         # Prices
-        self.assertAlmostEqual(result.start_price, 100.0)
+        self.assertAlmostEqual(result.start_price, 103.0)
         self.assertAlmostEqual(result.end_close, 107.0)
-        self.assertAlmostEqual(result.stock_return_pct, 7.0)
+        self.assertAlmostEqual(result.stock_return_pct, (107.0 - 103.0) / 103.0 * 100)
 
         # Direction & outcome
         self.assertEqual(result.outcome, "win")
@@ -154,10 +157,104 @@ class BacktestServiceTestCase(unittest.TestCase):
         self.assertEqual(result.first_hit_date, date(2024, 1, 2))
 
         # Simulated execution
-        self.assertAlmostEqual(result.simulated_entry_price, 100.0)
+        self.assertAlmostEqual(result.simulated_entry_price, 103.0)
         self.assertAlmostEqual(result.simulated_exit_price, 110.0)
         self.assertEqual(result.simulated_exit_reason, "take_profit")
-        self.assertAlmostEqual(result.simulated_return_pct, 10.0)
+        self.assertAlmostEqual(result.simulated_return_pct, (110.0 - 103.0) / 103.0 * 100)
+
+    def test_saved_realtime_execution_price_wins_over_next_open(self) -> None:
+        with self.db.get_session() as session:
+            history = session.query(AnalysisHistory).filter(AnalysisHistory.code == "600519").one()
+            history.raw_result = json.dumps(
+                {"current_price": 101.0, "execution_price_source": "realtime"},
+                ensure_ascii=False,
+            )
+            session.commit()
+
+        result = self._run_and_get_result()
+
+        self.assertEqual(result.eval_status, "completed")
+        self.assertAlmostEqual(result.start_price, 101.0)
+        self.assertAlmostEqual(result.simulated_entry_price, 101.0)
+
+    def test_missing_next_open_marks_insufficient_data(self) -> None:
+        with self.db.get_session() as session:
+            session.add(
+                AnalysisHistory(
+                    query_id="q_missing_next_open",
+                    code="300007",
+                    name="Missing Open",
+                    report_type="simple",
+                    sentiment_score=70,
+                    operation_advice="买入",
+                    trend_prediction="看多",
+                    analysis_summary="missing next open",
+                    final_decision="BUY",
+                    position_action="OPEN",
+                    target_weight=0.2,
+                    current_weight=0.0,
+                    delta_amount=2000.0,
+                    created_at=datetime(2024, 1, 1, 0, 0, 0),
+                    context_snapshot='{"enhanced_context": {"date": "2024-01-01"}}',
+                )
+            )
+            session.add(StockDaily(code="300007", date=date(2024, 1, 1), open=100.0, high=101.0, low=99.0, close=100.0))
+            session.add_all([
+                StockDaily(code="300007", date=date(2024, 1, 2), open=None, high=105.0, low=99.0, close=104.0),
+                StockDaily(code="300007", date=date(2024, 1, 3), open=104.5, high=106.0, low=103.0, close=105.0),
+                StockDaily(code="300007", date=date(2024, 1, 4), open=105.5, high=107.0, low=104.0, close=106.0),
+            ])
+            session.commit()
+
+        service = BacktestService(self.db)
+        with patch.object(service, "_try_fill_daily_data", return_value=None):
+            stats = service.run_backtest(code="300007", force=False, eval_window_days=3, min_age_days=0, limit=10)
+
+        self.assertEqual(stats["saved"], 1)
+        self.assertEqual(stats["completed"], 0)
+        self.assertEqual(stats["insufficient"], 1)
+        with self.db.get_session() as session:
+            row = session.query(BacktestResult).filter(BacktestResult.code == "300007").one()
+            self.assertEqual(row.eval_status, "insufficient_data")
+            self.assertIsNone(row.start_price)
+
+    def test_missing_snapshot_date_does_not_fall_back_to_created_at(self) -> None:
+        with self.db.get_session() as session:
+            session.add(
+                AnalysisHistory(
+                    query_id="q_no_snapshot_date",
+                    code="300008",
+                    name="No Snapshot Date",
+                    report_type="simple",
+                    sentiment_score=70,
+                    operation_advice="买入",
+                    trend_prediction="看多",
+                    analysis_summary="no snapshot date",
+                    final_decision="BUY",
+                    position_action="OPEN",
+                    target_weight=0.2,
+                    current_weight=0.0,
+                    delta_amount=2000.0,
+                    created_at=datetime(2024, 1, 1, 0, 0, 0),
+                    context_snapshot=None,
+                )
+            )
+            session.add(StockDaily(code="300008", date=date(2024, 1, 2), open=103.0, high=105.0, low=101.0, close=104.0))
+            session.add(StockDaily(code="300008", date=date(2024, 1, 3), open=104.5, high=106.0, low=103.0, close=105.0))
+            session.add(StockDaily(code="300008", date=date(2024, 1, 4), open=105.5, high=107.0, low=104.0, close=106.0))
+            session.commit()
+
+        service = BacktestService(self.db)
+        stats = service.run_backtest(code="300008", force=False, eval_window_days=3, min_age_days=0, limit=10)
+
+        self.assertEqual(stats["saved"], 1)
+        self.assertEqual(stats["completed"], 0)
+        self.assertEqual(stats["insufficient"], 1)
+        self.assertEqual(stats["errors"], 0)
+        with self.db.get_session() as session:
+            row = session.query(BacktestResult).filter(BacktestResult.code == "300008").one()
+            self.assertEqual(row.eval_status, "insufficient_data")
+            self.assertIsNone(row.analysis_date)
 
     def test_summaries_created_after_run(self) -> None:
         """Verify both overall and per-stock BacktestSummary rows are created."""
@@ -275,9 +372,9 @@ class BacktestServiceTestCase(unittest.TestCase):
             )
             session.add(StockDaily(code="300001", date=date(2024, 1, 1), open=20.0, high=20.5, low=19.8, close=20.0))
             session.add_all([
-                StockDaily(code="300001", date=date(2024, 1, 2), high=20.2, low=19.0, close=19.4),
-                StockDaily(code="300001", date=date(2024, 1, 3), high=19.8, low=18.7, close=19.0),
-                StockDaily(code="300001", date=date(2024, 1, 4), high=19.4, low=18.5, close=18.8),
+                StockDaily(code="300001", date=date(2024, 1, 2), open=19.9, high=20.2, low=19.0, close=19.4),
+                StockDaily(code="300001", date=date(2024, 1, 3), open=19.3, high=19.8, low=18.7, close=19.0),
+                StockDaily(code="300001", date=date(2024, 1, 4), open=18.9, high=19.4, low=18.5, close=18.8),
             ])
             session.commit()
 
@@ -321,9 +418,9 @@ class BacktestServiceTestCase(unittest.TestCase):
             )
             session.add(StockDaily(code="300002", date=date(2024, 1, 1), open=15.0, high=15.3, low=14.9, close=15.0))
             session.add_all([
-                StockDaily(code="300002", date=date(2024, 1, 2), high=15.2, low=14.7, close=14.9),
-                StockDaily(code="300002", date=date(2024, 1, 3), high=15.0, low=14.5, close=14.8),
-                StockDaily(code="300002", date=date(2024, 1, 4), high=14.9, low=14.3, close=14.6),
+                StockDaily(code="300002", date=date(2024, 1, 2), open=15.1, high=15.2, low=14.7, close=14.9),
+                StockDaily(code="300002", date=date(2024, 1, 3), open=14.9, high=15.0, low=14.5, close=14.8),
+                StockDaily(code="300002", date=date(2024, 1, 4), open=14.8, high=14.9, low=14.3, close=14.6),
             ])
             session.commit()
 
@@ -573,9 +670,9 @@ class BacktestServiceTestCase(unittest.TestCase):
                 StockDaily(code="000001", date=date(2024, 1, 1), open=10.0, high=10.2, low=9.8, close=10.0)
             )
             session.add_all([
-                StockDaily(code="000001", date=date(2024, 1, 2), high=10.0, low=9.5, close=9.6),
-                StockDaily(code="000001", date=date(2024, 1, 3), high=9.7, low=9.3, close=9.4),
-                StockDaily(code="000001", date=date(2024, 1, 4), high=9.5, low=9.0, close=9.1),
+                StockDaily(code="000001", date=date(2024, 1, 2), open=9.9, high=10.0, low=9.5, close=9.6),
+                StockDaily(code="000001", date=date(2024, 1, 3), open=9.5, high=9.7, low=9.3, close=9.4),
+                StockDaily(code="000001", date=date(2024, 1, 4), open=9.4, high=9.5, low=9.0, close=9.1),
             ])
             session.commit()
 
