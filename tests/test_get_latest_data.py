@@ -13,6 +13,7 @@ get_latest_data 测试
 import os
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
 import pandas as pd
@@ -118,6 +119,76 @@ class GetLatestDataTestCase(unittest.TestCase):
         self.assertNotIn("2024-01-03", context["price_history_table"])
         self.assertFalse(context["allows_current_only_data"])
         self.assertEqual(context["current_only_data_policy"], "disabled_for_historical_context")
+
+    def test_save_daily_data_upserts_duplicate_code_date_and_updates_fields(self) -> None:
+        """重复保存同一 code/date 应更新同一条记录，不新增重复行。"""
+        trade_date = date(2026, 5, 1)
+        first = pd.DataFrame([{
+            "date": trade_date,
+            "open": 10.0,
+            "high": 11.0,
+            "low": 9.5,
+            "close": 10.5,
+            "volume": 1000,
+            "amount": 10500,
+            "pct_chg": 1.0,
+            "ma5": 10.1,
+            "ma10": 10.0,
+            "ma20": 9.9,
+            "volume_ratio": 1.1,
+        }])
+        second = pd.DataFrame([{
+            "date": trade_date,
+            "open": 20.0,
+            "high": 22.0,
+            "low": 19.5,
+            "close": 21.5,
+            "volume": 2000,
+            "amount": 43000,
+            "pct_chg": 2.5,
+            "ma5": 20.1,
+            "ma10": 20.0,
+            "ma20": 19.9,
+            "volume_ratio": 1.9,
+        }])
+
+        self.db.save_daily_data(first, "BHP.AX", data_source="first")
+        self.db.save_daily_data(second, "BHP.AX", data_source="second")
+
+        rows = self.db.get_latest_data("BHP.AX", days=10)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].date, trade_date)
+        self.assertEqual(rows[0].open, 20.0)
+        self.assertEqual(rows[0].close, 21.5)
+        self.assertEqual(rows[0].volume, 2000)
+        self.assertEqual(rows[0].data_source, "second")
+
+    def test_save_daily_data_parallel_duplicate_writes_do_not_raise_or_duplicate(self) -> None:
+        """模拟并发重复写入同一 code/date，不应抛唯一约束错误或生成重复记录。"""
+        trade_date = date(2026, 5, 2)
+
+        def _write(idx: int) -> None:
+            df = pd.DataFrame([{
+                "date": trade_date,
+                "open": 30.0 + idx,
+                "high": 31.0 + idx,
+                "low": 29.0 + idx,
+                "close": 30.5 + idx,
+                "volume": 1000 + idx,
+                "amount": 30500 + idx,
+                "pct_chg": 0.5 + idx,
+            }])
+            self.db.save_daily_data(df, "CBA.AX", data_source=f"writer-{idx}")
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(_write, idx) for idx in range(8)]
+            for future in futures:
+                future.result()
+
+        rows = self.db.get_latest_data("CBA.AX", days=10)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].date, trade_date)
+        self.assertTrue(str(rows[0].data_source).startswith("writer-"))
 
 
 if __name__ == "__main__":

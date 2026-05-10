@@ -1,9 +1,11 @@
 import pandas as pd
+import pytest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from data_provider.base import BaseFetcher, DataFetcherManager
+from data_provider.base import BaseFetcher, DataFetchError, DataFetcherManager
 from data_provider.realtime_types import RealtimeSource, UnifiedRealtimeQuote
+from data_provider.yfinance_fetcher import YfinanceFetcher
 
 
 class DummyFetcher(BaseFetcher):
@@ -11,6 +13,7 @@ class DummyFetcher(BaseFetcher):
         self.name = name
         self.priority = priority
         self.calls = 0
+        self.last_stock_code = None
 
     def _fetch_raw_data(self, stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
         raise NotImplementedError
@@ -20,6 +23,7 @@ class DummyFetcher(BaseFetcher):
 
     def get_daily_data(self, stock_code: str, start_date=None, end_date=None, days: int = 30) -> pd.DataFrame:
         self.calls += 1
+        self.last_stock_code = stock_code
         return pd.DataFrame(
             {
                 "date": [pd.Timestamp("2026-03-20")],
@@ -73,13 +77,60 @@ def test_us_stock_routes_to_yfinance_only():
 def test_a_share_uses_non_yfinance_by_priority():
     cn_fetcher = DummyFetcher("TushareFetcher", priority=1)
     yf_fetcher = DummyFetcher("YfinanceFetcher", priority=2)
-    manager = DataFetcherManager(fetchers=[cn_fetcher, yf_fetcher])
+    manager = DataFetcherManager(
+        fetchers=[cn_fetcher, yf_fetcher],
+        config=SimpleNamespace(market_calendar="CN"),
+    )
 
     _, source = manager.get_daily_data("600519", days=5)
 
     assert source == "TushareFetcher"
     assert cn_fetcher.calls == 1
     assert yf_fetcher.calls == 0
+
+
+def test_bare_configured_asx_ticker_is_normalized_to_ax_before_fetch():
+    yf_fetcher = DummyFetcher("YfinanceFetcher", priority=1)
+    manager = DataFetcherManager(
+        fetchers=[yf_fetcher],
+        config=SimpleNamespace(market_calendar="ASX", stock_list=["BHP.AX", "CBA.AX"]),
+    )
+
+    _, source = manager.get_daily_data("BHP", days=5)
+
+    assert source == "YfinanceFetcher"
+    assert yf_fetcher.last_stock_code == "BHP.AX"
+
+
+def test_asx_default_rejects_numeric_ticker_without_explicit_cn_mode():
+    cn_fetcher = DummyFetcher("TushareFetcher", priority=1)
+    yf_fetcher = DummyFetcher("YfinanceFetcher", priority=2)
+    manager = DataFetcherManager(
+        fetchers=[cn_fetcher, yf_fetcher],
+        config=SimpleNamespace(market_calendar="ASX", stock_list=["BHP.AX"]),
+    )
+
+    with pytest.raises(DataFetchError, match="ASX-first"):
+        manager.get_daily_data("600519", days=5)
+
+    assert cn_fetcher.calls == 0
+    assert yf_fetcher.calls == 0
+
+
+def test_yfinance_asx_first_conversion_preserves_ax_and_rejects_numeric_default():
+    fetcher = YfinanceFetcher()
+
+    assert fetcher._convert_stock_code("BHP.AX") == "BHP.AX"
+    assert fetcher._convert_stock_code("BHP") == "BHP.AX"
+    with pytest.raises(DataFetchError, match="ASX-first"):
+        fetcher._convert_stock_code("600519")
+
+
+def test_yfinance_explicit_cn_mode_preserves_legacy_numeric_conversion():
+    fetcher = YfinanceFetcher(market_calendar="CN")
+
+    assert fetcher._convert_stock_code("600519") == "600519.SS"
+    assert fetcher._convert_stock_code("000001") == "000001.SZ"
 
 
 def test_market_symbol_classifier():

@@ -397,7 +397,7 @@ class AnalysisTaskQueue:
         except Exception as e:
             error_msg = str(e)
             logger.error(f"[TaskQueue] 任务失败: {task_id} ({stock_code}), 错误: {error_msg}")
-            
+
             with self._data_lock:
                 task = self._tasks.get(task_id)
                 if task:
@@ -409,13 +409,45 @@ class AnalysisTaskQueue:
                     # 从分析中集合移除
                     if task.stock_code in self._analyzing_stocks:
                         del self._analyzing_stocks[task.stock_code]
-            
-            self._broadcast_event("task_failed", task.to_dict())
+                    failed_payload = task.to_dict()
+                else:
+                    self._analyzing_stocks.pop(stock_code, None)
+                    failed_payload = self._build_missing_task_failure_payload(
+                        task_id=task_id,
+                        stock_code=stock_code,
+                        report_type=report_type,
+                        error_msg=error_msg,
+                    )
+
+            self._broadcast_event("task_failed", failed_payload)
             
             # 清理过期任务
             self._cleanup_old_tasks()
             
             return None
+
+    @staticmethod
+    def _build_missing_task_failure_payload(
+        *,
+        task_id: str,
+        stock_code: str,
+        report_type: str,
+        error_msg: str,
+    ) -> Dict[str, Any]:
+        """Build a safe failed event when the in-memory task disappeared."""
+        return {
+            "task_id": task_id,
+            "stock_code": stock_code,
+            "stock_name": None,
+            "status": TaskStatus.FAILED.value,
+            "progress": 0,
+            "message": f"分析失败: {error_msg[:50]}",
+            "report_type": report_type,
+            "created_at": None,
+            "started_at": None,
+            "completed_at": None,
+            "error": error_msg[:200],
+        }
     
     def _cleanup_old_tasks(self) -> int:
         """

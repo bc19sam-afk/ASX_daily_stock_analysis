@@ -23,6 +23,8 @@ export interface ReportMeta {
   createdAt: string;
   currentPrice?: number;
   changePct?: number;
+  analysisStatus?: 'OK' | 'DEGRADED' | 'FAILED' | string;
+  validationStatus?: 'PASS' | 'BLOCK' | string;
 }
 
 /** 情绪标签 */
@@ -32,9 +34,25 @@ export type SentimentLabel = '极度悲观' | '悲观' | '中性' | '乐观' | '
 export interface ReportSummary {
   analysisSummary: string;
   operationAdvice: string;
+  analysisStatus?: 'OK' | 'DEGRADED' | 'FAILED' | string;
+  validationStatus?: 'PASS' | 'BLOCK' | string;
+  validationIssues?: string[];
   trendPrediction: string;
   sentimentScore: number;
   sentimentLabel?: SentimentLabel;
+  alphaDecision?: 'BUY' | 'HOLD' | 'SELL' | string;
+  finalDecision?: 'BUY' | 'HOLD' | 'SELL' | string;
+  positionAction?: 'OPEN' | 'ADD' | 'HOLD' | 'REDUCE' | 'CLOSE' | string;
+  targetWeight?: number;
+  currentWeight?: number;
+  deltaAmount?: number;
+  actionReason?: string;
+  watchlistState?: 'OBSERVE' | 'ACTIVE' | 'DROP' | string;
+  marketRegime?: 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF' | string;
+  newsSentiment?: 'POS' | 'NEU' | 'NEG' | string;
+  eventRisk?: 'LOW' | 'MEDIUM' | 'HIGH' | string;
+  sectorTone?: 'POS' | 'NEU' | 'NEG' | string;
+  dataQualityFlag?: 'OK' | 'MISSING' | string;
 }
 
 /** 策略点位区 */

@@ -1002,6 +1002,14 @@
               "created_at": {
                 "type": "string",
                 "format": "date-time"
+              },
+              "analysis_status": {
+                "type": "string",
+                "description": "外层分析状态(OK/DEGRADED/FAILED)"
+              },
+              "validation_status": {
+                "type": "string",
+                "description": "决策验证状态(PASS/BLOCK)"
               }
             }
           },
@@ -1016,6 +1024,21 @@
               "operation_advice": {
                 "type": "string",
                 "description": "操作建议"
+              },
+              "analysis_status": {
+                "type": "string",
+                "description": "外层分析状态(OK/DEGRADED/FAILED)"
+              },
+              "validation_status": {
+                "type": "string",
+                "description": "决策验证状态(PASS/BLOCK)"
+              },
+              "validation_issues": {
+                "type": "array",
+                "description": "决策验证问题列表",
+                "items": {
+                  "type": "string"
+                }
               },
               "trend_prediction": {
                 "type": "string",
@@ -1035,6 +1058,58 @@
                   "乐观",
                   "极度乐观"
                 ]
+              },
+              "alpha_decision": {
+                "type": "string",
+                "description": "规则层决策(BUY/HOLD/SELL)"
+              },
+              "final_decision": {
+                "type": "string",
+                "description": "最终决策(BUY/HOLD/SELL)"
+              },
+              "position_action": {
+                "type": "string",
+                "description": "仓位动作(OPEN/ADD/HOLD/REDUCE/CLOSE)"
+              },
+              "target_weight": {
+                "type": "number",
+                "description": "目标仓位(0-1)"
+              },
+              "current_weight": {
+                "type": "number",
+                "description": "当前仓位(0-1)"
+              },
+              "delta_amount": {
+                "type": "number",
+                "description": "建议调仓金额"
+              },
+              "action_reason": {
+                "type": "string",
+                "description": "仓位决策原因"
+              },
+              "watchlist_state": {
+                "type": "string",
+                "description": "观察池状态(OBSERVE/ACTIVE/DROP)"
+              },
+              "market_regime": {
+                "type": "string",
+                "description": "市场状态(RISK_ON/NEUTRAL/RISK_OFF)"
+              },
+              "news_sentiment": {
+                "type": "string",
+                "description": "新闻情绪(POS/NEU/NEG)"
+              },
+              "event_risk": {
+                "type": "string",
+                "description": "事件风险(LOW/MEDIUM/HIGH)"
+              },
+              "sector_tone": {
+                "type": "string",
+                "description": "板块语气(POS/NEU/NEG)"
+              },
+              "data_quality_flag": {
+                "type": "string",
+                "description": "数据质量闸门(OK/MISSING)"
               }
             }
           },

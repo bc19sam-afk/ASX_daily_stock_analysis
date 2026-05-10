@@ -57,9 +57,38 @@ class YfinanceFetcher(BaseFetcher):
     name = "YfinanceFetcher"
     priority = int(os.getenv("YFINANCE_PRIORITY", "4"))
     
-    def __init__(self):
+    def __init__(self, market_calendar: Optional[str] = None, stock_list: Optional[List[str]] = None):
         """初始化 YfinanceFetcher"""
-        pass
+        self._market_calendar = market_calendar
+        self._stock_list = stock_list
+
+    def _is_asx_first_mode(self) -> bool:
+        if self._market_calendar is not None:
+            calendar = self._market_calendar
+        else:
+            try:
+                from src.config import get_config
+
+                calendar = getattr(get_config(), "market_calendar", "ASX")
+            except Exception:
+                calendar = "ASX"
+        return str(calendar or "ASX").upper() == "ASX"
+
+    def _asx_watchlist_bases(self) -> set[str]:
+        stock_list = self._stock_list
+        if stock_list is None:
+            try:
+                from src.config import get_config
+
+                stock_list = getattr(get_config(), "stock_list", [])
+            except Exception:
+                stock_list = []
+        bases = set()
+        for item in stock_list or []:
+            code = str(item).strip().upper()
+            if code.endswith(".AX"):
+                bases.add(code[:-3])
+        return bases
     
     def _convert_stock_code(self, stock_code: str) -> str:
         """
@@ -76,10 +105,19 @@ class YfinanceFetcher(BaseFetcher):
 
         code = stock_code.strip().upper()
 
-        # === 修复 1: 修正正则，允许 .AX 这种两位字母后缀 ===
-        if re.match(r'^[A-Z]{1,5}(\.[A-Z]+)?$', code):
-            logger.debug(f"识别为国际/标准代码: {code}")
+        # 已经包含后缀的情况
+        if any(suffix in code for suffix in ['.SS', '.SZ', '.HK', '.AX', '.TW']):
             return code
+
+        if self._is_asx_first_mode():
+            if re.fullmatch(r"\d{5,6}", code):
+                raise DataFetchError(
+                    f"ASX-first default mode does not accept numeric legacy ticker {code}; "
+                    "set an explicit non-ASX market mode before using A-share codes."
+                )
+            if re.fullmatch(r"[A-Z]{1,5}", code) and code in self._asx_watchlist_bases():
+                logger.debug(f"转换裸 ASX 代码: {stock_code} -> {code}.AX")
+                return f"{code}.AX"
 
         # 港股：hk前缀 -> .HK后缀
         if code.startswith('HK'):
@@ -88,8 +126,9 @@ class YfinanceFetcher(BaseFetcher):
             logger.debug(f"转换港股代码: {stock_code} -> {hk_code}.HK")
             return f"{hk_code}.HK"
 
-        # 已经包含后缀的情况
-        if any(suffix in code for suffix in ['.SS', '.SZ', '.HK', '.AX', '.TW']):
+        # === 修复 1: 修正正则，允许 .AX 这种两位字母后缀 ===
+        if re.match(r'^[A-Z]{1,5}(\.[A-Z]+)?$', code):
+            logger.debug(f"识别为国际/标准代码: {code}")
             return code
 
         # 去除可能的 .SH 后缀

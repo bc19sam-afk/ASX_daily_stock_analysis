@@ -416,6 +416,39 @@ class DataFetcherManager:
         return False
 
     @staticmethod
+    def _is_asx_first_config(config: Optional["Config"]) -> bool:
+        calendar = str(getattr(config, "market_calendar", "ASX") or "ASX").upper()
+        return calendar == "ASX"
+
+    @staticmethod
+    def _asx_watchlist_bases(config: Optional["Config"]) -> set[str]:
+        stock_list = getattr(config, "stock_list", None) or []
+        bases = set()
+        for item in stock_list:
+            code = str(item).strip().upper()
+            if code.endswith(".AX"):
+                bases.add(code[:-3])
+        return bases
+
+    @classmethod
+    def _normalize_for_default_market(cls, stock_code: str, config: Optional["Config"]) -> str:
+        """Apply ASX-first defaults without silently routing to legacy A-share symbols."""
+        code = normalize_stock_code(stock_code).strip().upper()
+        if not cls._is_asx_first_config(config):
+            return code
+
+        if re.fullmatch(r"\d{5,6}", code):
+            raise DataFetchError(
+                f"ASX-first default mode does not accept numeric legacy ticker {code}; "
+                "set an explicit non-ASX market mode before using A-share codes."
+            )
+
+        if re.fullmatch(r"[A-Z]{1,5}", code) and code in cls._asx_watchlist_bases(config):
+            return f"{code}.AX"
+
+        return code
+
+    @staticmethod
     def _should_use_yfinance_realtime(stock_code: str) -> bool:
         """判断实时行情是否应优先尝试 Yfinance（含 .AX 与 BRK.B 这类美股点号代码）。"""
         code = stock_code.strip().upper()
@@ -452,8 +485,8 @@ class DataFetcherManager:
         Raises:
             DataFetchError: 所有数据源都失败时抛出
         """
-        # Normalize code (strip SH/SZ prefix etc.)
-        stock_code = normalize_stock_code(stock_code)
+        config = self._get_active_config()
+        stock_code = self._normalize_for_default_market(stock_code, config)
 
         errors = []
         
@@ -514,12 +547,9 @@ class DataFetcherManager:
             预取的股票数量（0 表示跳过预取）
         """
         # Normalize all codes
-        stock_codes = [normalize_stock_code(c) for c in stock_codes]
+        config = self._get_active_config()
+        stock_codes = [self._normalize_for_default_market(c, config) for c in stock_codes]
 
-        from src.config import get_config
-        
-        config = get_config()
-        
         # 如果实时行情被禁用，跳过预取
         if not config.enable_realtime_quote:
             logger.debug("[预取] 实时行情功能已禁用，跳过预取")
@@ -588,12 +618,10 @@ class DataFetcherManager:
         Returns:
             UnifiedRealtimeQuote 对象，所有数据源都失败则返回 None
         """
-        # Normalize code (strip SH/SZ prefix etc.)
-        stock_code = normalize_stock_code(stock_code)
+        config = self._get_active_config()
+        stock_code = self._normalize_for_default_market(stock_code, config)
 
         from .realtime_types import get_realtime_circuit_breaker
-        
-        config = self._get_active_config()
         errors = []
         primary_quote = None
         supplement_attempts = 0

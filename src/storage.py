@@ -47,6 +47,7 @@ from sqlalchemy.orm import (
     Session,
 )
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from src.config import get_config
 from src.security_logging import describe_database_url_for_log
@@ -1237,20 +1238,72 @@ class DatabaseManager:
             return 0
         
         saved_count = 0
+
+        def _row_date(value: Any) -> date:
+            if isinstance(value, str):
+                return datetime.strptime(value, '%Y-%m-%d').date()
+            if isinstance(value, datetime):
+                return value.date()
+            if isinstance(value, pd.Timestamp):
+                return value.date()
+            return value
+
+        def _row_values(row: pd.Series, row_date: date, now: datetime) -> Dict[str, Any]:
+            return {
+                "code": code,
+                "date": row_date,
+                "open": row.get('open'),
+                "high": row.get('high'),
+                "low": row.get('low'),
+                "close": row.get('close'),
+                "volume": row.get('volume'),
+                "amount": row.get('amount'),
+                "pct_chg": row.get('pct_chg'),
+                "ma5": row.get('ma5'),
+                "ma10": row.get('ma10'),
+                "ma20": row.get('ma20'),
+                "volume_ratio": row.get('volume_ratio'),
+                "data_source": data_source,
+                "created_at": now,
+                "updated_at": now,
+            }
         
         with self.get_session() as session:
             try:
                 for _, row in df.iterrows():
-                    # 解析日期
-                    row_date = row.get('date')
-                    if isinstance(row_date, str):
-                        row_date = datetime.strptime(row_date, '%Y-%m-%d').date()
-                    elif isinstance(row_date, datetime):
-                        row_date = row_date.date()
-                    elif isinstance(row_date, pd.Timestamp):
-                        row_date = row_date.date()
-                    
-                    # 检查是否已存在
+                    row_date = _row_date(row.get('date'))
+                    now = datetime.now()
+
+                    if self._engine.dialect.name == "sqlite":
+                        values = _row_values(row, row_date, now)
+                        stmt = sqlite_insert(StockDaily).values(**values)
+                        update_columns = {
+                            key: getattr(stmt.excluded, key)
+                            for key in (
+                                "open",
+                                "high",
+                                "low",
+                                "close",
+                                "volume",
+                                "amount",
+                                "pct_chg",
+                                "ma5",
+                                "ma10",
+                                "ma20",
+                                "volume_ratio",
+                                "data_source",
+                                "updated_at",
+                            )
+                        }
+                        result = session.execute(
+                            stmt.on_conflict_do_update(
+                                index_elements=["code", "date"],
+                                set_=update_columns,
+                            )
+                        )
+                        saved_count += int(result.rowcount or 0)
+                        continue
+
                     existing = session.execute(
                         select(StockDaily).where(
                             and_(
@@ -1259,45 +1312,17 @@ class DatabaseManager:
                             )
                         )
                     ).scalar_one_or_none()
-                    
+
                     if existing:
-                        # 更新现有记录
-                        existing.open = row.get('open')
-                        existing.high = row.get('high')
-                        existing.low = row.get('low')
-                        existing.close = row.get('close')
-                        existing.volume = row.get('volume')
-                        existing.amount = row.get('amount')
-                        existing.pct_chg = row.get('pct_chg')
-                        existing.ma5 = row.get('ma5')
-                        existing.ma10 = row.get('ma10')
-                        existing.ma20 = row.get('ma20')
-                        existing.volume_ratio = row.get('volume_ratio')
-                        existing.data_source = data_source
-                        existing.updated_at = datetime.now()
+                        for key, value in _row_values(row, row_date, now).items():
+                            if key not in {"code", "date", "created_at"}:
+                                setattr(existing, key, value)
                     else:
-                        # 创建新记录
-                        record = StockDaily(
-                            code=code,
-                            date=row_date,
-                            open=row.get('open'),
-                            high=row.get('high'),
-                            low=row.get('low'),
-                            close=row.get('close'),
-                            volume=row.get('volume'),
-                            amount=row.get('amount'),
-                            pct_chg=row.get('pct_chg'),
-                            ma5=row.get('ma5'),
-                            ma10=row.get('ma10'),
-                            ma20=row.get('ma20'),
-                            volume_ratio=row.get('volume_ratio'),
-                            data_source=data_source,
-                        )
-                        session.add(record)
-                        saved_count += 1
+                        session.add(StockDaily(**_row_values(row, row_date, now)))
+                    saved_count += 1
                 
                 session.commit()
-                logger.info(f"保存 {code} 数据成功，新增 {saved_count} 条")
+                logger.info(f"保存 {code} 数据成功，写入/更新 {saved_count} 条")
                 
             except Exception as e:
                 session.rollback()
