@@ -823,7 +823,8 @@ class DatabaseManager:
     def get_latest_data(
         self, 
         code: str, 
-        days: int = 2
+        days: int = 2,
+        target_date: Optional[date] = None,
     ) -> List[StockDaily]:
         """
         获取最近 N 天的数据
@@ -833,14 +834,18 @@ class DatabaseManager:
         Args:
             code: 股票代码
             days: 获取天数
+            target_date: 目标日期；提供时仅返回该日期及以前的数据
             
         Returns:
             StockDaily 对象列表（按日期降序）
         """
         with self.get_session() as session:
+            filters = [StockDaily.code == code]
+            if target_date is not None:
+                filters.append(StockDaily.date <= target_date)
             results = session.execute(
                 select(StockDaily)
-                .where(StockDaily.code == code)
+                .where(and_(*filters))
                 .order_by(desc(StockDaily.date))
                 .limit(days)
             ).scalars().all()
@@ -1872,7 +1877,7 @@ class DatabaseManager:
             target_date = date.today()
         
         # 获取最近30天数据（用于历史价格表 + 今日/昨日对比）
-        recent_data = self.get_latest_data(code, days=30)
+        recent_data = self.get_latest_data(code, days=30, target_date=target_date)
         
         if not recent_data:
             logger.warning(f"未找到 {code} 的数据")

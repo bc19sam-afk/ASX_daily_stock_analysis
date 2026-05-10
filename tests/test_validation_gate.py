@@ -94,6 +94,56 @@ class ValidationGateTestCase(unittest.TestCase):
         self.assertIn("validation_blocked", result.action_reason)
         self.assertTrue(any("缺少" in item for item in result.validation_issues))
 
+    def test_apply_validation_gate_blocks_degraded_analysis_result(self) -> None:
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.config = SimpleNamespace(
+            market_timezone="Australia/Sydney",
+            market_calendar="ASX",
+        )
+        result = self._build_result()
+        result.analysis_status = "DEGRADED"
+        result.current_price = 48.2
+        result.execution_price_source = "latest_close"
+
+        pipeline._apply_validation_gate(
+            result=result,
+            enhanced_context={
+                "date": "2026-04-14",
+                "today": {"close": 48.2},
+            },
+            now=datetime(2026, 4, 14, 18, 0, tzinfo=ZoneInfo("Australia/Sydney")),
+        )
+
+        self.assertEqual(result.validation_status, "BLOCK")
+        self.assertEqual(result.final_decision, "HOLD")
+        self.assertEqual(result.position_action, "HOLD")
+        self.assertEqual(result.delta_amount, 0.0)
+        self.assertTrue(any("analysis_status=DEGRADED" in item for item in result.validation_issues))
+
+    def test_text_fallback_result_is_blocked_and_observation_only(self) -> None:
+        from src.analyzer import GeminiAnalyzer
+
+        result = GeminiAnalyzer(api_key=None)._parse_text_response(
+            "无法解析为 JSON，但文本里写了强烈买入并加仓。",
+            "BHP.AX",
+            "BHP",
+        )
+
+        self.assertEqual(result.analysis_status, "DEGRADED")
+        self.assertEqual(result.validation_status, "BLOCK")
+        self.assertEqual(result.final_decision, "HOLD")
+        self.assertEqual(result.position_action, "HOLD")
+
+    def test_failed_unavailable_analyzer_result_is_blocked(self) -> None:
+        from src.analyzer import GeminiAnalyzer
+
+        result = GeminiAnalyzer(api_key=None).analyze({"code": "BHP.AX", "stock_name": "BHP"})
+
+        self.assertEqual(result.analysis_status, "FAILED")
+        self.assertEqual(result.validation_status, "BLOCK")
+        self.assertEqual(result.final_decision, "HOLD")
+        self.assertEqual(result.position_action, "HOLD")
+
     def test_evaluate_analysis_gate_emits_structured_reason_flags_for_missing_critical_data(self) -> None:
         outcome = evaluate_analysis_gate(
             enhanced_context={
