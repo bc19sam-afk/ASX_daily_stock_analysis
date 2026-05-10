@@ -163,6 +163,13 @@ def test_file_runner_generates_json_and_markdown_without_mutating_summary(tmp_pa
     assert "执行前确认价格、公告、流动性" in markdown
     assert "BHP.AX" in markdown
     assert "NAB.AX" in markdown
+    assert "## 人工复核清单" in markdown
+    assert "以下检查必须由人工完成；盘中复核不自动下单，也不连接券商。" in markdown
+    assert "### BHP.AX" in markdown
+    assert "### NAB.AX" in markdown
+    assert "人工复核当前价格、盘口流动性和重大公告；本输出不是交易指令。" in markdown
+    assert "确认 morning daily_decision_summary 的 close_only / 昨收计划口径仍适用。" in markdown
+    assert "required_checks" not in markdown
 
 
 def test_file_runner_cli_uses_local_files_only(tmp_path: Path):
