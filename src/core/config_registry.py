@@ -523,8 +523,8 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "display_order": 30,
     },
     "WEBUI_PORT": {
-        "title": "Web UI Port",
-        "description": "Port for Web UI service.",
+        "title": "Legacy API Port Alias",
+        "description": "Port alias retained for API service compatibility.",
         "category": "system",
         "data_type": "integer",
         "ui_control": "number",

@@ -1,13 +1,5 @@
 $ErrorActionPreference = 'Stop'
 
-Write-Host 'Building React UI (static assets)...'
-Push-Location 'apps\dsa-web'
-if (!(Test-Path 'node_modules')) {
-  npm install
-}
-npm run build
-Pop-Location
-
 Write-Host 'Building backend executable...'
 if (!(Get-Command pyinstaller -ErrorAction SilentlyContinue)) {
   python -m pip install pyinstaller
@@ -57,7 +49,7 @@ $hiddenImports = @(
 )
 $hiddenImportArgs = ($hiddenImports | ForEach-Object { "--hidden-import=$_" }) -join ' '
 
-$cmd = "pyinstaller --name stock_analysis --onedir --noconsole --add-data `"static;static`" $hiddenImportArgs main.py"
+$cmd = "pyinstaller --name stock_analysis --onedir --noconsole $hiddenImportArgs main.py"
 Write-Host "Running: $cmd"
 Invoke-Expression $cmd
 

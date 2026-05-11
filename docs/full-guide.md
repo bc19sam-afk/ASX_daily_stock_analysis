@@ -17,7 +17,6 @@ daily_stock_analysis/
 ├── data_provider/       # 多数据源适配器
 ├── bot/                 # 机器人交互模块
 ├── api/                 # FastAPI 后端服务
-├── apps/dsa-web/        # React 前端
 ├── docker/              # Docker 配置
 ├── docs/                # 项目文档
 └── .github/workflows/   # GitHub Actions
@@ -35,7 +34,7 @@ daily_stock_analysis/
 - [数据源配置](#数据源配置)
 - [高级功能](#高级功能)
 - [回测功能](#回测功能)
-- [本地 WebUI 管理界面](#本地-webui-管理界面)
+- [FastAPI API 服务](#fastapi-api-服务)
 
 ---
 
@@ -240,8 +239,7 @@ GitHub Actions 默认每个工作日 **08:00（Australia/Sydney）** 自动执�
 
 ## Docker 部署
 
-Dockerfile 只构建后端运行镜像，不再在镜像构建时自动打包前端。
-如需让容器托管已有前端静态资源，可手动构建 `static/` 后挂载到容器内 `/app/static`。
+Dockerfile 只构建后端运行镜像。
 
 ### 快速启动
 

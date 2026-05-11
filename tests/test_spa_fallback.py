@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for SPA fallback behavior in integrated frontend/backend deploy."""
+"""Tests for static SPA fallback behavior in the API server."""
 
 import tempfile
 import unittest
