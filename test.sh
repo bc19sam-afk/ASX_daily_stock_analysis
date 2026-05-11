@@ -209,6 +209,7 @@ test_yfinance_convert() {
 import sys
 sys.path.insert(0, '.')
 from data_provider.yfinance_fetcher import YfinanceFetcher
+from data_provider.base import DataFetchError
 
 fetcher = YfinanceFetcher()
 
@@ -218,9 +219,6 @@ test_cases = [
     ("BRK.B", "BRK.B", "美股特殊"),
     ("hk00700", "0700.HK", "港股"),
     ("HK09988", "9988.HK", "港股大写"),
-    ("600519", "600519.SS", "A股沪市"),
-    ("000001", "000001.SZ", "A股深市"),
-    ("300750", "300750.SZ", "A股创业板"),
 ]
 
 print("\nYFinance 代码转换测试:")
@@ -228,6 +226,32 @@ print("-" * 60)
 all_pass = True
 for input_code, expected, desc in test_cases:
     result = fetcher._convert_stock_code(input_code)
+    status = "✅" if result == expected else "❌"
+    all_pass = all_pass and (result == expected)
+    print(f"{status} {input_code:10} -> {result:12} (期望: {expected:12}) | {desc}")
+
+blocked_default_cases = ["600519", "000001", "300750"]
+for input_code in blocked_default_cases:
+    try:
+        fetcher._convert_stock_code(input_code)
+    except DataFetchError as exc:
+        ok = "ASX-first" in str(exc)
+        result = "ASX-first blocked"
+    else:
+        ok = False
+        result = "accepted"
+    all_pass = all_pass and ok
+    status = "✅" if ok else "❌"
+    print(f"{status} {input_code:10} -> {result:12} (默认 ASX 模式应拒绝数字旧代码)")
+
+legacy_fetcher = YfinanceFetcher(market_calendar="SSE")
+legacy_cases = [
+    ("600519", "600519.SS", "显式非 ASX 模式 A股沪市"),
+    ("000001", "000001.SZ", "显式非 ASX 模式 A股深市"),
+    ("300750", "300750.SZ", "显式非 ASX 模式 A股创业板"),
+]
+for input_code, expected, desc in legacy_cases:
+    result = legacy_fetcher._convert_stock_code(input_code)
     status = "✅" if result == expected else "❌"
     all_pass = all_pass and (result == expected)
     print(f"{status} {input_code:10} -> {result:12} (期望: {expected:12}) | {desc}")
