@@ -1,6 +1,6 @@
 # Zeabur 部署指南
 
-本指南详细介绍如何在 Zeabur 上部署 ASX-first 自选股智能分析系统，包括 WebUI 和 Discord 机器人功能。
+本指南详细介绍如何在 Zeabur 上部署 ASX-first 自选股智能分析系统，包括 FastAPI 服务和 Discord 机器人功能。
 
 ## 目录
 
@@ -57,12 +57,9 @@ Zeabur 会自动检测 `.github/workflows/docker-publish.yml` 文件，并使用
 2. 点击「启动服务」
 3. 服务启动后，你可以在「访问」标签页获取访问地址
 
-### 2.4 API 服务与静态资源
+### 2.4 API 服务
 
-Docker 镜像默认只提供后端 API 服务，不再在镜像构建时自动打包前端资源。
-
-FastAPI 仍保留静态资源托管能力；如需让容器托管已有前端静态资源，可在宿主机手动构建
-`static/` 并挂载到容器内 `/app/static`。
+Docker 镜像默认提供后端 API 服务。
 
 ## 3. 配置启动命令
 
@@ -190,7 +187,7 @@ FastAPI 仍保留静态资源托管能力；如需让容器托管已有前端静
 
 系统内置了健康检查机制，默认检查：
 
-- WebUI 模式：检查 `http://localhost:8000/health` 端点
+- 兼容健康检查：检查 `http://localhost:8000/health` 端点
 - FastAPI 模式：检查 `http://localhost:8000/api/health` 端点
 - 非服务模式：始终返回健康状态
 

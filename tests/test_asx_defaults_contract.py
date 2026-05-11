@@ -86,18 +86,13 @@ def test_public_contract_docs_are_asx_first_with_compatibility_examples():
     assert "BHP.AX,hk00700,hk01810" in full_guide_en
 
 
-def test_cli_web_and_api_examples_are_asx_first():
+def test_cli_and_api_examples_are_asx_first():
     main_py = _read("main.py")
-    homepage = _read("apps/dsa-web/src/pages/HomePage.tsx")
-    system_config_i18n = _read("apps/dsa-web/src/utils/systemConfigI18n.ts")
     from api.v1.schemas.analysis import AnalyzeRequest
     from api.v1.schemas.stocks import StockHistoryResponse, StockQuote
 
     assert "python main.py --stocks BHP.AX,CBA.AX,AAPL" in main_py
     assert "python main.py --stocks 600519" not in main_py
-    assert "输入股票代码，如 BHP.AX、CBA.AX、AAPL" in homepage
-    assert "输入股票代码，如 600519" not in homepage
-    assert "BHP.AX,CBA.AX,CSL.AX" in system_config_i18n
 
     analyze_example = AnalyzeRequest.model_config["json_schema_extra"]["example"]
     quote_example = StockQuote.model_config["json_schema_extra"]["example"]

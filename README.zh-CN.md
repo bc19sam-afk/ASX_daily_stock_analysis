@@ -2,7 +2,7 @@
 
 中文 | [English](README.md)
 
-Daily Stock Analysis 是一个面向人工决策辅助的股票分析与报告系统，整合了多源市场数据、LLM 生成分析、基于规则的仓位管理、可选的大盘复盘、通知分发，以及 FastAPI + React Web 控制台，并支持本地运行与 GitHub Actions 工作流。
+Daily Stock Analysis 是一个面向人工决策辅助的股票分析与报告系统，整合了多源市场数据、LLM 生成分析、基于规则的仓位管理、可选的大盘复盘、通知分发，以及 FastAPI API 服务，并支持本地运行与 GitHub Actions 工作流。
 
 当前产品定位和默认运行假设以 ASX 为主，同时支持 AU/US 股票进入同一套分析与报告流程。本文档中的默认示例保持为纯 ASX，因为运行时默认仍假设 `MARKET_CALENDAR=ASX`、`MARKET_TIMEZONE=Australia/Sydney`。仓库源码中仍保留部分早期 A 股阶段的注释、命名和集成痕迹，但本文档中的用户指南按当前 ASX/AU/US 使用方式编写。
 
@@ -27,7 +27,6 @@ Daily Stock Analysis 是一个面向人工决策辅助的股票分析与报告�
 
 - **接口层**
   - `api/`：FastAPI 应用与 `/api/v1/*` 接口（analysis、history、stocks、backtest、system config）。
-  - `apps/dsa-web/`：React + Vite 前端。
   - `bot/`：机器人平台集成（如 Discord、Feishu Stream、DingTalk Stream）。
 
 - **工作流自动化**
@@ -50,7 +49,7 @@ cp .env.example .env
 python main.py
 ```
 
-### 2) 运行 API 服务 / Web 控制台后端
+### 2) 运行 API 服务
 
 ```bash
 # API only
@@ -60,16 +59,7 @@ python main.py --serve-only --host 0.0.0.0 --port 8000
 python main.py --serve
 ```
 
-系统支持为受保护的 Web 控制台配置接口启用可选 Bearer Token 认证。本地开发可保持 `API_AUTH_ENABLED=false`；生产或公网访问建议设置 `API_AUTH_ENABLED=true`，并配置高强度 `API_AUTH_TOKEN`。
-
-若前端静态资源尚未构建，请先执行：
-
-```bash
-cd apps/dsa-web
-npm install
-npm run build
-cd ../..
-```
+系统支持为受保护的配置接口启用可选 Bearer Token 认证。本地开发可保持 `API_AUTH_ENABLED=false`；生产或公网访问建议设置 `API_AUTH_ENABLED=true`，并配置高强度 `API_AUTH_TOKEN`。
 
 ### 3) Docker / Compose
 

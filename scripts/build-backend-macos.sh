@@ -22,14 +22,6 @@ if ! command -v "${PYTHON_BIN}" >/dev/null 2>&1; then
   exit 1
 fi
 
-log "Building React UI (static assets)..."
-pushd "${ROOT_DIR}/apps/dsa-web" >/dev/null
-if [[ ! -d node_modules ]]; then
-  npm install
-fi
-npm run build
-popd >/dev/null
-
 log "Building backend executable..."
 if ! "${PYTHON_BIN}" -m PyInstaller --version >/dev/null 2>&1; then
   "${PYTHON_BIN}" -m pip install pyinstaller
@@ -84,7 +76,7 @@ for module in "${hidden_imports[@]}"; do
 done
 
 pushd "${ROOT_DIR}" >/dev/null
-cmd=("${PYTHON_BIN}" -m PyInstaller --name stock_analysis --onedir --noconsole --add-data "static:static")
+cmd=("${PYTHON_BIN}" -m PyInstaller --name stock_analysis --onedir --noconsole)
 cmd+=("${hidden_import_args[@]}" "main.py")
 
 echo "Running: ${cmd[*]}"

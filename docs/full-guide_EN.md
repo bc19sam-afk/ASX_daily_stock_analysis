@@ -17,7 +17,6 @@ daily_stock_analysis/
 ├── data_provider/       # Multi-source data adapters
 ├── bot/                 # Bot interaction module
 ├── api/                 # FastAPI backend service
-├── apps/dsa-web/        # React frontend
 ├── docker/              # Docker configuration
 ├── docs/                # Project documentation
 └── .github/workflows/   # GitHub Actions
@@ -35,7 +34,7 @@ daily_stock_analysis/
 - [Data Source Configuration](#data-source-configuration)
 - [Advanced Features](#advanced-features)
 - [Backtesting](#backtesting)
-- [Local WebUI Management Interface](#local-webui-management-interface)
+- [FastAPI API Service](#fastapi-api-service)
 
 ---
 

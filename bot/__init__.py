@@ -16,7 +16,7 @@
 
 使用方式：
 1. 配置环境变量（各平台的 Token 等）
-2. 启动 WebUI 服务
+2. 启动 API 服务
 3. 在各平台配置 Webhook URL：
    - 飞书: http://your-server/bot/feishu
    - 钉钉: http://your-server/bot/dingtalk

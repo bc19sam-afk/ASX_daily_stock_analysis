@@ -38,7 +38,7 @@ class SystemConfigCategorySchema(BaseModel):
 
 
 class SystemConfigSchemaResponse(BaseModel):
-    """Metadata response for dynamic frontend rendering."""
+    """Metadata response for dynamic API clients."""
 
     schema_version: str
     categories: List[SystemConfigCategorySchema]

@@ -2,7 +2,7 @@
 
 [中文](README.zh-CN.md) | English
 
-Daily Stock Analysis is a Python-based stock analysis and reporting system for manual decision support. It combines multi-source market data, LLM-generated analysis, rule-based position management, optional market review, notification delivery, and a FastAPI + React web console, with both local execution and GitHub Actions workflows supported.
+Daily Stock Analysis is a Python-based stock analysis and reporting system for manual decision support. It combines multi-source market data, LLM-generated analysis, rule-based position management, optional market review, notification delivery, and a FastAPI API service, with both local execution and GitHub Actions workflows supported.
 
 The current product positioning and default runtime assumptions are centered on ASX-first workflows, with AU/US symbols supported in the same reporting flow. The default examples in this document stay ASX-only because runtime defaults still assume `MARKET_CALENDAR=ASX` and `MARKET_TIMEZONE=Australia/Sydney`. Some source comments and legacy integrations still reflect the repository's earlier A-share history, but user-facing setup guidance in this document is written for the current ASX/AU/US usage model.
 
@@ -27,7 +27,6 @@ The current `main` branch is organized into these modules:
 
 - **Interfaces**
   - `api/`: FastAPI app and `/api/v1/*` endpoints (analysis, history, stocks, backtest, system config).
-  - `apps/dsa-web/`: React + Vite frontend.
   - `bot/`: bot platform integrations (e.g., Discord, Feishu Stream, DingTalk Stream).
 
 - **Workflow automation**
@@ -50,7 +49,7 @@ cp .env.example .env
 python main.py
 ```
 
-### 2) Run API server / web console backend
+### 2) Run API server
 
 ```bash
 # API only
@@ -60,16 +59,7 @@ python main.py --serve-only --host 0.0.0.0 --port 8000
 python main.py --serve
 ```
 
-Optional API Bearer authentication is supported for protected web console configuration endpoints. Local development remains compatible with `API_AUTH_ENABLED=false`; for production or public network access, set `API_AUTH_ENABLED=true` and configure a strong `API_AUTH_TOKEN`.
-
-If frontend assets are not prebuilt, build them first:
-
-```bash
-cd apps/dsa-web
-npm install
-npm run build
-cd ../..
-```
+Optional API Bearer authentication is supported for protected configuration endpoints. Local development remains compatible with `API_AUTH_ENABLED=false`; for production or public network access, set `API_AUTH_ENABLED=true` and configure a strong `API_AUTH_TOKEN`.
 
 ### 3) Docker / Compose
 
