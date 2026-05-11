@@ -1025,11 +1025,12 @@ def _top_risk_lines(
         risk_lines.append(line)
         seen.add(line)
 
-    if _has_evidence_coverage_gap(evidence_summary):
+    coverage_gap_label = _evidence_coverage_gap_label(evidence_summary)
+    if coverage_gap_label:
         line = (
-            "存在公告 / 回测 / 估值覆盖缺口，BLOCK 标的解除前仍只观察。"
+            f"存在{coverage_gap_label}覆盖缺口，BLOCK 标的解除前仍只观察。"
             if blocked_items
-            else "无 validation BLOCK；但仍可能存在公告 / 回测 / 估值覆盖缺口。"
+            else f"无 validation BLOCK；但仍可能存在{coverage_gap_label}覆盖缺口。"
         )
         if line not in seen:
             risk_lines.append(line)
@@ -1062,16 +1063,23 @@ def _significant_risk_sizing_diff_count(comparisons: Dict[str, Dict[str, Any]]) 
 def _has_evidence_coverage_gap(summary: Dict[str, Any]) -> bool:
     if not isinstance(summary, dict):
         return False
-    return any(
+    return bool(_evidence_coverage_gap_label(summary))
+
+
+def _evidence_coverage_gap_label(summary: Dict[str, Any]) -> str:
+    if not isinstance(summary, dict):
+        return ""
+    categories: List[str] = []
+    if any(
         int(summary.get(key, 0) or 0) > 0
-        for key in (
-            "announcement_not_checked",
-            "announcement_unavailable",
-            "announcement_risk_found",
-            "backtest_not_checked",
-            "valuation_missing",
-        )
-    )
+        for key in ("announcement_not_checked", "announcement_unavailable", "announcement_risk_found")
+    ):
+        categories.append("公告")
+    if int(summary.get("backtest_not_checked", 0) or 0) > 0:
+        categories.append("回测")
+    if int(summary.get("valuation_missing", 0) or 0) > 0:
+        categories.append("估值")
+    return " / ".join(categories)
 
 
 def _execution_checklist_inline(checklist: List[str]) -> str:

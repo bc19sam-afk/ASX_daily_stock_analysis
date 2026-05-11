@@ -33,16 +33,18 @@ def build_evidence_matrix(
         if not code:
             continue
         holding = holdings_by_code.get(code)
-        matrix[code] = [
+        entries = [
             _market_data_evidence(result, classify_price_basis),
             _technical_evidence(result),
             _valuation_evidence(result),
             _news_evidence(result),
-            _announcement_evidence(code, announcement_checks.get(code)),
             _backtest_evidence(result),
             _portfolio_evidence(result, holding),
             _validation_evidence(result, format_validation_issue_text),
         ]
+        if code in announcement_checks:
+            entries.insert(4, _announcement_evidence(code, announcement_checks.get(code)))
+        matrix[code] = entries
 
     return matrix
 
@@ -93,21 +95,28 @@ def render_evidence_summary_lines(summary: Dict[str, Any]) -> List[str]:
     if not summary:
         return []
     stock_count = int(summary.get("stock_count") or 0)
-    return [
+    lines = [
         "## 证据质量摘要",
         "",
         f"- {summary.get('market_data_available', 0)}/{stock_count} 只股票行情数据完整。",
         f"- {summary.get('news_missing', 0)}/{stock_count} 只股票新闻证据缺失或未检查。",
         f"- {summary.get('valuation_missing', 0)}/{stock_count} 只股票估值 / 基本面证据缺失。",
-        (
+    ]
+    if any(
+        int(summary.get(key, 0) or 0) > 0
+        for key in ("announcement_not_checked", "announcement_unavailable", "announcement_risk_found")
+    ):
+        lines.append(
             f"- ASX 官方公告：未检查 {summary.get('announcement_not_checked', 0)}/{stock_count}，"
             f"源不可用 {summary.get('announcement_unavailable', 0)}/{stock_count}，"
             f"风险 {summary.get('announcement_risk_found', 0)}/{stock_count}。"
-        ),
+        )
+    lines.extend([
         f"- {summary.get('backtest_not_checked', 0)}/{stock_count} 只股票回测证据未检查。",
         f"- {summary.get('validation_block', 0)} 只股票触发 validation block。",
         "",
-    ]
+    ])
+    return lines
 
 
 def render_evidence_matrix_lines(matrix: Dict[str, List[Dict[str, Any]]]) -> List[str]:
