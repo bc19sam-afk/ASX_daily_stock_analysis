@@ -80,7 +80,6 @@ docs: 更新 README 部署说明
 |--------|------|:--------:|
 | backend-gate | `scripts/ci_gate.sh`（py_compile + flake8 严重错误 + 本地核心脚本 + offline pytest） | ✅ |
 | docker-build | Docker 镜像构建与关键模块导入 smoke | ✅ |
-| web-gate | 前端变更时执行 `npm run lint` + `npm run build` | ✅（触发时） |
 | network-smoke | 定时/手动执行 `pytest -m network` + `test.sh quick`（非阻断） | ❌（观测项） |
 
 当前 CI 后端准绳为 Python 3.11。更高版本本地运行时（例如 Python 3.14）出现的第三方依赖弃用警告，只有在导致测试失败、构建失败或报告生成失败时才视为阻断；不要为了消除非阻断 warning 直接改依赖版本或 lockfile。
@@ -97,11 +96,6 @@ pip install -r requirements.txt
 pip install flake8 pytest
 ./scripts/ci_gate.sh
 
-# 前端 gate（如修改了 apps/dsa-web）
-cd apps/dsa-web
-npm ci
-npm run lint
-npm run build
 ```
 
 ## 📋 优先贡献方向
