@@ -13,7 +13,7 @@ def _build_message() -> BotMessage:
         user_name="tester",
         chat_id="c1",
         chat_type=ChatType.GROUP,
-        content="/analyze 600519",
+        content="/analyze BHP.AX",
     )
 
 
@@ -31,9 +31,9 @@ def test_analyze_command_uses_task_service_with_source_message(monkeypatch):
 
     monkeypatch.setattr("src.services.task_service.get_task_service", lambda: DummyService())
 
-    response = command.execute(message, ["600519", "full"])
+    response = command.execute(message, ["BHP.AX", "full"])
 
-    assert captured["code"] == "600519"
+    assert captured["code"] == "bhp.ax"
     assert captured["report_type"] == ReportType.FULL
     assert captured["source_message"] is message
     assert response.markdown is True

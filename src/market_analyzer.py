@@ -5,7 +5,7 @@
 ===================================
 
 职责：
-1. 获取大盘指数数据（上证、深证、创业板）
+1. 获取 ASX 及全球宏观指数数据
 2. 搜索市场新闻形成复盘情报
 3. 使用大模型生成每日大盘复盘报告
 """
@@ -138,7 +138,7 @@ class MarketAnalyzer:
         # 1. 获取主要指数行情
         overview.indices = self._get_main_indices()
         
-        # 澳股暂不支持直接获取全市场涨跌统计和板块榜，直接跳过 A 股的接口
+        # 澳股暂不支持直接获取全市场涨跌统计和板块榜，直接跳过不可用接口
         # self._get_market_statistics(overview)
         # self._get_sector_rankings(overview)
         

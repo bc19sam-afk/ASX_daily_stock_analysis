@@ -487,7 +487,7 @@ class BacktestServiceTestCase(unittest.TestCase):
     def test_ai_sniper_text_is_not_saved_as_backtest_parameters(self) -> None:
         result = AnalysisResult(
             code="300003",
-            name="东方财富",
+            name="Sample Holdings",
             sentiment_score=70,
             trend_prediction="看多",
             operation_advice="持有",

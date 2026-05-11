@@ -101,7 +101,7 @@ class SearchAsxLocalisationTestCase(unittest.TestCase):
         self.assertEqual(captured["hl"], "en")
         self.assertEqual(captured["gl"], "au")
 
-    def test_serpapi_non_asx_parameters_are_unchanged(self) -> None:
+    def test_serpapi_non_asx_parameters_use_non_cn_defaults(self) -> None:
         captured = {}
 
         class FakeGoogleSearch:
@@ -115,11 +115,11 @@ class SearchAsxLocalisationTestCase(unittest.TestCase):
             response = SerpAPISearchProvider(["fake-key"]).search("Apple Inc AAPL latest news", max_results=3, days=1)
 
         self.assertTrue(response.success)
-        self.assertEqual(captured["google_domain"], "google.com.hk")
-        self.assertEqual(captured["hl"], "zh-cn")
-        self.assertEqual(captured["gl"], "cn")
+        self.assertEqual(captured["google_domain"], "google.com")
+        self.assertEqual(captured["hl"], "en")
+        self.assertEqual(captured["gl"], "us")
 
-    def test_serpapi_non_asx_query_with_australia_keeps_existing_parameters(self) -> None:
+    def test_serpapi_non_asx_query_with_australia_uses_non_cn_defaults(self) -> None:
         captured = {}
 
         class FakeGoogleSearch:
@@ -137,9 +137,9 @@ class SearchAsxLocalisationTestCase(unittest.TestCase):
             )
 
         self.assertTrue(response.success)
-        self.assertEqual(captured["google_domain"], "google.com.hk")
-        self.assertEqual(captured["hl"], "zh-cn")
-        self.assertEqual(captured["gl"], "cn")
+        self.assertEqual(captured["google_domain"], "google.com")
+        self.assertEqual(captured["hl"], "en")
+        self.assertEqual(captured["gl"], "us")
 
     def test_brave_uses_australia_english_parameters_for_asx_query(self) -> None:
         captured = {}

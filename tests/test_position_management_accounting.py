@@ -865,7 +865,6 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         pipeline.config = SimpleNamespace(analysis_read_only=True, save_context_snapshot=False)
         pipeline.fetcher_manager = SimpleNamespace(
             get_realtime_quote=lambda code: None,
-            get_chip_distribution=lambda code: None,
         )
         pipeline.trend_analyzer = MagicMock()
         pipeline.search_service = SimpleNamespace(is_available=False)
@@ -895,7 +894,6 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         pipeline.config = SimpleNamespace(analysis_read_only=False, save_context_snapshot=False)
         pipeline.fetcher_manager = SimpleNamespace(
             get_realtime_quote=lambda code: SimpleNamespace(name=f"股票{code}", price=100.0, change_pct=1.2),
-            get_chip_distribution=lambda code: None,
         )
         pipeline.trend_analyzer = MagicMock()
         pipeline.search_service = SimpleNamespace(is_available=False)

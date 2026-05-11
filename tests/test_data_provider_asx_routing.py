@@ -49,44 +49,38 @@ class DummyRealtimeFetcher(DummyFetcher):
         return self.quote
 
 
+def _runtime_config(enable_realtime_quote: bool = True):
+    return SimpleNamespace(
+        enable_realtime_quote=enable_realtime_quote,
+        realtime_source_priority="yfinance",
+        market_calendar="ASX",
+        stock_list=["BHP.AX", "CBA.AX"],
+    )
+
+
 def test_asx_stock_routes_to_yfinance_only():
-    cn_fetcher = DummyFetcher("TushareFetcher", priority=1)
+    other_fetcher = DummyFetcher("OtherFetcher", priority=1)
     yf_fetcher = DummyFetcher("YfinanceFetcher", priority=2)
-    manager = DataFetcherManager(fetchers=[cn_fetcher, yf_fetcher])
+    manager = DataFetcherManager(fetchers=[other_fetcher, yf_fetcher])
 
     df, source = manager.get_daily_data("CBA.AX", days=5)
 
     assert not df.empty
     assert source == "YfinanceFetcher"
-    assert cn_fetcher.calls == 0
+    assert other_fetcher.calls == 0
     assert yf_fetcher.calls == 1
 
 
 def test_us_stock_routes_to_yfinance_only():
-    cn_fetcher = DummyFetcher("AkshareFetcher", priority=1)
+    other_fetcher = DummyFetcher("OtherFetcher", priority=1)
     yf_fetcher = DummyFetcher("YfinanceFetcher", priority=2)
-    manager = DataFetcherManager(fetchers=[cn_fetcher, yf_fetcher])
+    manager = DataFetcherManager(fetchers=[other_fetcher, yf_fetcher])
 
     _, source = manager.get_daily_data("AAPL", days=5)
 
     assert source == "YfinanceFetcher"
-    assert cn_fetcher.calls == 0
+    assert other_fetcher.calls == 0
     assert yf_fetcher.calls == 1
-
-
-def test_a_share_uses_non_yfinance_by_priority():
-    cn_fetcher = DummyFetcher("TushareFetcher", priority=1)
-    yf_fetcher = DummyFetcher("YfinanceFetcher", priority=2)
-    manager = DataFetcherManager(
-        fetchers=[cn_fetcher, yf_fetcher],
-        config=SimpleNamespace(market_calendar="CN"),
-    )
-
-    _, source = manager.get_daily_data("600519", days=5)
-
-    assert source == "TushareFetcher"
-    assert cn_fetcher.calls == 1
-    assert yf_fetcher.calls == 0
 
 
 def test_bare_configured_asx_ticker_is_normalized_to_ax_before_fetch():
@@ -102,23 +96,23 @@ def test_bare_configured_asx_ticker_is_normalized_to_ax_before_fetch():
     assert yf_fetcher.last_stock_code == "BHP.AX"
 
 
-def test_asx_default_rejects_numeric_ticker_without_explicit_cn_mode():
-    cn_fetcher = DummyFetcher("TushareFetcher", priority=1)
+def test_asx_default_rejects_numeric_ticker_before_fetch():
+    other_fetcher = DummyFetcher("OtherFetcher", priority=1)
     yf_fetcher = DummyFetcher("YfinanceFetcher", priority=2)
     manager = DataFetcherManager(
-        fetchers=[cn_fetcher, yf_fetcher],
+        fetchers=[other_fetcher, yf_fetcher],
         config=SimpleNamespace(market_calendar="ASX", stock_list=["BHP.AX"]),
     )
 
     with pytest.raises(DataFetchError, match="ASX-first"):
         manager.get_daily_data("600519", days=5)
 
-    assert cn_fetcher.calls == 0
+    assert other_fetcher.calls == 0
     assert yf_fetcher.calls == 0
 
 
 def test_yfinance_asx_first_conversion_preserves_ax_and_rejects_numeric_default():
-    fetcher = YfinanceFetcher()
+    fetcher = YfinanceFetcher(market_calendar="ASX", stock_list=["BHP.AX"])
 
     assert fetcher._convert_stock_code("BHP.AX") == "BHP.AX"
     assert fetcher._convert_stock_code("BHP") == "BHP.AX"
@@ -126,11 +120,11 @@ def test_yfinance_asx_first_conversion_preserves_ax_and_rejects_numeric_default(
         fetcher._convert_stock_code("600519")
 
 
-def test_yfinance_explicit_cn_mode_preserves_legacy_numeric_conversion():
-    fetcher = YfinanceFetcher(market_calendar="CN")
+def test_yfinance_numeric_legacy_conversion_is_removed():
+    fetcher = YfinanceFetcher(market_calendar="NYSE", stock_list=[])
 
-    assert fetcher._convert_stock_code("600519") == "600519.SS"
-    assert fetcher._convert_stock_code("000001") == "000001.SZ"
+    with pytest.raises(DataFetchError, match="numeric legacy ticker"):
+        fetcher._convert_stock_code("600519")
 
 
 def test_market_symbol_classifier():
@@ -141,7 +135,7 @@ def test_market_symbol_classifier():
     assert DataFetcherManager._is_au_us_symbol("HK00700") is False
 
 
-def test_realtime_asx_routes_to_yfinance_first():
+def test_realtime_asx_routes_to_yfinance():
     yf_quote = UnifiedRealtimeQuote(
         code="CBA.AX",
         name="CBA",
@@ -151,15 +145,15 @@ def test_realtime_asx_routes_to_yfinance_first():
         turnover_rate=2.1,
     )
     yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=yf_quote)
-    cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=None)
-    manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
+    other_fetcher = DummyRealtimeFetcher("OtherFetcher", priority=2, quote=None)
+    manager = DataFetcherManager(fetchers=[yf_fetcher, other_fetcher])
 
-    with patch("src.config.get_config", return_value=SimpleNamespace(enable_realtime_quote=True, realtime_source_priority="efinance")):
+    with patch("src.config.get_config", return_value=_runtime_config()):
         quote = manager.get_realtime_quote("CBA.AX")
 
     assert quote is yf_quote
     assert yf_fetcher.realtime_calls == 1
-    assert cn_fetcher.realtime_calls == 0
+    assert other_fetcher.realtime_calls == 0
 
 
 def test_realtime_us_routing_behavior_preserved():
@@ -172,15 +166,15 @@ def test_realtime_us_routing_behavior_preserved():
         turnover_rate=0.9,
     )
     yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=yf_quote)
-    cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=None)
-    manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
+    other_fetcher = DummyRealtimeFetcher("OtherFetcher", priority=2, quote=None)
+    manager = DataFetcherManager(fetchers=[yf_fetcher, other_fetcher])
 
-    with patch("src.config.get_config", return_value=SimpleNamespace(enable_realtime_quote=True, realtime_source_priority="efinance")):
+    with patch("src.config.get_config", return_value=_runtime_config()):
         quote = manager.get_realtime_quote("AAPL")
 
     assert quote is yf_quote
     assert yf_fetcher.realtime_calls == 1
-    assert cn_fetcher.realtime_calls == 0
+    assert other_fetcher.realtime_calls == 0
 
 
 def test_realtime_dotted_us_symbol_routes_to_yfinance():
@@ -193,58 +187,37 @@ def test_realtime_dotted_us_symbol_routes_to_yfinance():
         turnover_rate=0.8,
     )
     yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=yf_quote)
-    cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=None)
-    manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
+    other_fetcher = DummyRealtimeFetcher("OtherFetcher", priority=2, quote=None)
+    manager = DataFetcherManager(fetchers=[yf_fetcher, other_fetcher])
 
-    with patch("src.config.get_config", return_value=SimpleNamespace(enable_realtime_quote=True, realtime_source_priority="efinance")):
+    with patch("src.config.get_config", return_value=_runtime_config()):
         quote = manager.get_realtime_quote("BRK.B")
 
     assert quote is yf_quote
     assert yf_fetcher.realtime_calls == 1
-    assert cn_fetcher.realtime_calls == 0
+    assert other_fetcher.realtime_calls == 0
 
 
-def test_realtime_yfinance_none_then_fallback_source():
+def test_realtime_yfinance_none_does_not_fall_back_to_other_fetcher():
     yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=None)
     fallback_quote = UnifiedRealtimeQuote(code="BRK.B", name="FallbackQuote", price=498.0)
-    cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=fallback_quote)
-    manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
+    other_fetcher = DummyRealtimeFetcher("OtherFetcher", priority=2, quote=fallback_quote)
+    manager = DataFetcherManager(fetchers=[yf_fetcher, other_fetcher])
 
-    with patch("src.config.get_config", return_value=SimpleNamespace(enable_realtime_quote=True, realtime_source_priority="efinance")):
+    with patch("src.config.get_config", return_value=_runtime_config()):
         quote = manager.get_realtime_quote("BRK.B")
 
-    assert quote is fallback_quote
+    assert quote is None
     assert yf_fetcher.realtime_calls == 1
-    assert cn_fetcher.realtime_calls == 1
+    assert other_fetcher.realtime_calls == 0
 
 
-def test_realtime_yfinance_partial_quote_gets_supplemented_by_later_source():
-    yf_quote = UnifiedRealtimeQuote(
-        code="CBA.AX",
-        name="CBA",
-        price=123.45,
-        source=RealtimeSource.YFINANCE,
-        volume_ratio=None,
-        turnover_rate=None,
-    )
-    supplemental_quote = UnifiedRealtimeQuote(
-        code="CBA.AX",
-        name="CBA",
-        price=123.40,
-        source=RealtimeSource.EFINANCE,
-        volume_ratio=1.8,
-        turnover_rate=3.2,
-    )
-    yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1, quote=yf_quote)
-    cn_fetcher = DummyRealtimeFetcher("EfinanceFetcher", priority=2, quote=supplemental_quote)
-    manager = DataFetcherManager(fetchers=[yf_fetcher, cn_fetcher])
+def test_realtime_disabled_returns_none_without_fetcher_calls():
+    yf_fetcher = DummyRealtimeFetcher("YfinanceFetcher", priority=1)
+    manager = DataFetcherManager(fetchers=[yf_fetcher])
 
-    with patch("src.config.get_config", return_value=SimpleNamespace(enable_realtime_quote=True, realtime_source_priority="efinance")):
-        quote = manager.get_realtime_quote("CBA.AX")
+    with patch("src.config.get_config", return_value=_runtime_config(enable_realtime_quote=False)):
+        quote = manager.get_realtime_quote("BHP.AX")
 
-    assert quote is yf_quote
-    assert quote.source == RealtimeSource.YFINANCE
-    assert quote.volume_ratio == 1.8
-    assert quote.turnover_rate == 3.2
-    assert yf_fetcher.realtime_calls == 1
-    assert cn_fetcher.realtime_calls == 1
+    assert quote is None
+    assert yf_fetcher.realtime_calls == 0

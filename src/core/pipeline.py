@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 核心分析流水线
+ASX-first 自选股智能分析系统 - 核心分析流水线
 ===================================
 
 职责：
@@ -24,7 +24,6 @@ from zoneinfo import ZoneInfo
 from src.config import get_config, Config
 from src.storage import get_db
 from data_provider import DataFetcherManager
-from data_provider.realtime_types import ChipDistribution
 from src.analyzer import GeminiAnalyzer, AnalysisResult, STOCK_NAME_MAP
 from src.notification import NotificationService, NotificationChannel
 from src.search_service import SearchService
@@ -109,7 +108,7 @@ class StockAnalysisPipeline:
         # 初始化各模块
         self.db = get_db()
         self.fetcher_manager = DataFetcherManager(config=self.config)
-        # 不再单独创建 akshare_fetcher，统一使用 fetcher_manager 获取增强数据
+        # 统一使用 fetcher_manager 获取增强数据
         self.trend_analyzer = StockTrendAnalyzer()  # 趋势分析器
         self.analyzer = GeminiAnalyzer()
         self.notifier = NotificationService(source_message=source_message)
@@ -126,15 +125,11 @@ class StockAnalysisPipeline:
         
         logger.info(f"调度器初始化完成，最大并发数: {self.max_workers}")
         logger.info("已启用趋势分析器 (MA5>MA10>MA20 多头判断)")
-        # 打印实时行情/筹码配置状态
+        # 打印实时行情配置状态
         if self.config.enable_realtime_quote:
             logger.info(f"实时行情已启用 (优先级: {self.config.realtime_source_priority})")
         else:
             logger.info("实时行情已禁用，将使用历史收盘价")
-        if self.config.enable_chip_distribution:
-            logger.info("筹码分布分析已启用")
-        else:
-            logger.info("筹码分布分析已禁用")
         if self.search_service.is_available:
             logger.info("搜索服务已启用 (Tavily/SerpAPI)")
         else:
@@ -191,15 +186,14 @@ class StockAnalysisPipeline:
     
     def analyze_stock(self, code: str, report_type: ReportType, query_id: str, df_attrs: Optional[dict] = None, market_overview: Optional[dict] = None) -> Optional[AnalysisResult]:
         """
-        分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
+        分析单只股票（增强版：含量比、换手率、多维度情报）
         
         流程：
         1. 获取实时行情（量比、换手率）- 通过 DataFetcherManager 自动故障切换
-        2. 获取筹码分布 - 通过 DataFetcherManager 带熔断保护
-        3. 进行趋势分析（基于交易理念）
-        4. 多维度情报搜索（最新消息+风险排查+业绩预期）
-        5. 从数据库获取分析上下文
-        6. 调用 AI 进行综合分析
+        2. 进行趋势分析（基于交易理念）
+        3. 多维度情报搜索（最新消息+风险排查+业绩预期）
+        4. 从数据库获取分析上下文
+        5. 调用 AI 进行综合分析
         
         Args:
             query_id: 查询链路关联 id
@@ -239,18 +233,8 @@ class StockAnalysisPipeline:
             if not stock_name:
                 stock_name = f'股票{code}'
             
-            # Step 2: 获取筹码分布 - 使用统一入口，带熔断保护
             chip_data = None
-            try:
-                chip_data = self.fetcher_manager.get_chip_distribution(code)
-                if chip_data:
-                    logger.info(f"[{code}] 筹码分布: 获利比例={chip_data.profit_ratio:.1%}, "
-                              f"90%集中度={chip_data.concentration_90:.2%}")
-                else:
-                    logger.debug(f"[{code}] 筹码分布获取失败或已禁用")
-            except Exception as e:
-                logger.warning(f"[{code}] 获取筹码分布失败: {e}")
-            
+
             # Step 3: 趋势分析（基于交易理念）
             trend_result: Optional[TrendAnalysisResult] = None
             try:
@@ -1184,7 +1168,7 @@ class StockAnalysisPipeline:
         self,
         context: Dict[str, Any],
         realtime_quote,
-        chip_data: Optional[ChipDistribution],
+        chip_data: Optional[Any],
         trend_result: Optional[TrendAnalysisResult],
         stock_name: str = ""
     ) -> Dict[str, Any]:
@@ -1289,7 +1273,7 @@ class StockAnalysisPipeline:
         enhanced_context: Dict[str, Any],
         news_content: Optional[str],
         realtime_quote: Any,
-        chip_data: Optional[ChipDistribution]
+        chip_data: Optional[Any]
     ) -> Dict[str, Any]:
         """
         构建分析上下文快照

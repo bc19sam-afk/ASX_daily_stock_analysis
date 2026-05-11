@@ -108,7 +108,7 @@ class DingtalkPlatform(BotPlatform):
         {
             "msgtype": "text",
             "text": {
-                "content": "@机器人 /analyze 600519"
+                "content": "@机器人 /analyze BHP.AX"
             },
             "msgId": "xxx",
             "createAt": "1234567890",

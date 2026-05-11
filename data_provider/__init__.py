@@ -8,9 +8,6 @@
 1. 统一的数据获取接口
 2. 默认 YFinance 数据获取
 3. ASX-first 路由与数据源管理
-
-CN legacy provider 文件仍保留在仓库中，可通过显式模块路径导入；
-但不会再随 `import data_provider` 或 `from data_provider import ...` 默认加载。
 """
 
 from .base import BaseFetcher, DataFetcherManager
