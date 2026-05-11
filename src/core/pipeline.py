@@ -233,8 +233,6 @@ class StockAnalysisPipeline:
             if not stock_name:
                 stock_name = f'股票{code}'
             
-            chip_data = None
-
             # Step 3: 趋势分析（基于交易理念）
             trend_result: Optional[TrendAnalysisResult] = None
             try:
@@ -395,11 +393,10 @@ class StockAnalysisPipeline:
                 logger.debug(f"[{code}] 信号连续性查询失败（已跳过）: {e}")
                 context['signal_streak'] = None
 
-            # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
+            # Step 6: 增强上下文数据（添加实时行情、趋势分析结果、股票名称）
             enhanced_context = self._enhance_context(
                 context, 
                 realtime_quote, 
-                chip_data, 
                 trend_result,
                 stock_name  # 传入股票名称
             )
@@ -440,8 +437,7 @@ class StockAnalysisPipeline:
                     context_snapshot = self._build_context_snapshot(
                         enhanced_context=enhanced_context,
                         news_content=news_context,
-                        realtime_quote=realtime_quote,
-                        chip_data=chip_data
+                        realtime_quote=realtime_quote
                     )
                     self.db.save_analysis_history(
                         result=result,
@@ -1168,19 +1164,17 @@ class StockAnalysisPipeline:
         self,
         context: Dict[str, Any],
         realtime_quote,
-        chip_data: Optional[Any],
         trend_result: Optional[TrendAnalysisResult],
         stock_name: str = ""
     ) -> Dict[str, Any]:
         """
         增强分析上下文
         
-        将实时行情、筹码分布、趋势分析结果、股票名称添加到上下文中
+        将实时行情、趋势分析结果、股票名称添加到上下文中
         
         Args:
             context: 原始上下文
             realtime_quote: 实时行情数据（UnifiedRealtimeQuote 或 None）
-            chip_data: 筹码分布数据
             trend_result: 趋势分析结果
             stock_name: 股票名称
             
@@ -1215,17 +1209,6 @@ class StockAnalysisPipeline:
             }
             # 移除 None 值以减少上下文大小
             enhanced['realtime'] = {k: v for k, v in enhanced['realtime'].items() if v is not None}
-        
-        # 添加筹码分布
-        if chip_data:
-            current_price = getattr(realtime_quote, 'price', 0) if realtime_quote else 0
-            enhanced['chip'] = {
-                'profit_ratio': chip_data.profit_ratio,
-                'avg_cost': chip_data.avg_cost,
-                'concentration_90': chip_data.concentration_90,
-                'concentration_70': chip_data.concentration_70,
-                'chip_status': chip_data.get_chip_status(current_price or 0),
-            }
         
         # 添加趋势分析结果
         if trend_result:
@@ -1272,8 +1255,7 @@ class StockAnalysisPipeline:
         self,
         enhanced_context: Dict[str, Any],
         news_content: Optional[str],
-        realtime_quote: Any,
-        chip_data: Optional[Any]
+        realtime_quote: Any
     ) -> Dict[str, Any]:
         """
         构建分析上下文快照
@@ -1282,7 +1264,6 @@ class StockAnalysisPipeline:
             "enhanced_context": enhanced_context,
             "news_content": news_content,
             "realtime_quote_raw": self._safe_to_dict(realtime_quote),
-            "chip_distribution_raw": self._safe_to_dict(chip_data),
         }
 
     @staticmethod

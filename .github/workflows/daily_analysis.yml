@@ -193,8 +193,6 @@ jobs:
           # ==========================================
           LOG_LEVEL: INFO
           MAX_WORKERS: ${{ vars.MAX_WORKERS || secrets.MAX_WORKERS || '1' }}
-          # GitHub Actions 环境建议关闭不稳定的数据源
-          ENABLE_CHIP_DISTRIBUTION: 'false'
           # ASX/AU/US 默认实时行情数据源
           REALTIME_SOURCE_PRIORITY: ${{ vars.REALTIME_SOURCE_PRIORITY || 'yfinance' }}
           

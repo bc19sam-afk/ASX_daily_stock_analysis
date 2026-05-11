@@ -110,12 +110,6 @@ def test_parse_response_rejects_non_numeric_backtest_levels_and_dashboard_text()
                     "turnover_rate": 1.0,
                     "volume_meaning": "N/A",
                 },
-                "chip_structure": {
-                    "profit_ratio": 50,
-                    "avg_cost": 100.0,
-                    "concentration": 50,
-                    "chip_health": "一般",
-                },
             },
             "intelligence": {
                 "latest_news": "N/A",
