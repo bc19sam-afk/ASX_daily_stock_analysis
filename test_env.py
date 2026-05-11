@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 环境验证测试
+ASX-first 自选股智能分析系统 - 环境验证测试
 ===================================
 
 用于验证 .env 配置是否正确，包括：
@@ -64,10 +64,6 @@ def check_config():
     print(f"  调试模式: {config.debug}")
     
     print_section("API 配置")
-    print(f"  Tushare Token: {'已配置 ✓' if config.tushare_token else '未配置 ✗'}")
-    if config.tushare_token:
-        print(f"    Token 前8位: {config.tushare_token[:8]}...")
-    
     print(f"  Gemini API Key: {'已配置 ✓' if config.gemini_api_key else '未配置 ✗'}")
     if config.gemini_api_key:
         print(f"    Key 前8位: {config.gemini_api_key[:8]}...")
@@ -168,7 +164,7 @@ def view_database():
     return True
 
 
-def check_data_fetch(stock_code: str = "600519"):
+def check_data_fetch(stock_code: str = "BHP.AX"):
     """测试数据获取"""
     print_header("3. 数据获取测试")
     
@@ -241,7 +237,7 @@ def check_llm():
     
     # 构造测试上下文
     test_context = {
-        'code': '600519',
+        'code': 'BHP.AX',
         'date': date.today().isoformat(),
         'today': {
             'open': 1420.0,
@@ -262,7 +258,7 @@ def check_llm():
     }
     
     print_section("发送测试请求")
-    print(f"  测试股票: 贵州茅台 (600519)")
+    print(f"  测试股票: BHP (BHP.AX)")
     print(f"  正在调用 Gemini API（超时: 60秒）...")
     
     start_time = time.time()
@@ -329,7 +325,7 @@ def check_notification():
     
     test_message = f"""## 🧪 系统测试消息
 
-这是一条来自 **A股自选股智能分析系统** 的测试消息。
+这是一条来自 **ASX-first 自选股智能分析系统** 的测试消息。
 
 - 测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 - 测试目的: 验证企业微信 Webhook 配置
@@ -356,7 +352,7 @@ def check_notification():
 def run_all_tests():
     """运行所有测试"""
     print("\n" + "🚀" * 20)
-    print("  A股自选股智能分析系统 - 环境验证")
+    print("  ASX-first 自选股智能分析系统 - 环境验证")
     print("  " + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     print("🚀" * 20)
     
@@ -429,7 +425,7 @@ def query_stock_data(stock_code: str, days: int = 10):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='A股自选股智能分析系统 - 环境验证测试',
+        description='ASX-first 自选股智能分析系统 - 环境验证测试',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     
@@ -438,7 +434,7 @@ def main():
     parser.add_argument('--fetch', action='store_true', help='测试数据获取')
     parser.add_argument('--notify', action='store_true', help='测试通知推送')
     parser.add_argument('--config', action='store_true', help='查看配置')
-    parser.add_argument('--stock', type=str, help='查询指定股票数据，如 --stock 600519')
+    parser.add_argument('--stock', type=str, help='查询指定股票数据，如 --stock BHP.AX')
     parser.add_argument('--all', action='store_true', help='运行所有测试（包括 LLM）')
     
     args = parser.parse_args()

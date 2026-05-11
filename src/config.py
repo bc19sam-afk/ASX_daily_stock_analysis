@@ -88,9 +88,6 @@ class Config:
     feishu_app_secret: Optional[str] = None
     feishu_folder_token: Optional[str] = None  # 目标文件夹 Token
 
-    # === 数据源 API Token ===
-    tushare_token: Optional[str] = None
-    
     # === AI 分析配置 ===
     gemini_api_key: Optional[str] = None
     gemini_api_keys: List[str] = field(default_factory=list)
@@ -252,8 +249,6 @@ class Config:
     atr_stop_multiplier: float = 1.5
     max_daily_turnover_pct: float = 0.20
     risk_sizing_mode: str = "shadow"
-    # 筹码分布开关（该接口不稳定，云端部署建议关闭）
-    enable_chip_distribution: bool = False
     # 实时行情数据源优先级（逗号分隔）
     # AU/US 模式默认使用 yfinance
     realtime_source_priority: str = "yfinance"
@@ -265,14 +260,6 @@ class Config:
     # Discord 机器人状态
     discord_bot_status: str = "ASX 智能分析 | /help"
 
-    # === 流控配置（防封禁关键参数）===
-    # Akshare 请求间隔范围（秒）
-    akshare_sleep_min: float = 2.0
-    akshare_sleep_max: float = 5.0
-    
-    # Tushare 每分钟最大请求数（免费配额）
-    tushare_rate_limit_per_minute: int = 80
-    
     # 重试配置
     max_retries: int = 3
     retry_base_delay: float = 1.0
@@ -355,20 +342,10 @@ class Config:
         setup_env()
 
         # === 智能代理配置 (关键修复) ===
-        # 如果配置了代理，自动设置 NO_PROXY 以排除国内数据源，避免行情获取失败
+        # 如果配置了代理，保留本地回环地址不走代理，避免本地服务调用绕远路。
         http_proxy = os.getenv('HTTP_PROXY') or os.getenv('http_proxy')
         if http_proxy:
-            # 国内金融数据源域名列表
-            domestic_domains = [
-                'eastmoney.com',   # 东方财富 (Efinance/Akshare)
-                'sina.com.cn',     # 新浪财经 (Akshare)
-                '163.com',         # 网易财经 (Akshare)
-                'tushare.pro',     # Tushare
-                'baostock.com',    # Baostock
-                'sse.com.cn',      # 上交所
-                'szse.cn',         # 深交所
-                'csindex.com.cn',  # 中证指数
-                'cninfo.com.cn',   # 巨潮资讯
+            no_proxy_defaults = [
                 'localhost',
                 '127.0.0.1'
             ]
@@ -378,7 +355,7 @@ class Config:
             existing_domains = current_no_proxy.split(',') if current_no_proxy else []
 
             # 合并去重
-            final_domains = list(set(existing_domains + domestic_domains))
+            final_domains = list(set(existing_domains + no_proxy_defaults))
             final_no_proxy = ','.join(filter(None, final_domains))
 
             # 设置环境变量 (requests/urllib3/aiohttp 都会遵守此设置)
@@ -442,7 +419,6 @@ class Config:
             feishu_app_id=os.getenv('FEISHU_APP_ID'),
             feishu_app_secret=os.getenv('FEISHU_APP_SECRET'),
             feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),
-            tushare_token=os.getenv('TUSHARE_TOKEN'),
             gemini_api_key=gemini_api_keys[0] if gemini_api_keys else os.getenv('GEMINI_API_KEY'),
             gemini_api_keys=gemini_api_keys,
             gemini_model=os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview'),
@@ -562,12 +538,6 @@ class Config:
             atr_stop_multiplier=max(0.0, float(os.getenv('ATR_STOP_MULTIPLIER', '1.5'))),
             max_daily_turnover_pct=max(0.0, float(os.getenv('MAX_DAILY_TURNOVER_PCT', '0.20'))),
             risk_sizing_mode=os.getenv('RISK_SIZING_MODE', 'shadow').strip().lower() or 'shadow',
-            enable_chip_distribution=os.getenv('ENABLE_CHIP_DISTRIBUTION', 'false').lower() == 'true',
-            # 实时行情数据源优先级：
-            # - tencent: 腾讯财经，有量比/换手率/PE/PB等，单股查询稳定（推荐）
-            # - akshare_sina: 新浪财经，基本行情稳定，但无量比
-            # - efinance/akshare_em: 东财全量接口，数据最全但容易被封
-            # - tushare: Tushare Pro，需要2000积分，数据全面
             realtime_source_priority=cls._resolve_realtime_source_priority(),
             realtime_cache_ttl=int(os.getenv('REALTIME_CACHE_TTL', '600')),
             circuit_breaker_cooldown=int(os.getenv('CIRCUIT_BREAKER_COOLDOWN', '300'))

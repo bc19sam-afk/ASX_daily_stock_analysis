@@ -6,10 +6,10 @@ YfinanceFetcher - 完整功能修复版
 
 数据来源：Yahoo Finance（通过 yfinance 库）
 特点：国际数据源、可能有延迟或缺失
-定位：当所有国内数据源都失败时的最后保障
+定位：ASX/AU/US 默认行情数据源
 
 关键策略：
-1. 自动将 A 股代码转换为 yfinance 格式（.SS / .SZ）
+1. 支持 ASX watchlist 裸代码自动补 .AX
 2. 处理 Yahoo Finance 的数据格式差异
 3. 失败后指数退避重试
 """
@@ -40,7 +40,7 @@ class YfinanceFetcher(BaseFetcher):
     """
     Yahoo Finance 数据源实现
     
-    优先级：4（最低，作为兜底）
+    优先级：4
     数据来源：Yahoo Finance
     
     关键策略：
@@ -49,9 +49,8 @@ class YfinanceFetcher(BaseFetcher):
     - 失败后指数退避重试
     
     注意事项：
-    - A 股数据可能有延迟
+    - Yahoo Finance 可能存在延迟或缺失
     - 某些股票可能无数据
-    - 数据精度可能与国内源略有差异
     """
     
     name = "YfinanceFetcher"
@@ -95,29 +94,33 @@ class YfinanceFetcher(BaseFetcher):
         转换股票代码为 Yahoo Finance 格式
 
         Yahoo Finance 代码格式：
-        - A股沪市：600519.SS (Shanghai Stock Exchange)
-        - A股深市：000001.SZ (Shenzhen Stock Exchange)
-        - 港股：0700.HK (Hong Kong Stock Exchange)
-        - 澳洲股：BHP.AX (修复支持)
+        - 澳洲股：BHP.AX
         - 美股：AAPL, TSLA, GOOGL (无需后缀)
+        - 港股兼容路径：0700.HK
         """
         import re
 
         code = stock_code.strip().upper()
 
+        if code.endswith(('.SS', '.SZ')):
+            raise DataFetchError(
+                f"CN legacy Yahoo Finance ticker {code} is no longer supported; "
+                "use ASX/AU/US yfinance symbols such as BHP.AX or AAPL."
+            )
+
         # 已经包含后缀的情况
-        if any(suffix in code for suffix in ['.SS', '.SZ', '.HK', '.AX', '.TW']):
+        if any(suffix in code for suffix in ['.HK', '.AX', '.TW']):
             return code
 
-        if self._is_asx_first_mode():
-            if re.fullmatch(r"\d{5,6}", code):
-                raise DataFetchError(
-                    f"ASX-first default mode does not accept numeric legacy ticker {code}; "
-                    "set an explicit non-ASX market mode before using A-share codes."
-                )
-            if re.fullmatch(r"[A-Z]{1,5}", code) and code in self._asx_watchlist_bases():
-                logger.debug(f"转换裸 ASX 代码: {stock_code} -> {code}.AX")
-                return f"{code}.AX"
+        if re.fullmatch(r"\d{5,6}", code):
+            raise DataFetchError(
+                f"ASX-first default mode does not accept numeric legacy ticker {code}; "
+                "use ASX/AU/US yfinance symbols such as BHP.AX or AAPL."
+            )
+
+        if re.fullmatch(r"[A-Z]{1,5}", code) and self._is_asx_first_mode() and code in self._asx_watchlist_bases():
+            logger.debug(f"转换裸 ASX 代码: {stock_code} -> {code}.AX")
+            return f"{code}.AX"
 
         # 港股：hk前缀 -> .HK后缀
         if code.startswith('HK'):
@@ -134,21 +137,9 @@ class YfinanceFetcher(BaseFetcher):
         # 去除可能的 .SH 后缀
         code = code.replace('.SH', '')
 
-        # ETF: Shanghai ETF (51xx, 52xx, 56xx, 58xx) -> .SS; Shenzhen ETF (15xx, 16xx, 18xx) -> .SZ
-        if len(code) == 6:
-            if code.startswith(('51', '52', '56', '58')):
-                return f"{code}.SS"
-            if code.startswith(('15', '16', '18')):
-                return f"{code}.SZ"
-
-        # A股：根据代码前缀判断市场
-        if code.startswith(('600', '601', '603', '688')):
-            return f"{code}.SS"
-        elif code.startswith(('000', '002', '300')):
-            return f"{code}.SZ"
-        else:
-            logger.warning(f"无法确定股票 {code} 的市场，默认使用深市")
-            return f"{code}.SZ"
+        raise DataFetchError(
+            f"Unsupported yfinance ticker {stock_code}; use ASX/AU/US symbols such as BHP.AX or AAPL."
+        )
     
     @retry(
         stop=stop_after_attempt(3),
@@ -262,19 +253,18 @@ class YfinanceFetcher(BaseFetcher):
         """
         import yfinance as yf
 
-        # 映射关系：akshare代码 -> (yfinance代码, 名称)
+        # ASX-first macro index set for callers that use the generic manager.
         yf_mapping = {
-            'sh000001': ('000001.SS', '上证指数'),
-            'sz399001': ('399001.SZ', '深证成指'),
-            'sz399006': ('399006.SZ', '创业板指'),
-            'sh000688': ('000688.SS', '科创50'),
-            'sh000016': ('000016.SS', '上证50'),
-            'sh000300': ('000300.SS', '沪深300'),
+            '^AXJO': ('^AXJO', 'ASX 200'),
+            '^AORD': ('^AORD', 'All Ordinaries'),
+            'VAS.AX': ('VAS.AX', 'Vanguard Australian Shares ETF'),
+            '^GSPC': ('^GSPC', 'S&P 500'),
+            'GC=F': ('GC=F', 'Gold Futures'),
         }
 
         results = []
         try:
-            for ak_code, (yf_code, name) in yf_mapping.items():
+            for code, (yf_code, name) in yf_mapping.items():
                 try:
                     ticker = yf.Ticker(yf_code)
                     # 获取最近5天数据以计算涨跌
@@ -296,7 +286,7 @@ class YfinanceFetcher(BaseFetcher):
                     amplitude = ((high - low) / prev_close * 100) if prev_close else 0
 
                     results.append({
-                        'code': ak_code,
+                        'code': code,
                         'name': name,
                         'current': price,
                         'change': change,

@@ -122,11 +122,11 @@ def test_config_classify_reload_scope_splits_runtime_and_process_start_keys():
 
 def test_config_classify_reload_scope_separates_runtime_and_process_start_keys():
     runtime_refreshable, process_start = Config.classify_reload_scope(
-        ["stock_list", "EXECUTION_PRICE_POLICY", "LOG_LEVEL", "ENABLE_CHIP_DISTRIBUTION"]
+        ["stock_list", "EXECUTION_PRICE_POLICY", "LOG_LEVEL", "SCHEDULE_TIME"]
     )
 
     assert runtime_refreshable == ["STOCK_LIST"]
-    assert process_start == ["ENABLE_CHIP_DISTRIBUTION", "EXECUTION_PRICE_POLICY", "LOG_LEVEL"]
+    assert process_start == ["EXECUTION_PRICE_POLICY", "LOG_LEVEL", "SCHEDULE_TIME"]
 
 
 def test_runtime_execution_price_policy_close_only_ignores_realtime_price():

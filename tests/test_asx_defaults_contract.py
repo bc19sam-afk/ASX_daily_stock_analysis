@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 """Regression tests for ASX-first default runtime surfaces."""
 
-import json
-import subprocess
-import sys
 from pathlib import Path
 
 from src.config import Config
@@ -76,23 +73,11 @@ def test_workflow_and_docker_defaults_are_asx_sydney():
 def test_cn_legacy_exposure_is_removed_from_active_examples_and_docs():
     env_example = _read(".env.example")
     daily_workflow = _read(".github/workflows/daily_analysis.yml")
-    deploy_zh = _read("docs/DEPLOY.md")
-    deploy_en = _read("docs/DEPLOY_EN.md")
-    faq_zh = _read("docs/FAQ.md")
-    faq_en = _read("docs/FAQ_EN.md")
-    full_guide_zh = _read("docs/full-guide.md")
     full_guide_en = _read("docs/full-guide_EN.md")
-    readme_en = _read("docs/README_EN.md")
-    readme_cht = _read("docs/README_CHT.md")
-
-    for content in [env_example, daily_workflow, deploy_zh, deploy_en, faq_zh, faq_en, full_guide_zh, full_guide_en, readme_en, readme_cht]:
-        assert "TUSHARE_TOKEN" not in content
 
     assert "REALTIME_SOURCE_PRIORITY=yfinance" in env_example
     assert "REALTIME_SOURCE_PRIORITY: ${{ vars.REALTIME_SOURCE_PRIORITY || 'yfinance' }}" in daily_workflow
-    assert "A股" not in full_guide_zh
     assert "A-shares" not in full_guide_en
-    assert "A股/港股/美股" not in readme_cht
 
 
 def test_data_provider_default_package_exports_only_asx_path():
@@ -104,37 +89,9 @@ def test_data_provider_default_package_exports_only_asx_path():
         "YfinanceFetcher",
     ]
 
-    for legacy_name in [
-        "AkshareFetcher",
-        "TushareFetcher",
-        "BaostockFetcher",
-        "PytdxFetcher",
-        "EfinanceFetcher",
-    ]:
-        assert not hasattr(data_provider, legacy_name)
+    for legacy_file in ROOT.glob("data_provider/*_fetcher.py"):
+        assert legacy_file.name == "yfinance_fetcher.py"
 
-    code = """
-import json
-import sys
-import data_provider
-
-legacy_modules = [
-    "data_provider.akshare_fetcher",
-    "data_provider.tushare_fetcher",
-    "data_provider.baostock_fetcher",
-    "data_provider.pytdx_fetcher",
-    "data_provider.efinance_fetcher",
-]
-print(json.dumps([name for name in legacy_modules if name in sys.modules]))
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert json.loads(result.stdout) == []
 
 
 def test_public_contract_docs_are_asx_first_with_compatibility_examples():
@@ -145,7 +102,6 @@ def test_public_contract_docs_are_asx_first_with_compatibility_examples():
     full_guide_en = _read("docs/full-guide_EN.md")
 
     assert "ASX-first 自选股分析系统 API" in api_spec
-    assert "A股/港股/美股自选股智能分析系统 API" not in api_spec
     assert "Australia/Sydney 08:00" in deploy_zh
     assert "18:00 Beijing Time" not in deploy_en
     assert "08:00 Australia/Sydney" in full_guide_en

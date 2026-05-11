@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 存储层
+ASX-first 自选股智能分析系统 - 存储层
 ===================================
 
 职责：
@@ -75,7 +75,7 @@ class StockDaily(Base):
     # 主键
     id = Column(Integer, primary_key=True, autoincrement=True)
     
-    # 股票代码（如 600519, 000001）
+    # 股票代码（如 BHP.AX, CBA.AX）
     code = Column(String(10), nullable=False, index=True)
     
     # 交易日期
@@ -99,7 +99,7 @@ class StockDaily(Base):
     volume_ratio = Column(Float)  # 量比
     
     # 数据来源
-    data_source = Column(String(50))  # 记录数据来源（如 AkshareFetcher）
+    data_source = Column(String(50))  # 记录数据来源（如 YfinanceFetcher）
     
     # 更新时间
     created_at = Column(DateTime, default=datetime.now)

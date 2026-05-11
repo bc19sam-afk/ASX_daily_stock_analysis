@@ -29,11 +29,11 @@ EXTRACT_PROMPT = """请分析这张股票市场截图或图片，提取其中所
 
 输出格式：仅返回有效的 JSON 数组字符串，不要 markdown、不要解释。
 示例：
-- A股（6位数字）：600519, 300750, 002594
+- ASX（交易所后缀）：BHP.AX, CBA.AX, CSL.AX
 - 港股（5位数字，可有前导零）：00700, 09988
 - 美股（1-5字母）：AAPL, TSLA, MSFT
 
-输出示例：["600519", "300750", "00700"]
+输出示例：["BHP.AX", "CBA.AX", "00700"]
 
 若未找到任何股票代码，返回：[]"""
 
@@ -67,22 +67,16 @@ def _verify_image_magic_bytes(image_bytes: bytes, mime_type: str) -> None:
 
 
 def _normalize_code(raw: str) -> Optional[str]:
-    """Normalize and validate a single stock code. A-shares & HK: 5-6 digits; US: 1-5 letters."""
+    """Normalize and validate a single stock code. ASX/US symbols and HK 5-digit codes are accepted."""
     s = raw.strip().upper()
     if not s:
         return None
-    # A-shares & HK: 5-6 digit codes (600519, 00700, 09988)
-    if s.isdigit() and len(s) in (5, 6):
+    # HK 5-digit codes (00700, 09988)
+    if s.isdigit() and len(s) == 5:
         return s
-    # US stocks: 1-5 letters, optionally with . (e.g. BRK.B)
-    if re.match(r"^[A-Z]{1,5}(\.[A-Z])?$", s):
+    # ASX/US stocks: 1-5 letters, optionally with suffix (e.g. BHP.AX, BRK.B)
+    if re.match(r"^[A-Z]{1,5}(\.[A-Z]{1,2})?$", s):
         return s
-    # 尝试去除 SH/SZ 后缀
-    for suffix in (".SH", ".SZ", ".SS"):
-        if s.endswith(suffix):
-            base = s[: -len(suffix)].strip()
-            if base.isdigit() and len(base) in (5, 6):
-                return base
     return None
 
 
@@ -114,8 +108,8 @@ def _parse_codes_from_text(text: str) -> List[str]:
     except json.JSONDecodeError:
         pass
 
-    # 兜底：查找 5-6 位数字及美股代码
-    for m in re.finditer(r"\b([0-9]{5,6}|[A-Z]{1,5}(\.[A-Z])?)\b", text, re.IGNORECASE):
+    # 兜底：查找港股 5 位数字及 ASX/US 代码
+    for m in re.finditer(r"\b([0-9]{5}|[A-Z]{1,5}(\.[A-Z]{1,2})?)\b", text, re.IGNORECASE):
         c = _normalize_code(m.group(1))
         if c and c not in seen:
             seen.add(c)

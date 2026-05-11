@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股/澳股自选股智能分析系统 - 搜索服务模块
+ASX-first 自选股智能分析系统 - 搜索服务模块
 ===================================
 
 职责：
@@ -41,7 +41,7 @@ def fetch_url_content(url: str, timeout: int = 5) -> str:
         config.fetch_images = False  # 不下载图片
         config.memoize_articles = False # 不缓存
 
-        article = Article(url, config=config, language='zh') # 默认中文，但也支持其他
+        article = Article(url, config=config, language='en')
         article.download()
         article.parse()
 
@@ -255,9 +255,9 @@ class SerpAPISearchProvider(BaseSearchProvider):
             
             params = {
                 "engine": "google", "q": query, "api_key": api_key,
-                "google_domain": "google.com.au" if is_asx else "google.com.hk",
-                "hl": "en" if is_asx else "zh-cn",
-                "gl": "au" if is_asx else "cn",
+                "google_domain": "google.com.au" if is_asx else "google.com",
+                "hl": "en",
+                "gl": "au" if is_asx else "us",
                 "tbs": tbs, "num": max_results
             }
             
@@ -392,7 +392,7 @@ class SearchService:
     搜索服务 (澳洲优化版)
     """
     
-    # 增强搜索关键词模板（港股/美股 英文）
+    # 增强搜索关键词模板（ASX/AU/US 英文）
     ENHANCED_SEARCH_KEYWORDS_EN = [
         "{name} stock price today",
         "{name} {code} latest quote trend",
@@ -401,13 +401,13 @@ class SearchService:
         "{name} {code} performance volume",
     ]
     
-    # 增强搜索关键词模板（A股 中文）
+    # 增强搜索关键词模板（通用英文兜底）
     ENHANCED_SEARCH_KEYWORDS = [
-        "{name} 股票 今日 股价",
-        "{name} {code} 最新 行情 走势",
-        "{name} 股票 分析 走势图",
-        "{name} K线 技术分析",
-        "{name} {code} 涨跌 成交量",
+        "{name} stock price today",
+        "{name} {code} latest quote trend",
+        "{name} stock analysis chart",
+        "{name} technical analysis",
+        "{name} {code} performance volume",
     ]
     _PUBLISHED_TIME_FIELDS = (
         "published_date",
@@ -486,10 +486,10 @@ class SearchService:
 
     @staticmethod
     def _is_foreign_stock(stock_code: str) -> bool:
-        """判断是否为港股或美股"""
+        """判断是否为 ASX/AU/US 或港股"""
         import re
         code = stock_code.strip()
-        # 美股/澳股：1-5个大写字母，可能包含点（如 BRK.B, CBA.AX）
+        # ASX/美股：1-5个大写字母，可能包含点（如 BRK.B, CBA.AX）
         if re.match(r'^[A-Za-z]{1,5}(\.[A-Za-z]+)?$', code):
             return True
         # 港股

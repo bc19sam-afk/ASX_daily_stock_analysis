@@ -371,7 +371,7 @@ class DataFetcherManager:
         初始化默认数据源列表
 
         当前仓库按“仅澳股/美股”模式运行，默认仅启用 Yfinance。
-        这样可以避免触发中国市场数据源的无效请求与依赖初始化。
+        这样可以避免触发无关数据源的无效请求与依赖初始化。
         """
         from .yfinance_fetcher import YfinanceFetcher
 
@@ -492,7 +492,7 @@ class DataFetcherManager:
         
         for fetcher in self._fetchers:
             # 智能分流：澳股(.AX) / 美股(纯字母或 .US) 优先走 Yahoo Finance。
-            # 其他数据源主要面向 A 股生态，避免在不匹配市场上做无效请求。
+            # 非 yfinance 数据源不参与 ASX/AU/US 默认路径，避免在不匹配市场上做无效请求。
             is_au_us = self._is_au_us_symbol(stock_code)
             if is_au_us and 'YfinanceFetcher' not in fetcher.name:
                 continue
@@ -532,13 +532,8 @@ class DataFetcherManager:
         批量预取实时行情数据（在分析开始前调用）
         
         策略：
-        1. 检查优先级中是否包含全量拉取数据源（efinance/akshare_em）
-        2. 如果不包含，跳过预取（新浪/腾讯是单股票查询，无需预取）
-        3. 如果自选股数量 >= 5 且使用全量数据源，则预取填充缓存
-        
-        这样做的好处：
-        - 使用新浪/腾讯时：每只股票独立查询，无全量拉取问题
-        - 使用 efinance/东财时：预取一次，后续缓存命中
+        当前只保留 yfinance 实时路径；该路径按单 ticker 查询，不需要
+        预取全市场缓存。保留方法签名以兼容主流程调用。
         
         Args:
             stock_codes: 待分析的股票代码列表
@@ -555,62 +550,15 @@ class DataFetcherManager:
             logger.debug("[预取] 实时行情功能已禁用，跳过预取")
             return 0
         
-        # 检查优先级中是否包含全量拉取数据源
-        # 注意：新增全量接口（如 tushare_realtime）时需同步更新此列表
-        # 全量接口特征：一次 API 调用拉取全市场 5000+ 股票数据
-        priority = config.realtime_source_priority.lower()
-        bulk_sources = ['efinance', 'akshare_em', 'tushare']  # 全量接口列表
-        
-        # 如果优先级中前两个都不是全量数据源，跳过预取
-        # 因为新浪/腾讯是单股票查询，不需要预取
-        priority_list = [s.strip() for s in priority.split(',')]
-        first_bulk_source_index = None
-        for i, source in enumerate(priority_list):
-            if source in bulk_sources:
-                first_bulk_source_index = i
-                break
-        
-        # 如果没有全量数据源，或者全量数据源排在第 3 位之后，跳过预取
-        if first_bulk_source_index is None or first_bulk_source_index >= 2:
-            logger.info(f"[预取] 当前优先级使用轻量级数据源(sina/tencent)，无需预取")
-            return 0
-        
-        # 如果股票数量少于 5 个，不进行批量预取（逐个查询更高效）
-        if len(stock_codes) < 5:
-            logger.info(f"[预取] 股票数量 {len(stock_codes)} < 5，跳过批量预取")
-            return 0
-        
-        logger.info(f"[预取] 开始批量预取实时行情，共 {len(stock_codes)} 只股票...")
-        
-        # 尝试通过 efinance 或 akshare 预取
-        # 只需要调用一次 get_realtime_quote，缓存机制会自动拉取全市场数据
-        try:
-            # 用第一只股票触发全量拉取
-            first_code = stock_codes[0]
-            quote = self.get_realtime_quote(first_code)
-            
-            if quote:
-                logger.info(f"[预取] 批量预取完成，缓存已填充")
-                return len(stock_codes)
-            else:
-                logger.warning(f"[预取] 批量预取失败，将使用逐个查询模式")
-                return 0
-                
-        except Exception as e:
-            logger.error(f"[预取] 批量预取异常: {e}")
-            return 0
+        logger.debug("[预取] yfinance 单 ticker 路径无需批量预取")
+        return 0
     
     def get_realtime_quote(self, stock_code: str):
         """
         获取实时行情数据（自动故障切换）
         
-        故障切换策略（按配置的优先级）：
-        1. 美股：使用 YfinanceFetcher.get_realtime_quote()
-        2. EfinanceFetcher.get_realtime_quote()
-        3. AkshareFetcher.get_realtime_quote(source="em")  - 东财
-        4. AkshareFetcher.get_realtime_quote(source="sina") - 新浪
-        5. AkshareFetcher.get_realtime_quote(source="tencent") - 腾讯
-        6. 返回 None（降级兜底）
+        当前只保留 yfinance 实时路径；无法通过 yfinance 处理的
+        代码直接返回 None，由日报主链路降级使用历史收盘数据。
         
         Args:
             stock_code: 股票代码
@@ -621,218 +569,28 @@ class DataFetcherManager:
         config = self._get_active_config()
         stock_code = self._normalize_for_default_market(stock_code, config)
 
-        from .realtime_types import get_realtime_circuit_breaker
-        errors = []
-        primary_quote = None
-        supplement_attempts = 0
-        
         # 如果实时行情功能被禁用，直接返回 None
         if not config.enable_realtime_quote:
             logger.debug(f"[实时行情] 功能已禁用，跳过 {stock_code}")
             return None
         
-        # AU/US 代码优先尝试 Yfinance（含 .AX）
-        if self._should_use_yfinance_realtime(stock_code):
-            for fetcher in self._fetchers:
-                if fetcher.name == "YfinanceFetcher":
-                    if hasattr(fetcher, 'get_realtime_quote'):
-                        try:
-                            quote = fetcher.get_realtime_quote(stock_code)
-                            if quote is not None and quote.has_basic_data():
-                                logger.info(f"[实时行情] {stock_code} 成功获取 (来源: yfinance)")
-                                primary_quote = quote
-                                if (
-                                    primary_quote.volume_ratio is not None
-                                    and primary_quote.turnover_rate is not None
-                                ):
-                                    return primary_quote
-                        except Exception as e:
-                            logger.warning(f"[实时行情] {stock_code} 获取失败: {e}")
-                    break
-            if primary_quote is None:
-                logger.warning(f"[实时行情] {stock_code} yfinance 无可用数据，尝试后备数据源")
-        
-        # 获取配置的数据源优先级
-        source_priority = config.realtime_source_priority.split(',')
-        
-        for source in source_priority:
-            source = source.strip().lower()
-            
-            try:
-                quote = None
-                
-                if source == "efinance":
-                    # 尝试 EfinanceFetcher
-                    for fetcher in self._fetchers:
-                        if fetcher.name == "EfinanceFetcher":
-                            if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code)
-                            break
-                
-                elif source == "akshare_em":
-                    # 尝试 AkshareFetcher 东财数据源
-                    for fetcher in self._fetchers:
-                        if fetcher.name == "AkshareFetcher":
-                            if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code, source="em")
-                            break
-                
-                elif source == "akshare_sina":
-                    # 尝试 AkshareFetcher 新浪数据源
-                    for fetcher in self._fetchers:
-                        if fetcher.name == "AkshareFetcher":
-                            if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code, source="sina")
-                            break
-                
-                elif source in ("tencent", "akshare_qq"):
-                    # 尝试 AkshareFetcher 腾讯数据源
-                    for fetcher in self._fetchers:
-                        if fetcher.name == "AkshareFetcher":
-                            if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code, source="tencent")
-                            break
-                
-                elif source == "tushare":
-                    # 尝试 TushareFetcher（需要 Tushare Pro 积分）
-                    for fetcher in self._fetchers:
-                        if fetcher.name == "TushareFetcher":
-                            if hasattr(fetcher, 'get_realtime_quote'):
-                                quote = fetcher.get_realtime_quote(stock_code)
-                            break
-                
-                if quote is not None and quote.has_basic_data():
-                    if primary_quote is None:
-                        # First successful source becomes primary
-                        primary_quote = quote
-                        logger.info(f"[实时行情] {stock_code} 成功获取 (来源: {source})")
-                        # If all key supplementary fields are present, return early
-                        if not self._quote_needs_supplement(primary_quote):
-                            return primary_quote
-                        # Otherwise, continue to try later sources for missing fields
-                        logger.debug(f"[实时行情] {stock_code} 部分字段缺失，尝试从后续数据源补充")
-                        supplement_attempts = 0
-                    else:
-                        # Supplement missing fields from this source (limit attempts)
-                        supplement_attempts += 1
-                        if supplement_attempts > 1:
-                            logger.debug(f"[实时行情] {stock_code} 补充尝试已达上限，停止继续")
-                            break
-                        merged = self._merge_quote_fields(primary_quote, quote)
-                        if merged:
-                            logger.info(f"[实时行情] {stock_code} 从 {source} 补充了缺失字段: {merged}")
-                        # Stop supplementing once all key fields are filled
-                        if not self._quote_needs_supplement(primary_quote):
-                            break
-                    
-            except Exception as e:
-                error_msg = f"[{source}] 失败: {str(e)}"
-                logger.warning(error_msg)
-                errors.append(error_msg)
-                continue
-        
-        # Return primary even if some fields are still missing
-        if primary_quote is not None:
-            return primary_quote
-
-        # 所有数据源都失败，返回 None（降级兜底）
-        if errors:
-            logger.warning(f"[实时行情] {stock_code} 所有数据源均失败，降级处理: {'; '.join(errors)}")
-        else:
-            logger.warning(f"[实时行情] {stock_code} 无可用数据源")
-        
-        return None
-
-    # Fields worth supplementing from secondary sources when the primary
-    # source returns None for them. Ordered by importance.
-    _SUPPLEMENT_FIELDS = [
-        'volume_ratio', 'turnover_rate',
-        'pe_ratio', 'pb_ratio', 'total_mv', 'circ_mv',
-        'amplitude',
-    ]
-
-    @classmethod
-    def _quote_needs_supplement(cls, quote) -> bool:
-        """Check if any key supplementary field is still None."""
-        for f in cls._SUPPLEMENT_FIELDS:
-            if getattr(quote, f, None) is None:
-                return True
-        return False
-
-    @classmethod
-    def _merge_quote_fields(cls, primary, secondary) -> list:
-        """
-        Copy non-None fields from *secondary* into *primary* where
-        *primary* has None. Returns list of field names that were filled.
-        """
-        filled = []
-        for f in cls._SUPPLEMENT_FIELDS:
-            if getattr(primary, f, None) is None:
-                val = getattr(secondary, f, None)
-                if val is not None:
-                    setattr(primary, f, val)
-                    filled.append(f)
-        return filled
-
-    def get_chip_distribution(self, stock_code: str):
-        """
-        获取筹码分布数据（带熔断和多数据源降级）
-
-        策略：
-        1. 检查配置开关
-        2. 检查熔断器状态
-        3. 依次尝试多个数据源：AkshareFetcher -> TushareFetcher -> EfinanceFetcher
-        4. 所有数据源失败则返回 None（降级兜底）
-
-        Args:
-            stock_code: 股票代码
-
-        Returns:
-            ChipDistribution 对象，失败则返回 None
-        """
-        # Normalize code (strip SH/SZ prefix etc.)
-        stock_code = normalize_stock_code(stock_code)
-
-        from .realtime_types import get_chip_circuit_breaker
-
-        config = self._get_active_config()
-
-        # 如果筹码分布功能被禁用，直接返回 None
-        if not config.enable_chip_distribution:
-            logger.debug(f"[筹码分布] 功能已禁用，跳过 {stock_code}")
+        if not self._should_use_yfinance_realtime(stock_code):
+            logger.debug(f"[实时行情] {stock_code} 不属于 yfinance 实时默认路径，跳过")
             return None
 
-        circuit_breaker = get_chip_circuit_breaker()
-
-        # 定义筹码数据源优先级列表
-        chip_sources = [
-            ("AkshareFetcher", "akshare_chip"),
-            ("TushareFetcher", "tushare_chip"),
-            ("EfinanceFetcher", "efinance_chip"),
-        ]
-
-        for fetcher_name, source_key in chip_sources:
-            # 检查熔断器状态
-            if not circuit_breaker.is_available(source_key):
-                logger.debug(f"[熔断] {fetcher_name} 筹码接口处于熔断状态，尝试下一个")
+        for fetcher in self._fetchers:
+            if fetcher.name != "YfinanceFetcher" or not hasattr(fetcher, 'get_realtime_quote'):
                 continue
-
             try:
-                for fetcher in self._fetchers:
-                    if fetcher.name == fetcher_name:
-                        if hasattr(fetcher, 'get_chip_distribution'):
-                            chip = fetcher.get_chip_distribution(stock_code)
-                            if chip is not None:
-                                circuit_breaker.record_success(source_key)
-                                logger.info(f"[筹码分布] {stock_code} 成功获取 (来源: {fetcher_name})")
-                                return chip
-                        break
+                quote = fetcher.get_realtime_quote(stock_code)
+                if quote is not None and quote.has_basic_data():
+                    logger.info(f"[实时行情] {stock_code} 成功获取 (来源: yfinance)")
+                    return quote
             except Exception as e:
-                logger.warning(f"[筹码分布] {fetcher_name} 获取 {stock_code} 失败: {e}")
-                circuit_breaker.record_failure(source_key, str(e))
-                continue
+                logger.warning(f"[实时行情] {stock_code} yfinance 获取失败: {e}")
+            break
 
-        logger.warning(f"[筹码分布] {stock_code} 所有数据源均失败")
+        logger.warning(f"[实时行情] {stock_code} yfinance 无可用数据")
         return None
 
     def get_stock_name(self, stock_code: str) -> Optional[str]:

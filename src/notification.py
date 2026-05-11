@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 ===================================
-A股自选股智能分析系统 - 通知层
+ASX-first 自选股智能分析系统 - 通知层
 ===================================
 
 职责：
@@ -2675,13 +2675,6 @@ class NotificationService:
     # Display name mapping for realtime data sources
     _SOURCE_DISPLAY_NAMES = {
         "yfinance": "Yahoo Finance",
-        "tencent": "腾讯财经",
-        "akshare_em": "东方财富",
-        "akshare_sina": "新浪财经",
-        "akshare_qq": "腾讯财经",
-        "efinance": "东方财富(efinance)",
-        "tushare": "Tushare Pro",
-        "sina": "新浪财经",
         "fallback": "降级兜底",
     }
 
