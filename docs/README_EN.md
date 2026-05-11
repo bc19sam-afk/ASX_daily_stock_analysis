@@ -9,7 +9,7 @@
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Ready-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/)
 
-**AI-powered stock analysis system for A-shares / Hong Kong / US stocks**
+**AI-powered ASX/AU/US manual stock analysis assistant**
 
 Analyze your watchlist daily → generate a decision dashboard → push to multiple channels (Telegram/Discord/Email/WeChat Work/Feishu)
 
@@ -36,8 +36,8 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 |--------|---------|-------------|
 | AI | Decision Dashboard | One-sentence conclusion + precise entry/exit levels + action checklist |
 | Analysis | Multi-dimensional Analysis | Technicals + chip distribution + sentiment + real-time quotes |
-| Market | Global Markets | A-shares, Hong Kong stocks, US stocks |
-| Review | Market Review | Daily overview, sectors, northbound capital flow |
+| Market | ASX/AU/US | Current defaults use an ASX watchlist |
+| Review | Market Review | Daily overview, major indices, and macro context |
 | Backtest | AI Backtest Validation | Auto-evaluate historical analysis accuracy, direction win rate, SL/TP hit rates |
 | Notifications | Multi-channel Push | Telegram, Discord, Email, WeChat Work, Feishu, etc. |
 | Automation | Scheduled Runs | GitHub Actions scheduled execution, no server required |
@@ -47,7 +47,7 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 | Type | Supported |
 |------|----------|
 | LLMs | Gemini (free), OpenAI-compatible, DeepSeek, Qwen, Claude, Ollama |
-| Market Data | AkShare, Tushare, Pytdx, Baostock, YFinance |
+| Market Data | YFinance (current ASX/AU/US default path) |
 | News Search | Tavily, SerpAPI, Bocha, Brave |
 
 ### Built-in Trading Rules
@@ -122,16 +122,14 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API (privacy-focused, US stocks optimized) | Optional |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) Backup search | Optional |
 | `BOCHA_API_KEYS` | [Bocha Search](https://open.bocha.cn/) Web Search API (Chinese search optimized, supports AI summaries, multiple keys comma-separated) | Optional |
-| `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token | Optional |
 | `WECHAT_MSG_TYPE` | WeChat Work message type, default `markdown`, set to `text` for plain markdown text | Optional |
 
 **Stock Code Format**
 
 | Market | Format | Examples |
 |--------|--------|----------|
-| A-shares | 6-digit number | `600519`, `000001`, `300750` |
-| HK Stocks | hk + 5-digit number | `hk00700`, `hk09988` |
-| US Stocks | 1-5 uppercase letters | `AAPL`, `TSLA`, `GOOGL` |
+| ASX | Ticker + `.AX` | `BHP.AX`, `CBA.AX`, `CSL.AX` |
+| US | Common US ticker | `AAPL`, `MSFT`, `NVDA` |
 
 #### 3. Enable Actions
 
@@ -144,7 +142,7 @@ Go to `Actions` tab → Click `I understand my workflows, go ahead and enable th
 #### 5. Done!
 
 The system will:
-- Run automatically at scheduled time (default: 18:00 Beijing Time)
+- Run automatically at scheduled time (default: 08:00 Australia/Sydney)
 - Send analysis reports to all configured channels
 - Save reports locally
 
@@ -384,9 +382,6 @@ SCHEDULE_ENABLED=true          # Enable scheduled task
 SCHEDULE_TIME=08:00            # Daily run time (HH:MM, 24-hour format)
 MARKET_REVIEW_ENABLED=true     # Enable market review
 
-# === Data Source ===
-TUSHARE_TOKEN=your_token       # Tushare Pro (priority data source if configured)
-
 # === System ===
 MAX_WORKERS=3                  # Concurrent threads (3 recommended to avoid blocking)
 DEBUG=false                    # Enable debug logging
@@ -503,7 +498,7 @@ The developers of this tool are not liable for any financial losses resulting fr
 
 ## 🙏 Acknowledgments
 
-- [AkShare](https://github.com/akfamily/akshare) - Stock data source
+- [YFinance](https://github.com/ranaroussi/yfinance) - ASX/AU/US market data source
 - [Google Gemini](https://ai.google.dev/) - AI analysis engine
 - [Tavily](https://tavily.com/) - News search API
 - All contributors who helped improve this project

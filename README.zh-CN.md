@@ -4,7 +4,7 @@
 
 Daily Stock Analysis 是一个面向人工决策辅助的股票分析与报告系统，整合了多源市场数据、LLM 生成分析、基于规则的仓位管理、可选的大盘复盘、通知分发，以及 FastAPI API 服务，并支持本地运行与 GitHub Actions 工作流。
 
-当前产品定位和默认运行假设以 ASX 为主，同时支持 AU/US 股票进入同一套分析与报告流程。本文档中的默认示例保持为纯 ASX，因为运行时默认仍假设 `MARKET_CALENDAR=ASX`、`MARKET_TIMEZONE=Australia/Sydney`。仓库源码中仍保留部分早期 A 股阶段的注释、命名和集成痕迹，但本文档中的用户指南按当前 ASX/AU/US 使用方式编写。
+当前产品定位和默认运行假设以 ASX 为主，同时支持 AU/US 股票进入同一套分析与报告流程。本文档中的默认示例保持为纯 ASX，因为运行时默认仍假设 `MARKET_CALENDAR=ASX`、`MARKET_TIMEZONE=Australia/Sydney`。仓库源码中仍保留部分早期历史注释、命名和集成痕迹，但本文档中的用户指南按当前 ASX/AU/US 使用方式编写。
 
 ## 当前架构
 

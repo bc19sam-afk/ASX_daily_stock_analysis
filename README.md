@@ -144,7 +144,7 @@ Current outputs on `main`:
 - API service bootstrap in `main.py` intentionally does not start when `GITHUB_ACTIONS=true`.
 - Default analysis mode is read-only for account state (`ANALYSIS_READ_ONLY=true`), so normal analysis computes recommendations without writing real account changes unless explicitly disabled.
 - Image extraction endpoint accepts only one uploaded file (`file`) with MIME type restrictions and a 5MB size limit.
-- Some runtime comments/docs in source files still contain legacy naming or China-market integrations from earlier repository history, so internal naming is not yet fully normalized to the current ASX/AU/US product scope.
+- Some runtime comments/docs in source files still contain legacy naming from earlier repository history, so internal naming is not yet fully normalized to the current ASX/AU/US product scope.
 
 ## License
 See [LICENSE](LICENSE).

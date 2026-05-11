@@ -201,7 +201,7 @@ journalctl -u stock-analyzer -f
 
 ## Proxy Configuration
 
-If server is in mainland China, accessing Gemini API requires proxy:
+If the server cannot access Gemini API directly, configure a proxy:
 
 ### Docker Method
 
@@ -361,7 +361,6 @@ Add these Secrets:
 | `STOCK_LIST` | Watchlist, e.g., `BHP.AX,CBA.AX,CSL.AX` | ✅ |
 | `TAVILY_API_KEYS` | Tavily Search API Key | Recommended |
 | `SERPAPI_API_KEYS` | SerpAPI Key | Optional |
-| `TUSHARE_TOKEN` | Tushare Token | Optional |
 | `GEMINI_MODEL` | Model name (default gemini-2.0-flash) | Optional |
 
 > *Note: Configure at least one notification channel, multiple channels supported for simultaneous push

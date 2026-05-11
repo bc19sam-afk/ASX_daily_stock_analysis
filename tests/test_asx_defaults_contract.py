@@ -70,6 +70,28 @@ def test_workflow_and_docker_defaults_are_asx_sydney():
     assert "- TZ=Asia/Shanghai" not in compose
 
 
+def test_cn_legacy_exposure_is_removed_from_active_examples_and_docs():
+    env_example = _read(".env.example")
+    daily_workflow = _read(".github/workflows/daily_analysis.yml")
+    deploy_zh = _read("docs/DEPLOY.md")
+    deploy_en = _read("docs/DEPLOY_EN.md")
+    faq_zh = _read("docs/FAQ.md")
+    faq_en = _read("docs/FAQ_EN.md")
+    full_guide_zh = _read("docs/full-guide.md")
+    full_guide_en = _read("docs/full-guide_EN.md")
+    readme_en = _read("docs/README_EN.md")
+    readme_cht = _read("docs/README_CHT.md")
+
+    for content in [env_example, daily_workflow, deploy_zh, deploy_en, faq_zh, faq_en, full_guide_zh, full_guide_en, readme_en, readme_cht]:
+        assert "TUSHARE_TOKEN" not in content
+
+    assert "REALTIME_SOURCE_PRIORITY=yfinance" in env_example
+    assert "REALTIME_SOURCE_PRIORITY: ${{ vars.REALTIME_SOURCE_PRIORITY || 'yfinance' }}" in daily_workflow
+    assert "A股" not in full_guide_zh
+    assert "A-shares" not in full_guide_en
+    assert "A股/港股/美股" not in readme_cht
+
+
 def test_public_contract_docs_are_asx_first_with_compatibility_examples():
     api_spec = _read("docs/architecture/api_spec.json")
     deploy_zh = _read("docs/DEPLOY.md")

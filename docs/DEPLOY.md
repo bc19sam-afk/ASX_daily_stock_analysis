@@ -363,7 +363,6 @@ git push -u origin main
 | `STOCK_LIST` | 自选股列表，如 `BHP.AX,CBA.AX,CSL.AX` | ✅ |
 | `TAVILY_API_KEYS` | Tavily 搜索 API Key（多个 key 用逗号分隔） | 推荐 |
 | `SERPAPI_API_KEYS` | SerpAPI Key | 可选 |
-| `TUSHARE_TOKEN` | Tushare Token | 可选 |
 | `GEMINI_MODEL` | 模型名称（默认 gemini-2.0-flash） | 可选 |
 
 > *注：通知渠道至少配置一个，支持多渠道同时推送

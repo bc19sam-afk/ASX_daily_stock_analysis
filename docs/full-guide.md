@@ -117,7 +117,6 @@ daily_stock_analysis/
 | `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索优化，支持AI摘要，多个key用逗号分隔） | 可选 |
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 备用搜索 | 可选 |
-| `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token | 可选 |
 
 #### ✅ 最小配置示例
 
@@ -216,12 +215,6 @@ GitHub Actions 默认每个工作日 **08:00（Australia/Sydney）** 自动执�
 | `BOCHA_API_KEYS` | 博查搜索 API Key（中文优化） | 可选 |
 | `BRAVE_API_KEYS` | Brave Search API Key（美股优化） | 可选 |
 | `SERPAPI_API_KEYS` | SerpAPI 备用搜索 | 可选 |
-
-### 数据源配置
-
-| 变量名 | 说明 | 必填 |
-|--------|------|:----:|
-| `TUSHARE_TOKEN` | Tushare Pro Token | 可选 |
 
 ### 其他配置
 
@@ -546,24 +539,8 @@ PUSHOVER_API_TOKEN=your_api_token
 
 ## 数据源配置
 
-系统默认使用 AkShare（免费），也支持其他数据源：
-
-### AkShare（默认）
-- 免费，无需配置
-- 数据来源：东方财富爬虫
-
-### Tushare Pro
-- 需要注册获取 Token
-- 更稳定，数据更全
-- 设置 `TUSHARE_TOKEN`
-
-### Baostock
-- 免费，无需配置
-- 作为备用数据源
-
-### YFinance
-- 免费，无需配置
-- 支持美股/港股数据
+当前 ASX/AU/US 默认数据路径使用 yfinance，无需额外行情源 token。
+新闻搜索仍建议配置 `TAVILY_API_KEYS`、`SERPAPI_API_KEYS` 或 `BRAVE_API_KEYS`。
 
 ---
 
@@ -694,7 +671,7 @@ FastAPI 提供 RESTful API 服务，支持配置管理和触发分析。
 # 健康检查
 curl http://127.0.0.1:8000/api/health
 
-# 触发分析（A股）
+# 触发分析（ASX）
 curl -X POST http://127.0.0.1:8000/api/v1/analysis/analyze \
   -H 'Content-Type: application/json' \
   -d '{"stock_code": "BHP.AX"}'
@@ -734,8 +711,8 @@ python main.py --serve-only --host 0.0.0.0 --port 8888
 
 | 类型 | 格式 | 示例 |
 |------|------|------|
-| A股 | 6位数字 | `600519`、`000001`、`300750` |
-| 港股 | hk + 5位数字 | `hk00700`、`hk09988` |
+| ASX | 交易代码 + `.AX` | `BHP.AX`、`CBA.AX`、`CSL.AX` |
+| US | 常见美股代码 | `AAPL`、`MSFT`、`NVDA` |
 
 ### 注意事项
 
@@ -751,7 +728,7 @@ python main.py --serve-only --host 0.0.0.0 --port 8888
 A: 企业微信/飞书有消息长度限制，系统已自动分段发送。如需完整内容，可配置飞书云文档功能。
 
 ### Q: 数据获取失败？
-A: AkShare 使用爬虫机制，可能被临时限流。系统已配置重试机制，一般等待几分钟后重试即可。
+A: 外部行情、搜索或 AI 服务可能被临时限流。系统已配置重试机制，一般等待几分钟后重试即可。
 
 ### Q: 如何添加自选股？
 A: 修改 `STOCK_LIST` 环境变量，多个代码用逗号分隔。

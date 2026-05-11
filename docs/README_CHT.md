@@ -9,7 +9,7 @@
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Ready-2088FF?logo=github-actions&logoColor=white)](https://github.com/features/actions)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/)
 
-**基於 AI 大模型的 A股/港股/美股 智能分析系統**
+**基於 AI 大模型的 ASX/AU/US 手工分析輔助系統**
 
 自動分析自選股 → 生成決策儀表盤 → 多渠道推送（Telegram/Discord/郵件/企業微信/飛書）
 
@@ -36,8 +36,8 @@
 |------|------|------|
 | AI | 決策儀表盤 | 一句話核心結論 + 精確買賣點位 + 操作檢查清單 |
 | 分析 | 多維度分析 | 技術面 + 籌碼分布 + 輿情情報 + 實時行情 |
-| 市場 | 全球市場 | 支援 A股、港股、美股 |
-| 復盤 | 大盤復盤 | 每日市場概覽、板塊漲跌、北向資金 |
+| 市場 | ASX/AU/US | 目前預設使用 ASX 觀察名單 |
+| 復盤 | 大盤復盤 | 每日市場概覽、主要指數與宏觀背景 |
 | 回測 | AI 回測驗證 | 自動評估歷史分析準確率，方向勝率、止盈止損命中率 |
 | 推送 | 多渠道通知 | Telegram、Discord、郵件、企業微信、飛書等 |
 | 自動化 | 定時運行 | GitHub Actions 定時執行，無需伺服器 |
@@ -47,7 +47,7 @@
 | 類型 | 支援 |
 |------|------|
 | AI 模型 | Gemini（免費）、OpenAI 兼容、DeepSeek、通義千問、Claude、Ollama |
-| 行情數據 | AkShare、Tushare、Pytdx、Baostock、YFinance |
+| 行情數據 | YFinance（目前 ASX/AU/US 預設路徑） |
 | 新聞搜索 | Tavily、SerpAPI、Bocha、Brave |
 
 ### 內建交易紀律
@@ -121,7 +121,6 @@
 | `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索優化，支持AI摘要，多個key用逗號分隔） | 可選 |
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隱私優先，美股優化，多個key用逗號分隔） | 可選 |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 備用搜索 | 可選 |
-| `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token | 可選 |
 
 #### 3. 啟用 Actions
 
@@ -257,11 +256,8 @@ daily_stock_analysis/
 - [x] OpenAI 兼容 API（支持 GPT-4/DeepSeek/通義千問/Claude/文心一言 等）
 - [x] 本地模型（Ollama）
 
-### 📊 數據源擴展
-- [x] AkShare（免費）
-- [x] Tushare Pro
-- [x] Baostock
-- [x] YFinance
+### 📊 數據源
+- [x] YFinance（目前 ASX/AU/US 預設路徑）
 
 ### 🎯 功能增強
 - [x] 決策儀表盤
