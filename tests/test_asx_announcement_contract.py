@@ -12,6 +12,7 @@ from src.report_reliability import build_report_reliability
 
 
 def _result(**overrides) -> AnalysisResult:
+    backtest_summary = overrides.pop("backtest_summary", None)
     base = dict(
         code="BHP.AX",
         name="BHP",
@@ -32,7 +33,10 @@ def _result(**overrides) -> AnalysisResult:
         validation_status="PASS",
     )
     base.update(overrides)
-    return AnalysisResult(**base)
+    result = AnalysisResult(**base)
+    if backtest_summary is not None:
+        result.backtest_summary = backtest_summary
+    return result
 
 
 def _by_category(entries):
@@ -190,3 +194,38 @@ def test_daily_summary_announcement_contract_does_not_change_actions():
     announcement = _by_category(summary["evidence_matrix"]["BHP.AX"])["announcement"]
     assert announcement["status"] == "not_checked"
     assert announcement["severity"] == "warning"
+
+
+def test_announcement_not_checked_becomes_review_reason_not_action_block():
+    result = _result(
+        code="BHP.AX",
+        operation_advice="看多，按计划复核",
+        trend_prediction="强势上行",
+        technical_analysis="多头排列，量能充足",
+        fundamental_analysis="估值稳定",
+        news_summary="无重大新增风险",
+        backtest_summary={"sample_size": 30, "win_rate_pct": 55},
+    )
+
+    summary = build_daily_decision_summary(
+        results=[result],
+        report_date="2026-05-06",
+        generated_at=datetime(2026, 5, 6, 7, 30, tzinfo=ZoneInfo("Australia/Sydney")),
+        overview={"cash": 10000.0, "holdings": []},
+        get_primary_action_model=_model,
+        classify_price_basis=lambda result: "close_only",
+        format_stock_display_name=lambda name, code: f"{name} ({code})",
+        format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
+    )
+
+    item = summary["actionable_items"][0]
+    announcement = _by_category(summary["evidence_matrix"]["BHP.AX"])["announcement"]
+
+    assert summary["action_counts"]["add"] == 1
+    assert summary["action_counts"]["blocked"] == 0
+    assert [blocked["code"] for blocked in summary["blocked_items"]] == []
+    assert item["code"] == "BHP.AX"
+    assert item["position_action"] == "ADD"
+    assert announcement["status"] == "not_checked"
+    assert "公告未检查，执行前复核" in item["final_action_display"]["review_reasons"]
+    assert item["final_action_display"]["confirmation_gap"] is False

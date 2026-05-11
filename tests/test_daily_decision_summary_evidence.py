@@ -5,11 +5,12 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
-from src.daily_decision_summary import build_daily_decision_summary
+from src.daily_decision_summary import build_daily_decision_summary, render_preopen_decision_dashboard
 from src.notification import NotificationService
 
 
 def _result(**overrides) -> AnalysisResult:
+    backtest_summary = overrides.pop("backtest_summary", None)
     base = dict(
         code="BHP.AX",
         name="BHP",
@@ -29,7 +30,10 @@ def _result(**overrides) -> AnalysisResult:
         action_reason="等待触发条件",
     )
     base.update(overrides)
-    return AnalysisResult(**base)
+    result = AnalysisResult(**base)
+    if backtest_summary is not None:
+        result.backtest_summary = backtest_summary
+    return result
 
 
 def _model(result):
@@ -90,6 +94,149 @@ def test_daily_decision_summary_contains_evidence_matrix_without_changing_action
     assert nab_evidence["news"]["status"] == "missing"
     assert nab_evidence["valuation"]["status"] == "missing"
     assert nab_evidence["backtest"]["status"] == "not_checked"
+
+
+def test_evidence_gaps_feed_review_reasons_without_changing_summary_actions():
+    result = _result(
+        code="BHP.AX",
+        final_decision="BUY",
+        position_action="ADD",
+        current_weight=0.2,
+        target_weight=0.25,
+        delta_amount=2500.0,
+        fundamental_analysis="",
+        news_summary="",
+    )
+
+    summary = _summary([result])
+    item = summary["actionable_items"][0]
+    review_reasons = item["final_action_display"]["review_reasons"]
+
+    assert summary["action_counts"]["add"] == 1
+    assert summary["action_counts"]["blocked"] == 0
+    assert item["position_action"] == "ADD"
+    assert item["target_weight"] == 0.25
+    assert item["delta_amount"] == 2500.0
+    assert "公告未检查，执行前复核" in review_reasons
+    assert "回测证据未检查" in review_reasons
+    assert "估值覆盖缺口" in review_reasons
+    assert item["final_action_display"]["confirmation_gap"] is True
+
+    evidence = _by_category(summary["evidence_matrix"]["BHP.AX"])
+    assert evidence["announcement"]["status"] == "not_checked"
+    assert evidence["valuation"]["status"] == "missing"
+    assert evidence["backtest"]["status"] == "not_checked"
+
+    dashboard = "\n".join(render_preopen_decision_dashboard(summary))
+    assert "无 validation BLOCK；但仍可能存在公告 / 回测 / 估值覆盖缺口。" in dashboard
+    assert "未发现阻断（BLOCK）或数据质量风险" not in dashboard
+
+
+def test_blocked_report_with_evidence_gaps_does_not_claim_no_validation_block():
+    actionable = _result(
+        code="BHP.AX",
+        final_decision="BUY",
+        position_action="ADD",
+        current_weight=0.2,
+        target_weight=0.25,
+        delta_amount=2500.0,
+        fundamental_analysis="",
+        news_summary="",
+    )
+    blocked = _result(
+        code="NAB.AX",
+        validation_status="BLOCK",
+        validation_issues=["收盘价缺失，无法确认昨收计划。"],
+        news_summary="",
+        fundamental_analysis="",
+    )
+
+    summary = _summary([actionable, blocked])
+    dashboard = "\n".join(render_preopen_decision_dashboard(summary))
+
+    assert summary["action_counts"]["add"] == 1
+    assert summary["action_counts"]["blocked"] == 1
+    assert "1 只股票被阻断（BLOCK），已从可执行动作中排除。" in dashboard
+    assert "存在公告 / 回测 / 估值覆盖缺口，BLOCK 标的解除前仍只观察。" in dashboard
+    assert "无 validation BLOCK；但仍可能存在公告 / 回测 / 估值覆盖缺口。" not in dashboard
+
+
+def test_ai_observe_and_technical_weakness_feed_review_reasons_without_changing_counts():
+    add_item = _result(
+        code="LAU.AX",
+        name="LAU",
+        final_decision="BUY",
+        position_action="ADD",
+        current_weight=0.17,
+        target_weight=0.22,
+        delta_amount=5000.0,
+        operation_advice="观望 / 持有，等待确认",
+        trend_prediction="震荡",
+        technical_analysis="均线缠绕，趋势弱，量能弱",
+        fundamental_analysis="估值稳定",
+        news_summary="无重大新增风险",
+        backtest_summary={"sample_size": 30, "win_rate_pct": 55},
+    )
+    open_item = _result(
+        code="NHF.AX",
+        name="NHF",
+        final_decision="BUY",
+        position_action="OPEN",
+        current_weight=0.0,
+        target_weight=0.10,
+        delta_amount=10000.0,
+        operation_advice="震荡，条件化观察，非现价买入理由",
+        trend_prediction="震荡",
+        technical_analysis="非多头排列",
+        fundamental_analysis="估值稳定",
+        news_summary="无重大新增风险",
+        backtest_summary={"sample_size": 30, "win_rate_pct": 55},
+    )
+
+    summary = _summary([add_item, open_item])
+    lau = next(item for item in summary["actionable_items"] if item["code"] == "LAU.AX")
+    nhf = next(item for item in summary["actionable_items"] if item["code"] == "NHF.AX")
+
+    assert summary["action_counts"]["add"] == 1
+    assert summary["action_counts"]["buy"] == 1
+    assert summary["action_counts"]["total_actions"] == 2
+    assert lau["position_action"] == "ADD"
+    assert nhf["position_action"] == "OPEN"
+    assert "AI 补充偏观望，需二次确认" in lau["final_action_display"]["review_reasons"]
+    assert "技术确认偏弱，需条件复核" in lau["final_action_display"]["review_reasons"]
+    assert lau["final_action_display"]["confirmation_gap"] is True
+    assert "AI 补充偏观望，需二次确认" in nhf["final_action_display"]["review_reasons"]
+    assert "技术确认偏弱，需条件复核" in nhf["final_action_display"]["review_reasons"]
+    assert nhf["final_action_display"]["confirmation_gap"] is True
+
+
+def test_strong_consistent_action_is_not_marked_as_weak_confirmation():
+    result = _result(
+        code="GMG.AX",
+        name="GMG",
+        final_decision="BUY",
+        position_action="ADD",
+        current_weight=0.18,
+        target_weight=0.22,
+        delta_amount=4000.0,
+        operation_advice="看多，按计划复核",
+        trend_prediction="强势上行",
+        technical_analysis="多头排列，量能充足",
+        fundamental_analysis="估值稳定",
+        news_summary="无重大新增风险",
+        backtest_summary={"sample_size": 30, "win_rate_pct": 55},
+    )
+
+    summary = _summary([result])
+    display = summary["actionable_items"][0]["final_action_display"]
+
+    assert summary["action_counts"]["add"] == 1
+    assert summary["action_counts"]["total_actions"] == 1
+    assert display["confirmation_gap"] is False
+    assert "AI 补充偏观望，需二次确认" not in display["review_reasons"]
+    assert "技术确认偏弱，需条件复核" not in display["review_reasons"]
+    assert "风险仓位试算与目标仓位差异较大" not in display["review_reasons"]
+    assert display["review_reasons"] == ["公告未检查，执行前复核"]
 
 
 def test_dashboard_report_renders_evidence_summary_and_detail_table(monkeypatch):

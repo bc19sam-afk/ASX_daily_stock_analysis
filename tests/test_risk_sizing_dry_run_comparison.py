@@ -81,6 +81,8 @@ def test_dry_run_comparison_renders_without_changing_action_fields():
     assert item["target_weight"] == 0.20
     assert item["delta_amount"] == 20000.0
     assert item["final_action_display"]["position_action"] == "OPEN"
+    assert item["final_action_display"]["confirmation_gap"] is True
+    assert "风险仓位试算与目标仓位差异较大" in item["final_action_display"]["review_reasons"]
 
     comparison = summary["risk_sizing_comparison"]["BHP.AX"]
     assert comparison["mode"] == "dry_run"
@@ -96,6 +98,8 @@ def test_dry_run_comparison_renders_without_changing_action_fields():
     assert "当前系统目标仓位 20.00%" in report
     assert "风险上限候选仓位 10.00%" in report
     assert "Dry Run，仅供人工复核，不改变今日 deterministic action" in report
+    assert "需二次确认" in report
+    assert "风险仓位试算与目标仓位差异较大" in report
 
 
 def test_blocked_item_gets_unavailable_comparison_and_stays_blocked():
@@ -152,3 +156,20 @@ def test_dry_run_comparison_keeps_close_only_context_and_action_counts():
     assert summary["actionable_items"][0]["target_weight"] == 0.20
     assert summary["actionable_items"][0]["delta_amount"] == 20000.0
     assert "**价格来源**：全部使用昨收数据；技术基准日 2026-05-04" in report
+
+
+def test_old_summary_without_review_fields_still_renders_dashboard():
+    summary = _summary([_result()])
+    legacy_summary = dict(summary)
+    legacy_item = dict(summary["actionable_items"][0])
+    legacy_display = dict(legacy_item["final_action_display"])
+    legacy_display.pop("review_reasons", None)
+    legacy_display.pop("confirmation_gap", None)
+    legacy_display.pop("review_label", None)
+    legacy_item["final_action_display"] = legacy_display
+    legacy_summary["actionable_items"] = [legacy_item]
+
+    dashboard = "\n".join(render_preopen_decision_dashboard(legacy_summary))
+
+    assert "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 | 复核提示 |" in dashboard
+    assert "BHP (BHP.AX)" in dashboard

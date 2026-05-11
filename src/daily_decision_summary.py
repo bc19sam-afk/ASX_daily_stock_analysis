@@ -9,7 +9,7 @@ to reinterpret or change any action.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from src.core.validator import normalize_validation_status
 from src.backtest_confidence import (
@@ -54,6 +54,23 @@ DEFAULT_ACTIONABLE_DELTA_AMOUNT = 20.0
 HOMEPAGE_ACTIONABLE_LIMIT = 5
 HOMEPAGE_RISK_LIMIT = 5
 TRIAGE_CARD_PREVIEW_LIMIT = 2
+RISK_SIZING_REVIEW_DIFF_WEIGHT = 0.02
+AI_CAUTION_TERMS = ("观望", "持有", "震荡", "等待", "条件化观察")
+TECHNICAL_WEAK_TERMS = (
+    "趋势弱",
+    "趋势转弱",
+    "趋势偏弱",
+    "弱势",
+    "均线缠绕",
+    "均线粘合",
+    "均线纠缠",
+    "非多头",
+    "量能弱",
+    "成交量萎缩",
+    "多头排列: 否",
+    "多头排列：否",
+)
+EVIDENCE_GAP_STATUSES = {"missing", "stale", "not_checked", "unavailable"}
 EXECUTION_CHECKLIST = [
     "确认报告为昨收计划 / 开盘前计划，技术信号基于已收盘日线。",
     "开盘后执行前复核实时价格、盘口流动性和重大新闻。",
@@ -145,6 +162,127 @@ def _build_item(
         format_validation_issue_text=format_validation_issue_text,
     )
     return item
+
+
+def _attach_action_review_reasons(
+    *,
+    actionable_items: List[Dict[str, Any]],
+    result_by_code: Dict[str, Any],
+    evidence_matrix: Dict[str, List[Dict[str, Any]]],
+    risk_sizing_comparison: Dict[str, Dict[str, Any]],
+) -> None:
+    """Attach display-only review prompts without changing canonical actions."""
+    for item in actionable_items:
+        display = item.get("final_action_display")
+        if not isinstance(display, dict):
+            continue
+        code = _normalize_stock_code(item.get("code"))
+        result = result_by_code.get(code)
+        reasons, confirmation_gap = _build_review_reasons(
+            item=item,
+            result=result,
+            evidence_entries=evidence_matrix.get(code, []),
+            risk_sizing_comparison=risk_sizing_comparison.get(code) if isinstance(risk_sizing_comparison, dict) else None,
+        )
+        display["review_reasons"] = reasons
+        display["confirmation_gap"] = confirmation_gap
+        display["review_label"] = "需二次确认" if confirmation_gap else ("执行前复核" if reasons else "无明显复核缺口")
+        display["display_only"] = True
+
+
+def _build_review_reasons(
+    *,
+    item: Dict[str, Any],
+    result: Any,
+    evidence_entries: List[Dict[str, Any]],
+    risk_sizing_comparison: Optional[Dict[str, Any]],
+) -> Tuple[List[str], bool]:
+    """Build human-facing review reasons from existing artifacts only."""
+    if str(item.get("position_action") or "").upper() not in {"OPEN", "ADD"}:
+        return [], False
+    if normalize_validation_status(getattr(result, "validation_status", None)) == "BLOCK":
+        return [], False
+
+    reasons: List[str] = []
+    confirmation_gap = False
+
+    if _ai_commentary_is_cautious(result):
+        _append_unique(reasons, "AI 补充偏观望，需二次确认")
+        confirmation_gap = True
+
+    if _technical_context_is_weak(result):
+        _append_unique(reasons, "技术确认偏弱，需条件复核")
+        confirmation_gap = True
+
+    if _risk_sizing_differs_significantly(risk_sizing_comparison):
+        _append_unique(reasons, "风险仓位试算与目标仓位差异较大")
+        confirmation_gap = True
+
+    evidence_confirmation_gap = _append_evidence_review_reasons(reasons, evidence_entries)
+    confirmation_gap = confirmation_gap or evidence_confirmation_gap
+    return reasons, confirmation_gap
+
+
+def _ai_commentary_is_cautious(result: Any) -> bool:
+    text = _normalize_review_text(getattr(result, "operation_advice", "") if result is not None else "")
+    return bool(text and any(term in text for term in AI_CAUTION_TERMS))
+
+
+def _technical_context_is_weak(result: Any) -> bool:
+    if result is None:
+        return False
+    technical_text = _normalize_review_text(
+        " ".join(
+            str(value or "")
+            for value in (
+                getattr(result, "trend_prediction", ""),
+                getattr(result, "technical_analysis", ""),
+            )
+        )
+    )
+    if not technical_text:
+        return False
+    if any(term in technical_text for term in TECHNICAL_WEAK_TERMS):
+        return True
+    if "震荡" in technical_text and "上行" not in technical_text and "偏强" not in technical_text:
+        return True
+    return False
+
+
+def _risk_sizing_differs_significantly(comparison: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(comparison, dict) or comparison.get("would_change_target") is not True:
+        return False
+    difference = comparison.get("difference_weight")
+    if difference is None:
+        return True
+    return abs(_safe_float(difference)) >= RISK_SIZING_REVIEW_DIFF_WEIGHT
+
+
+def _append_evidence_review_reasons(reasons: List[str], entries: List[Dict[str, Any]]) -> bool:
+    confirmation_gap = False
+    for entry in entries or []:
+        category = str(entry.get("category") or "")
+        status = str(entry.get("status") or "")
+        if category == "announcement" and status == "not_checked":
+            _append_unique(reasons, "公告未检查，执行前复核")
+            continue
+        if category == "backtest" and status == "not_checked":
+            _append_unique(reasons, "回测证据未检查")
+            confirmation_gap = True
+            continue
+        if category == "valuation" and status in EVIDENCE_GAP_STATUSES:
+            _append_unique(reasons, "估值覆盖缺口")
+            confirmation_gap = True
+    return confirmation_gap
+
+
+def _append_unique(items: List[str], value: str) -> None:
+    if value and value not in items:
+        items.append(value)
+
+
+def _normalize_review_text(value: Any) -> str:
+    return str(value or "").replace("\r\n", " ").replace("\n", " ").strip()
 
 
 def _build_triage_card(
@@ -701,6 +839,17 @@ def build_daily_decision_summary(
         ),
         settings=risk_sizing_settings,
     )
+    result_by_code = {
+        _normalize_stock_code(getattr(result, "code", "")): result
+        for result in decision_results
+        if _normalize_stock_code(getattr(result, "code", ""))
+    }
+    _attach_action_review_reasons(
+        actionable_items=actionable_items,
+        result_by_code=result_by_code,
+        evidence_matrix=evidence_matrix,
+        risk_sizing_comparison=risk_sizing_comparison,
+    )
     triage_card = _build_triage_card(
         actionable_items=actionable_items,
         watch_items=watch_items,
@@ -715,7 +864,7 @@ def build_daily_decision_summary(
     )
 
     return {
-        "schema_version": "daily_decision_summary.v1.7",
+        "schema_version": "daily_decision_summary.v1.8",
         "report_date": report_date,
         "technical_basis_date": technical_basis_date,
         "technical_basis_dates": technical_dates,
@@ -774,15 +923,27 @@ def _action_display_fields(item: Dict[str, Any]) -> Dict[str, str]:
         "action_label": action_label,
         "target_weight": f"{target_weight:.2%}",
         "amount_text": amount_text,
+        "review_text": _action_review_text(item),
     }
+
+
+def _action_review_text(item: Dict[str, Any]) -> str:
+    display = item.get("final_action_display")
+    if not isinstance(display, dict):
+        return ""
+    reasons = [str(reason).strip() for reason in (display.get("review_reasons") or []) if str(reason).strip()]
+    if reasons:
+        label = str(display.get("review_label") or "执行前复核").strip()
+        return f"{label}：{'；'.join(reasons[:2])}"
+    return str(display.get("review_label") or "").strip()
 
 
 def _render_action_table_lines(items: List[Dict[str, Any]]) -> List[str]:
     if not items:
         return []
     lines = [
-        "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 |",
-        "| --- | --- | ---: | ---: |",
+        "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 | 复核提示 |",
+        "| --- | --- | ---: | ---: | --- |",
     ]
     for item in items[:HOMEPAGE_ACTIONABLE_LIMIT]:
         fields = _action_display_fields(item)
@@ -791,7 +952,8 @@ def _render_action_table_lines(items: List[Dict[str, Any]]) -> List[str]:
             f"{_table_cell(fields['name'])} | "
             f"{_table_cell(fields['action_label'])} | "
             f"{_table_cell(fields['target_weight'])} | "
-            f"{_table_cell(fields['amount_text'])} |"
+            f"{_table_cell(fields['amount_text'])} | "
+            f"{_table_cell(fields['review_text'])} |"
         )
     return lines
 
@@ -844,6 +1006,9 @@ def _top_risk_lines(
     *,
     blocked_items: List[Dict[str, Any]],
     flags: List[Dict[str, Any]],
+    report_reliability: Dict[str, Any],
+    risk_sizing_comparison: Dict[str, Dict[str, Any]],
+    evidence_summary: Dict[str, Any],
 ) -> List[str]:
     risk_lines: List[str] = []
     if blocked_items:
@@ -854,7 +1019,28 @@ def _top_risk_lines(
                 risk_lines.append(f"{item.get('name')}：{reason}")
 
     seen = {line for line in risk_lines}
-    for flag in flags:
+    significant_risk_diff_count = _significant_risk_sizing_diff_count(risk_sizing_comparison)
+    if significant_risk_diff_count > 0:
+        line = f"{significant_risk_diff_count} 只股票风险仓位试算与目标仓位差异较大，执行前先复核仓位。"
+        risk_lines.append(line)
+        seen.add(line)
+
+    if _has_evidence_coverage_gap(evidence_summary):
+        line = (
+            "存在公告 / 回测 / 估值覆盖缺口，BLOCK 标的解除前仍只观察。"
+            if blocked_items
+            else "无 validation BLOCK；但仍可能存在公告 / 回测 / 估值覆盖缺口。"
+        )
+        if line not in seen:
+            risk_lines.append(line)
+            seen.add(line)
+
+    reliability_flags = [
+        flag
+        for flag in (report_reliability.get("flags") or [])
+        if str(flag.get("severity") or "").lower() in {"warning", "block"}
+    ]
+    for flag in list(flags) + reliability_flags:
         if blocked_items and str(flag.get("code") or "") == "validation_block":
             continue
         message = str(flag.get("message") or "").strip()
@@ -865,6 +1051,27 @@ def _top_risk_lines(
             break
 
     return risk_lines[:HOMEPAGE_RISK_LIMIT]
+
+
+def _significant_risk_sizing_diff_count(comparisons: Dict[str, Dict[str, Any]]) -> int:
+    if not isinstance(comparisons, dict):
+        return 0
+    return sum(1 for comparison in comparisons.values() if _risk_sizing_differs_significantly(comparison))
+
+
+def _has_evidence_coverage_gap(summary: Dict[str, Any]) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    return any(
+        int(summary.get(key, 0) or 0) > 0
+        for key in (
+            "announcement_not_checked",
+            "announcement_unavailable",
+            "announcement_risk_found",
+            "backtest_not_checked",
+            "valuation_missing",
+        )
+    )
 
 
 def _execution_checklist_inline(checklist: List[str]) -> str:
@@ -981,7 +1188,13 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
             lines.append("- 今日没有明确计划动作；数据不足则观察。")
 
     lines.extend(["", "**主要风险 / 暂停动作**"])
-    risk_lines = _top_risk_lines(blocked_items=blocked_items, flags=flags)
+    risk_lines = _top_risk_lines(
+        blocked_items=blocked_items,
+        flags=flags,
+        report_reliability=summary.get("report_reliability") or {},
+        risk_sizing_comparison=summary.get("risk_sizing_comparison") or {},
+        evidence_summary=summary.get("evidence_summary") or {},
+    )
     if risk_lines:
         for risk_line in risk_lines:
             lines.append(f"- {risk_line}")
