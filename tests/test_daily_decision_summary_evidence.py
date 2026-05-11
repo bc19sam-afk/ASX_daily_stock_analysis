@@ -117,18 +117,18 @@ def test_evidence_gaps_feed_review_reasons_without_changing_summary_actions():
     assert item["position_action"] == "ADD"
     assert item["target_weight"] == 0.25
     assert item["delta_amount"] == 2500.0
-    assert "公告未检查，执行前复核" in review_reasons
+    assert "公告未检查，执行前复核" not in review_reasons
     assert "回测证据未检查" in review_reasons
     assert "估值覆盖缺口" in review_reasons
     assert item["final_action_display"]["confirmation_gap"] is True
 
     evidence = _by_category(summary["evidence_matrix"]["BHP.AX"])
-    assert evidence["announcement"]["status"] == "not_checked"
+    assert "announcement" not in evidence
     assert evidence["valuation"]["status"] == "missing"
     assert evidence["backtest"]["status"] == "not_checked"
 
     dashboard = "\n".join(render_preopen_decision_dashboard(summary))
-    assert "无 validation BLOCK；但仍可能存在公告 / 回测 / 估值覆盖缺口。" in dashboard
+    assert "无 validation BLOCK；但仍可能存在回测 / 估值覆盖缺口。" in dashboard
     assert "未发现阻断（BLOCK）或数据质量风险" not in dashboard
 
 
@@ -157,7 +157,7 @@ def test_blocked_report_with_evidence_gaps_does_not_claim_no_validation_block():
     assert summary["action_counts"]["add"] == 1
     assert summary["action_counts"]["blocked"] == 1
     assert "1 只股票被阻断（BLOCK），已从可执行动作中排除。" in dashboard
-    assert "存在公告 / 回测 / 估值覆盖缺口，BLOCK 标的解除前仍只观察。" in dashboard
+    assert "存在回测 / 估值覆盖缺口，BLOCK 标的解除前仍只观察。" in dashboard
     assert "无 validation BLOCK；但仍可能存在公告 / 回测 / 估值覆盖缺口。" not in dashboard
 
 
@@ -236,7 +236,7 @@ def test_strong_consistent_action_is_not_marked_as_weak_confirmation():
     assert "AI 补充偏观望，需二次确认" not in display["review_reasons"]
     assert "技术确认偏弱，需条件复核" not in display["review_reasons"]
     assert "风险仓位试算与目标仓位差异较大" not in display["review_reasons"]
-    assert display["review_reasons"] == ["公告未检查，执行前复核"]
+    assert display["review_reasons"] == []
 
 
 def test_dashboard_report_renders_evidence_summary_and_detail_table(monkeypatch):
@@ -260,6 +260,7 @@ def test_dashboard_report_renders_evidence_summary_and_detail_table(monkeypatch)
     assert "## 证据质量摘要" in report
     assert "行情数据完整" in report
     assert "新闻证据缺失" in report
+    assert "ASX 官方公告：未检查" not in report
     assert "validation block" in report
     assert "## 个股证据矩阵" in report
     assert "| 标的 | 类别 | 来源 | 时间 | 状态 | 说明 |" in report

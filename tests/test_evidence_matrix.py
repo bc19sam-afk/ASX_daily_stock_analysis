@@ -50,7 +50,7 @@ def test_evidence_matrix_marks_available_and_missing_categories_explicitly():
     assert "market_snapshot.date" in evidence["market_data"]["details"]
     assert evidence["news"]["status"] == "missing"
     assert evidence["valuation"]["status"] == "missing"
-    assert evidence["announcement"]["status"] == "not_checked"
+    assert "announcement" not in evidence
     assert evidence["backtest"]["status"] == "not_checked"
     assert evidence["technical"]["status"] == "available"
     assert evidence["validation"]["status"] == "available"
@@ -93,6 +93,7 @@ def test_evidence_summary_counts_missing_and_block_entries():
     assert summary["stock_count"] == 2
     assert summary["market_data_available"] == 2
     assert summary["news_missing"] == 1
+    assert summary["announcement_not_checked"] == 0
     assert summary["validation_block"] == 1
 
 

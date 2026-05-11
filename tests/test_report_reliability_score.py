@@ -152,7 +152,7 @@ def test_low_reliability_report_renders_observe_only_warning(monkeypatch):
     assert "报告可信度偏低：不建议直接依据本报告执行，仅用于观察和人工复核。" in report
 
 
-def test_homepage_reliability_is_conservative_when_all_announcements_and_backtests_unchecked(monkeypatch):
+def test_homepage_reliability_ignores_absent_announcement_source_but_keeps_backtest_gap(monkeypatch):
     service = NotificationService.__new__(NotificationService)
     service._report_summary_only = False
     service._report_timezone = "Australia/Sydney"
@@ -166,9 +166,10 @@ def test_homepage_reliability_is_conservative_when_all_announcements_and_backtes
     report = service.generate_dashboard_report(results, report_date="2026-05-08")
 
     assert "可直接作为开盘前计划" not in report
-    assert "**报告可信度**：90/100，可作为开盘前人工复核计划" in report
+    assert "**报告可信度**：96/100，可作为开盘前人工复核计划" in report
     assert "等级：可作为开盘前人工复核计划（high）" in report
-    assert "14 只股票 ASX 官方公告未检查" in report
+    assert "ASX 官方公告未检查" not in report
+    assert "ASX 官方公告：未检查" not in report
     assert "14/14 只股票回测证据未检查" in report
 
 

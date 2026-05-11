@@ -191,12 +191,10 @@ def test_daily_summary_announcement_contract_does_not_change_actions():
     assert summary["blocked_items"][0]["code"] == "NAB.AX"
     assert summary["actionable_items"][0]["target_weight"] == 0.25
     assert summary["actionable_items"][0]["delta_amount"] == 2500.0
-    announcement = _by_category(summary["evidence_matrix"]["BHP.AX"])["announcement"]
-    assert announcement["status"] == "not_checked"
-    assert announcement["severity"] == "warning"
+    assert "announcement" not in _by_category(summary["evidence_matrix"]["BHP.AX"])
 
 
-def test_announcement_not_checked_becomes_review_reason_not_action_block():
+def test_default_announcement_not_checked_is_hidden_from_daily_review_reasons():
     result = _result(
         code="BHP.AX",
         operation_advice="看多，按计划复核",
@@ -219,13 +217,11 @@ def test_announcement_not_checked_becomes_review_reason_not_action_block():
     )
 
     item = summary["actionable_items"][0]
-    announcement = _by_category(summary["evidence_matrix"]["BHP.AX"])["announcement"]
-
     assert summary["action_counts"]["add"] == 1
     assert summary["action_counts"]["blocked"] == 0
     assert [blocked["code"] for blocked in summary["blocked_items"]] == []
     assert item["code"] == "BHP.AX"
     assert item["position_action"] == "ADD"
-    assert announcement["status"] == "not_checked"
-    assert "公告未检查，执行前复核" in item["final_action_display"]["review_reasons"]
+    assert "announcement" not in _by_category(summary["evidence_matrix"]["BHP.AX"])
+    assert "公告未检查，执行前复核" not in item["final_action_display"]["review_reasons"]
     assert item["final_action_display"]["confirmation_gap"] is False
