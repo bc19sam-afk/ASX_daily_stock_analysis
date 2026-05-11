@@ -1,17 +1,7 @@
 # ===================================
 # ASX-first 自选股智能分析系统 - Docker 镜像
 # ===================================
-# 多阶段构建：前端打包 + 后端运行
-
-FROM node:20-slim AS web-builder
-
-WORKDIR /app/apps/dsa-web
-
-COPY apps/dsa-web/package.json apps/dsa-web/package-lock.json ./
-RUN npm ci
-
-COPY apps/dsa-web/ ./
-RUN npm run build
+# 后端运行镜像：不在 Docker 构建中打包前端静态资源。
 
 # Pin to bookworm: wkhtmltopdf was removed from Debian testing (2025)
 FROM python:3.11-slim-bookworm
@@ -47,7 +37,6 @@ COPY data_provider/ ./data_provider/
 COPY bot/ ./bot/
 COPY patch/ ./patch/
 COPY src/ ./src/
-COPY --from=web-builder /app/static ./static/
 
 # 创建数据目录
 RUN mkdir -p /app/data /app/logs /app/reports

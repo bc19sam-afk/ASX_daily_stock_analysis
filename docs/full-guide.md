@@ -240,8 +240,8 @@ GitHub Actions 默认每个工作日 **08:00（Australia/Sydney）** 自动执�
 
 ## Docker 部署
 
-Dockerfile 使用多阶段构建，前端会在构建镜像时自动打包并内置到 `static/`。
-如需覆盖静态资源，可挂载本地 `static/` 到容器内 `/app/static`。
+Dockerfile 只构建后端运行镜像，不再在镜像构建时自动打包前端。
+如需让容器托管已有前端静态资源，可手动构建 `static/` 后挂载到容器内 `/app/static`。
 
 ### 快速启动
 
@@ -255,11 +255,11 @@ cp .env.example .env
 vim .env  # 填入 API Key 和配置
 
 # 3. 启动容器
-docker-compose -f ./docker/docker-compose.yml up -d server     # Web 服务模式（推荐，提供 API 与 WebUI）
+docker-compose -f ./docker/docker-compose.yml up -d server     # API 服务模式
 docker-compose -f ./docker/docker-compose.yml up -d analyzer   # 定时任务模式
 docker-compose -f ./docker/docker-compose.yml up -d            # 同时启动两种模式
 
-# 4. 访问 WebUI
+# 4. 访问 API
 # http://localhost:8000
 
 # 5. 查看日志
@@ -270,7 +270,7 @@ docker-compose -f ./docker/docker-compose.yml logs -f server
 
 | 命令 | 说明 | 端口 |
 |------|------|------|
-| `docker-compose -f ./docker/docker-compose.yml up -d server` | Web 服务模式，提供 API 与 WebUI | 8000 |
+| `docker-compose -f ./docker/docker-compose.yml up -d server` | API 服务模式 | 8000 |
 | `docker-compose -f ./docker/docker-compose.yml up -d analyzer` | 定时任务模式，每日自动执行 | - |
 | `docker-compose -f ./docker/docker-compose.yml up -d` | 同时启动两种模式 | 8000 |
 

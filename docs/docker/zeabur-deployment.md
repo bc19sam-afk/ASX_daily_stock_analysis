@@ -57,13 +57,12 @@ Zeabur 会自动检测 `.github/workflows/docker-publish.yml` 文件，并使用
 2. 点击「启动服务」
 3. 服务启动后，你可以在「访问」标签页获取访问地址
 
-### 2.4 前端构建与静态资源
+### 2.4 API 服务与静态资源
 
-FastAPI 会自动托管 `static/` 目录下的前端资源。前端打包输出位置由
-`apps/dsa-web/vite.config.ts` 决定，默认输出到项目根目录 `static/`。
+Docker 镜像默认只提供后端 API 服务，不再在镜像构建时自动打包前端资源。
 
-Dockerfile 已采用多阶段构建，前端会在镜像构建时自动打包。
-如需覆盖默认静态资源，可在宿主机手动构建并挂载到容器内 `/app/static`。
+FastAPI 仍保留静态资源托管能力；如需让容器托管已有前端静态资源，可在宿主机手动构建
+`static/` 并挂载到容器内 `/app/static`。
 
 ## 3. 配置启动命令
 

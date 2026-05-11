@@ -24,7 +24,7 @@ x-common: &common
     - ../logs:/app/logs
     - ../reports:/app/reports
     - ../.env:/app/.env
-    # 如需覆盖前端静态资源，可挂载本地 static 目录
+    # 如需手动提供前端静态资源，可挂载本地 static 目录
     # - ../static:/app/static:ro
 
   environment:
