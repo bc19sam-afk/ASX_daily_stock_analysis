@@ -8,17 +8,17 @@ This document compiles common issues encountered by users and their solutions.
 
 ### Q1: US stock codes (e.g., AMD, AAPL) show incorrect prices during analysis?
 
-**Symptom**: After entering US stock codes, displayed prices are clearly wrong (e.g., AMD showing 7.33 yuan), or being misidentified as A-shares.
+**Symptom**: After entering US stock codes, displayed prices are clearly wrong or follow an unexpected legacy numeric-market route.
 
-**Cause**: Earlier version code matching logic prioritized A-share rules, causing code conflicts.
+**Cause**: Earlier version code matching logic could prioritize legacy numeric-market rules, causing code conflicts.
 
 **Solution**:
-1. Fixed in v2.3.0, system now supports automatic US stock code recognition
-2. If issues persist, set in `.env`:
+1. Fixed in v2.3.0, system now supports automatic US stock code recognition.
+2. Current ASX/AU/US defaults use yfinance. If issues persist, pin the runtime source in `.env`:
    ```bash
-   YFINANCE_PRIORITY=0
+   REALTIME_SOURCE_PRIORITY=yfinance
    ```
-   This prioritizes Yahoo Finance data source for US stock data
+   This keeps the runtime on the Yahoo Finance data path.
 
 > Related Issue: [#153](https://github.com/ZhuLinsen/daily_stock_analysis/issues/153)
 
@@ -28,13 +28,13 @@ This document compiles common issues encountered by users and their solutions.
 
 **Symptom**: Volume ratio data missing in analysis reports, affecting AI's judgment on volume changes.
 
-**Cause**: Some default real-time quote sources (e.g., Sina interface) don't provide volume ratio field.
+**Cause**: Some quote APIs do not provide volume ratio fields.
 
 **Solution**:
 1. Fixed in v2.3.0, Tencent interface now supports volume ratio parsing
-2. Recommended real-time quote source priority:
+2. The current ASX/AU/US default path uses yfinance. To pin it explicitly:
    ```bash
-   REALTIME_SOURCE_PRIORITY=tencent,akshare_sina,efinance,akshare_em
+   REALTIME_SOURCE_PRIORITY=yfinance
    ```
 3. System has built-in 5-day average volume calculation as fallback
 
@@ -42,14 +42,14 @@ This document compiles common issues encountered by users and their solutions.
 
 ---
 
-### Q3: Tushare data fetch failed, showing Token error?
+### Q3: Does the ASX data path require an extra market-data account?
 
-**Symptom**: Log shows `Tushare data fetch failed: Your token is incorrect, please verify`
+**Symptom**: While preparing GitHub Actions or `.env`, it is unclear whether an extra market-data token is required.
 
 **Solution**:
-1. **No Tushare account**: No need to configure `TUSHARE_TOKEN`, system will automatically use free data sources (AkShare, Efinance)
-2. **Have Tushare account**: Verify Token is correct, check in [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638) personal center
-3. All core features of this project work normally without Tushare
+1. The current ASX/AU/US default data path uses yfinance and does not require an extra market-data token.
+2. News search still benefits from `TAVILY_API_KEYS`, `SERPAPI_API_KEYS`, or `BRAVE_API_KEYS`.
+3. AI analysis still requires at least one model API key.
 
 ---
 
@@ -57,7 +57,7 @@ This document compiles common issues encountered by users and their solutions.
 
 **Symptom**: Log shows `Circuit breaker triggered` or data returns `None`
 
-**Cause**: Free data sources (Eastmoney, Sina, etc.) have anti-scraping mechanisms, high-frequency requests get rate-limited.
+**Cause**: External market-data, search, or AI services may return empty results due to temporary rate limits, network issues, or exhausted quota.
 
 **Solution**:
 1. System has built-in multi-source auto-switching and circuit breaker protection

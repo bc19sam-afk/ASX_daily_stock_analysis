@@ -28,13 +28,13 @@
 
 **现象**：分析报告中量比数据缺失，影响 AI 对缩放量的判断。
 
-**原因**：默认的某些实时行情源（如新浪接口）不提供量比字段。
+**原因**：部分行情接口不会返回量比字段。
 
 **解决方案**：
 1. 已在 v2.3.0 修复，腾讯接口现已支持量比解析
-2. 推荐配置实时行情源优先级：
+2. 当前 ASX/AU/US 默认路径使用 yfinance；如需显式固定，可配置：
    ```bash
-   REALTIME_SOURCE_PRIORITY=tencent,akshare_sina,efinance,akshare_em
+   REALTIME_SOURCE_PRIORITY=yfinance
    ```
 3. 系统已内置 5 日均量计算作为兜底逻辑
 
@@ -42,14 +42,14 @@
 
 ---
 
-### Q3: Tushare 获取数据失败，提示 Token 不对？
+### Q3: ASX 数据源需要额外账号吗？
 
-**现象**：日志显示 `Tushare 获取数据失败: 您的token不对，请确认`
+**现象**：准备 GitHub Actions 或 `.env` 时，不确定是否需要配置额外行情源 token。
 
 **解决方案**：
-1. **无 Tushare 账号**：无需配置 `TUSHARE_TOKEN`，系统会自动使用免费数据源（AkShare、Efinance）
-2. **有 Tushare 账号**：确认 Token 是否正确，可在 [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) 个人中心查看
-3. 本项目所有核心功能均可在无 Tushare 的情况下正常运行
+1. 当前 ASX/AU/US 默认数据路径使用 yfinance，无需额外行情源 token。
+2. 搜索新闻仍建议配置 `TAVILY_API_KEYS`、`SERPAPI_API_KEYS` 或 `BRAVE_API_KEYS`。
+3. AI 分析仍需要至少配置一个模型 API key。
 
 ---
 
@@ -57,7 +57,7 @@
 
 **现象**：日志显示 `熔断器触发` 或数据返回 `None`
 
-**原因**：免费数据源（东方财富、新浪等）有反爬机制，短时间大量请求会被限流。
+**原因**：外部行情、搜索或 AI 服务可能因临时限流、网络波动或配额耗尽返回空结果。
 
 **解决方案**：
 1. 系统已内置多数据源自动切换和熔断保护

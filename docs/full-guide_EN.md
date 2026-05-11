@@ -112,7 +112,6 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API (for news search) | Recommended |
 | `BOCHA_API_KEYS` | [Bocha Search](https://open.bocha.cn/) Web Search API (Chinese search optimized, supports AI summaries, multiple keys comma-separated) | Optional |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) Backup search | Optional |
-| `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638) Token | Optional |
 
 #### ✅ Minimum Configuration Example
 
@@ -204,12 +203,6 @@ GitHub Actions default schedule: every weekday at **08:00 Australia/Sydney** for
 | `TAVILY_API_KEYS` | Tavily Search API Key (recommended) | Recommended |
 | `BOCHA_API_KEYS` | Bocha Search API Key (Chinese optimized) | Optional |
 | `SERPAPI_API_KEYS` | SerpAPI Backup search | Optional |
-
-### Data Source Configuration
-
-| Variable | Description | Required |
-|--------|------|:----:|
-| `TUSHARE_TOKEN` | Tushare Pro Token | Optional |
 
 ### Other Configuration
 
@@ -477,24 +470,8 @@ Features:
 
 ## Data Source Configuration
 
-System defaults to AkShare (free), also supports other data sources:
-
-### AkShare (Default)
-- Free, no configuration needed
-- Data source: Eastmoney scraper
-
-### Tushare Pro
-- Requires registration to get Token
-- More stable, more comprehensive data
-- Set `TUSHARE_TOKEN`
-
-### Baostock
-- Free, no configuration needed
-- Used as backup data source
-
-### YFinance
-- Free, no configuration needed
-- Supports US/HK stock data
+The current ASX/AU/US default data path uses yfinance and does not require an extra market-data token.
+News search still benefits from `TAVILY_API_KEYS`, `SERPAPI_API_KEYS`, or `BRAVE_API_KEYS`.
 
 ---
 
@@ -624,7 +601,7 @@ FastAPI provides RESTful API service for configuration management and triggering
 # Health check
 curl http://127.0.0.1:8000/api/health
 
-# Trigger analysis (A-shares)
+# Trigger analysis (ASX)
 curl -X POST http://127.0.0.1:8000/api/v1/analysis/analyze \
   -H 'Content-Type: application/json' \
   -d '{"stock_code": "BHP.AX"}'
@@ -664,8 +641,8 @@ python main.py --serve-only --host 0.0.0.0 --port 8888
 
 | Type | Format | Examples |
 |------|------|------|
-| A-shares | 6-digit number | `600519`, `000001`, `300750` |
-| HK stocks | hk + 5-digit number | `hk00700`, `hk09988` |
+| ASX | Ticker + `.AX` | `BHP.AX`, `CBA.AX`, `CSL.AX` |
+| US | Common US ticker | `AAPL`, `MSFT`, `NVDA` |
 
 ### Notes
 
@@ -681,7 +658,7 @@ python main.py --serve-only --host 0.0.0.0 --port 8888
 A: WeChat Work/Feishu have message length limits, system already auto-segments messages. For complete content, configure Feishu Cloud Document feature.
 
 ### Q: Data fetch failed?
-A: AkShare uses scraping mechanism, may be temporarily rate-limited. System has retry mechanism configured, usually just wait a few minutes and retry.
+A: External market-data, search, or AI services may be temporarily rate-limited. System has retry mechanism configured, usually just wait a few minutes and retry.
 
 ### Q: How to add watchlist stocks?
 A: Modify `STOCK_LIST` environment variable, separate multiple codes with commas.
