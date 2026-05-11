@@ -180,7 +180,7 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "validation BLOCK，仅观察" not in landing
 
     actionable_section = _section_between(landing, "**今日重点股票**", "**主要风险 / 暂停动作**")
-    assert "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 |" in actionable_section
+    assert "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 | 复核提示 |" in actionable_section
     actionable_lines = [
         line for line in actionable_section.splitlines()
         if line.startswith("| ") and not line.startswith("| ---") and "标的" not in line
@@ -241,6 +241,10 @@ def test_triage_card_homepage_uses_plain_chinese_not_developer_jargon(mock_get_d
         "score_bucket_sample",
         "price_basis=",
         "risk_sizing_dry_run_differs",
+        "review_reasons",
+        "confirmation_gap",
+        "risk_sizing_comparison",
+        "evidence_matrix",
         "Top actionable items",
         "Top risks / BLOCK",
         "close_only",
@@ -287,7 +291,7 @@ def test_dashboard_homepage_surfaces_holdings_counts_and_single_line_checklist(m
     landing = _landing_section(report)
 
     assert "**今日动作数量**：买入 2 / 加仓 2 / 减仓 1 / 清仓 1 / 观察 1 / 阻断（BLOCK）1" in landing
-    assert "| BHP (BHP.AX) | 加仓 | 24.00% | 计划投入约 4,000.00 |" in landing
+    assert "| BHP (BHP.AX) | 加仓 | 24.00% | 计划投入约 4,000.00 | 需二次确认：" in landing
     assert "| CSL (CSL.AX) | 减仓 | 12.00% | 计划调出约 6,000.00 |" in landing
     assert "| TLS (TLS.AX) | 清仓 | 0.00% | 计划调出约 12,000.00 |" in landing
     assert "另有 1 只当前持仓未覆盖今日分析" in landing

@@ -331,7 +331,7 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "watch_trigger_rule",
     }
     assert set(summary.keys()) == expected_top_level_keys
-    assert summary["schema_version"] == "daily_decision_summary.v1.7"
+    assert summary["schema_version"] == "daily_decision_summary.v1.8"
     assert set(summary["action_counts"].keys()) == {
         "buy",
         "add",
@@ -370,6 +370,9 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "final_action_display",
     }
     assert summary["actionable_items"][0]["final_action_display"]["actionability"] == "actionable"
+    assert set(summary["actionable_items"][0]["final_action_display"]).issuperset(
+        {"review_reasons", "confirmation_gap", "review_label", "display_only"}
+    )
     cba_item = next(item for item in summary["actionable_items"] if item["code"] == "CBA.AX")
     assert cba_item["reason"] == ""
 
