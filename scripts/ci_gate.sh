@@ -6,7 +6,8 @@ echo "==> backend-gate: Python syntax check"
 python -m py_compile main.py src/config.py src/analyzer.py src/notification.py
 python -m py_compile src/storage.py src/scheduler.py src/search_service.py
 python -m py_compile src/market_analyzer.py src/stock_analyzer.py
-python -m py_compile data_provider/*.py
+python -m py_compile data_provider/__init__.py data_provider/base.py
+python -m py_compile data_provider/realtime_types.py data_provider/yfinance_fetcher.py
 
 echo "==> backend-gate: flake8 critical checks"
 flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics

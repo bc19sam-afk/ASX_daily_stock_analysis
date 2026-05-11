@@ -68,7 +68,6 @@ jobs:
           from src.notification import NotificationService; print('✅ notification')
           from data_provider import DataFetcherManager; print('✅ data_provider')
           from src.analyzer import GeminiAnalyzer; print('✅ analyzer')
-          from patch.eastmoney_patch import eastmoney_patch; print('✅ patch')
           from bot.dispatcher import CommandDispatcher; print('✅ bot')
           from api.app import app; print('✅ api')
           print('✅ All Docker imports OK')

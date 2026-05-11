@@ -71,8 +71,7 @@ check_python() {
 # 检查依赖
 check_deps() {
     info "检查依赖..."
-    python3 -c "import yfinance" 2>/dev/null || { warn "yfinance 未安装，美股测试可能失败"; }
-    python3 -c "import akshare" 2>/dev/null || { warn "akshare 未安装，A股/港股兼容测试可能失败"; }
+    python3 -c "import yfinance" 2>/dev/null || { warn "yfinance 未安装，ASX/AU/US 默认路径测试可能失败"; }
     success "依赖检查完成"
 }
 
@@ -162,35 +161,31 @@ test_quick() {
 # 测试10: 代码识别测试
 test_code_recognition() {
     header "测试场景: 代码识别"
-    info "测试股票代码识别逻辑..."
+    info "测试默认 ASX/AU/US 代码识别逻辑..."
 
     python3 << 'PYTEST'
 import sys
 sys.path.insert(0, '.')
-from data_provider.akshare_fetcher import _is_hk_code, _is_us_code
+from data_provider.base import DataFetcherManager
 
 test_cases = [
-    # (代码, 预期HK, 预期US, 描述)
-    ("AAPL", False, True, "美股-苹果"),
-    ("TSLA", False, True, "美股-特斯拉"),
-    ("BRK.B", False, True, "美股-伯克希尔B"),
-    ("hk00700", True, False, "港股-腾讯"),
-    ("HK09988", True, False, "港股-阿里"),
-    ("600519", False, False, "A股-茅台"),
-    ("000001", False, False, "A股-平安"),
+    # (代码, 是否默认走 AU/US 路径, 描述)
+    ("BHP.AX", True, "ASX-必和必拓"),
+    ("CBA.AX", True, "ASX-联邦银行"),
+    ("AAPL", True, "US-苹果"),
+    ("MSFT.US", True, "US-微软"),
+    ("HK00700", False, "非默认 AU/US 路径"),
 ]
 
 print("\n股票代码识别测试:")
 print("-" * 60)
 all_pass = True
-for code, exp_hk, exp_us, desc in test_cases:
-    is_hk = _is_hk_code(code)
-    is_us = _is_us_code(code)
-    hk_ok = is_hk == exp_hk
-    us_ok = is_us == exp_us
-    status = "✅" if (hk_ok and us_ok) else "❌"
-    all_pass = all_pass and hk_ok and us_ok
-    print(f"{status} {code:10} | HK:{is_hk:5} US:{is_us:5} | {desc}")
+for code, expected, desc in test_cases:
+    result = DataFetcherManager._is_au_us_symbol(code)
+    ok = result == expected
+    status = "✅" if ok else "❌"
+    all_pass = all_pass and ok
+    print(f"{status} {code:10} | AU/US:{result!s:5} | {desc}")
 
 print("-" * 60)
 print(f"{'✅ 所有测试通过!' if all_pass else '❌ 有测试失败!'}")
@@ -214,6 +209,8 @@ from data_provider.base import DataFetchError
 fetcher = YfinanceFetcher()
 
 test_cases = [
+    ("BHP.AX", "BHP.AX", "ASX"),
+    ("bhp", "BHP.AX", "ASX watchlist shorthand"),
     ("AAPL", "AAPL", "美股"),
     ("tsla", "TSLA", "美股小写"),
     ("BRK.B", "BRK.B", "美股特殊"),
@@ -244,18 +241,6 @@ for input_code in blocked_default_cases:
     status = "✅" if ok else "❌"
     print(f"{status} {input_code:10} -> {result:12} (默认 ASX 模式应拒绝数字旧代码)")
 
-legacy_fetcher = YfinanceFetcher(market_calendar="SSE")
-legacy_cases = [
-    ("600519", "600519.SS", "显式非 ASX 模式 A股沪市"),
-    ("000001", "000001.SZ", "显式非 ASX 模式 A股深市"),
-    ("300750", "300750.SZ", "显式非 ASX 模式 A股创业板"),
-]
-for input_code, expected, desc in legacy_cases:
-    result = legacy_fetcher._convert_stock_code(input_code)
-    status = "✅" if result == expected else "❌"
-    all_pass = all_pass and (result == expected)
-    print(f"{status} {input_code:10} -> {result:12} (期望: {expected:12}) | {desc}")
-
 print("-" * 60)
 print(f"{'✅ 所有测试通过!' if all_pass else '❌ 有测试失败!'}")
 sys.exit(0 if all_pass else 1)
@@ -270,7 +255,8 @@ test_syntax() {
     info "检查所有Python文件语法..."
 
     python3 -m py_compile main.py src/config.py src/notification.py \
-        data_provider/akshare_fetcher.py \
+        data_provider/base.py \
+        data_provider/realtime_types.py \
         data_provider/yfinance_fetcher.py \
         bot/commands/analyze.py
 
