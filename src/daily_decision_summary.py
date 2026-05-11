@@ -595,7 +595,7 @@ def build_daily_decision_summary(
     score_bucket_calibration: Optional[Dict[str, Any]] = None,
     risk_sizing_settings: Optional[RiskSizingSettings] = None,
 ) -> Dict[str, Any]:
-    """Build a stable summary for pre-open reporting and future intraday review."""
+    """Build a stable summary for pre-open reporting."""
     successful_results = [r for r in results if not _is_failed_analysis(r)]
     failed_results = [r for r in results if _is_failed_analysis(r)]
     blocked_results = [r for r in successful_results if _is_blocked(r)]

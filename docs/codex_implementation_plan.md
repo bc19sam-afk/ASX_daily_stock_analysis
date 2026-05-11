@@ -11,7 +11,7 @@
 - Stop after opening each PR and wait for review / merge before continuing to the next PR.
 - Do not combine multiple roadmap PRs into one diff.
 - Do not do incidental refactors.
-- Do not mix `intraday_review` into the daily report.
+- Do not mix retired same-day manual review modes into the daily report.
 - Do not connect brokers, automate trading, or write to real trading accounts.
 
 ## Long-Term Project Boundary
@@ -59,7 +59,7 @@ Stop immediately if tests fail and cannot be fixed inside the current PR scope, 
 
 **Do Not Do:**
 
-- Do not connect realtime feeds or implement intraday review.
+- Do not connect realtime feeds or implement same-day manual review modes.
 - Do not change position sizing or position-manager rules.
 - Do not change AI output parsing as a main chain.
 - Do not change workflows, `daily_analysis.yml`, or `close_only`.
@@ -409,17 +409,17 @@ Structure PE, PB, dividend yield, market cap, ROE, and debt-to-equity fields ins
 
 Make ASX news search ASX / Australia / English-first by default while preserving non-ASX and Chinese compatibility as secondary behavior.
 
-## P2 Roadmap - Write Only, Do Not Execute Yet
+## P2 Roadmap - Retired Same-Day Review Items
 
-P2 is for intraday review and long-term feedback loops. It must not be executed until the user confirms after P1.
+P2 originally covered same-day manual checks and long-term feedback loops. Same-day manual review inputs, evaluators, runners, and local JSON review artifacts are retired for the current operating boundary and must not be reintroduced without separate authorization.
 
-### P2-1 Intraday Review Input Contract
+### P2-1 Same-Day Review Input Contract
 
-Define the input/output contract for future independent `intraday_review`, consuming morning summaries without implementing realtime strategy or changing the daily report.
+Retired. Do not maintain a separate same-day review input/output contract for the current ASX daily-report-only workflow.
 
-### P2-2 Intraday Review v1
+### P2-2 Same-Day Review v1
 
-Implement a separate intraday review mode that reads the morning summary and realtime prices to validate whether the morning plan is still valid. Do not merge it into the daily workflow.
+Retired. Do not maintain a separate same-day review mode, local market-input runner, or local JSON/Markdown review artifacts for the current ASX daily-report-only workflow.
 
 ### P2-3 ASX Official Announcement Check Contract
 
@@ -427,7 +427,7 @@ Define a conservative announcement-check abstraction and report display status. 
 
 ### P2-4 Daily Review Journal
 
-Create artifact-based review journals linking morning actions, intraday reviews, manual notes, and later observations. Do not connect brokers or real account records.
+Create artifact-based review journals for morning actions, manual notes, and later observations. Do not connect brokers or real account records.
 
 ## P0 Completion Stop
 

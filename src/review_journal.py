@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Daily review journal artifact helpers.
 
-The journal records morning plans, intraday review artifacts, and user-provided
-notes. It does not connect to brokers, infer real fills, update portfolios, or
-mutate daily decision summaries.
+The journal records morning plans and user-provided notes. It does not connect
+to brokers, infer real fills, update portfolios, or mutate daily decision
+summaries.
 """
 
 from __future__ import annotations
@@ -37,28 +37,10 @@ def build_review_journal_from_summary(
             "updated_at": timestamp,
             "source_summary_path": str(source_summary_path or ""),
             "morning_actions": _morning_actions_from_summary(summary),
-            "intraday_reviews": [],
             "manual_execution_notes": [],
             "post_trade_notes": [],
         }
     }
-
-
-def attach_intraday_review(
-    journal: Mapping[str, Any],
-    intraday_review: Mapping[str, Any],
-    *,
-    source_review_path: str,
-    updated_at: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Append intraday review items without changing recorded morning actions."""
-    updated = _copy_journal_payload(journal)
-    payload = _journal_payload(updated)
-    payload["updated_at"] = str(updated_at or _now_iso())
-    payload.setdefault("intraday_reviews", []).extend(
-        _intraday_review_items(intraday_review, source_review_path=source_review_path)
-    )
-    return updated
 
 
 def append_manual_execution_note(
@@ -102,11 +84,9 @@ def bootstrap_review_journal_from_artifacts(
     *,
     summary_path: str | Path,
     output_dir: Optional[str | Path] = None,
-    intraday_review_path: Optional[str | Path] = None,
     created_at: Optional[str] = None,
-    updated_at: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Create or merge a review journal from local daily and intraday artifacts."""
+    """Create or merge a review journal from a local daily summary artifact."""
     summary_file = Path(summary_path)
     summary = _read_json_object(summary_file)
     output_path = Path(output_dir) if output_dir is not None else summary_file.parent
@@ -115,27 +95,10 @@ def bootstrap_review_journal_from_artifacts(
         source_summary_path=str(summary_file),
         created_at=created_at,
     )
-    review_file = _resolve_intraday_review_path(
-        summary=summary,
-        summary_file=summary_file,
-        intraday_review_path=intraday_review_path,
-    )
-    attached_intraday = False
-    if review_file is not None:
-        journal = attach_intraday_review(
-            journal,
-            _read_json_object(review_file),
-            source_review_path=str(review_file),
-            updated_at=updated_at,
-        )
-        attached_intraday = True
-
     journal_path = write_review_journal_file(journal, output_dir=output_path)
     return {
         "journal_path": str(journal_path),
         "source_summary_path": str(summary_file),
-        "source_intraday_review_path": str(review_file) if review_file is not None else "",
-        "attached_intraday_review": attached_intraday,
         "preserves_manual_notes": True,
         "infers_real_fills": False,
     }
@@ -160,7 +123,6 @@ def build_weekly_review_summary(
     """Build a weekly review summary from local journal artifacts only."""
     journal_payloads = [_journal_payload(journal) for journal in journals]
     action_counts: Counter[str] = Counter()
-    intraday_counts: Counter[str] = Counter()
     manual_note_counts: Counter[str] = Counter()
     followups: Dict[str, set[str]] = defaultdict(set)
 
@@ -172,12 +134,6 @@ def build_weekly_review_summary(
             action_counts[morning_action] += 1
             if validation_status == "BLOCK" or morning_action == "BLOCK":
                 followups[code].add("morning_block")
-        for review in payload.get("intraday_reviews") or []:
-            code = _normalize_code(review.get("code"))
-            status = str(review.get("review_status") or "unknown").strip().lower() or "unknown"
-            intraday_counts[status] += 1
-            if status in {"block", "cancel", "wait", "observe_only"}:
-                followups[code].add(f"intraday_{status}")
         for note in payload.get("manual_execution_notes") or []:
             code = _normalize_code(note.get("code"))
             status = _manual_note_status(str(note.get("status") or "unknown"))
@@ -194,7 +150,6 @@ def build_weekly_review_summary(
             "journal_count": len(journal_payloads),
             "source_journal_paths": list(source_journal_paths or []),
             "morning_action_counts": dict(sorted(action_counts.items())),
-            "intraday_review_counts": dict(sorted(intraday_counts.items())),
             "manual_note_counts": dict(sorted(manual_note_counts.items())),
             "symbols_needing_followup": [
                 {"code": code, "reasons": sorted(reasons)}
@@ -251,23 +206,10 @@ def merge_review_journals(existing: Mapping[str, Any], incoming: Mapping[str, An
 
     if existing_payload.get("created_at"):
         merged_payload["created_at"] = existing_payload["created_at"]
-    for field in ("manual_execution_notes", "post_trade_notes", "intraday_reviews"):
+    for field in ("manual_execution_notes", "post_trade_notes"):
         merged_payload[field] = _append_unique(existing_payload.get(field) or [], incoming_payload.get(field) or [])
     merged_payload["updated_at"] = incoming_payload.get("updated_at") or existing_payload.get("updated_at") or _now_iso()
     return merged
-
-
-def _resolve_intraday_review_path(
-    *,
-    summary: Mapping[str, Any],
-    summary_file: Path,
-    intraday_review_path: Optional[str | Path],
-) -> Optional[Path]:
-    if intraday_review_path is not None:
-        candidate = Path(intraday_review_path)
-        return candidate if candidate.exists() else None
-    candidate = summary_file.parent / f"intraday_review_{_date_slug(summary.get('report_date'))}.json"
-    return candidate if candidate.exists() else None
 
 
 def _read_json_object(path: str | Path) -> Dict[str, Any]:
@@ -317,23 +259,6 @@ def _morning_action_item(item: Mapping[str, Any], *, default_morning_action: Opt
         "delta_amount": item.get("delta_amount"),
         "validation_status": validation_status,
     }
-
-
-def _intraday_review_items(intraday_review: Mapping[str, Any], *, source_review_path: str) -> List[Dict[str, Any]]:
-    items = []
-    for item in intraday_review.get("items") or []:
-        if not isinstance(item, Mapping):
-            continue
-        items.append(
-            {
-                "code": _normalize_code(item.get("code")),
-                "morning_action": str(item.get("morning_action") or "").strip().upper(),
-                "review_status": str(item.get("review_status") or ""),
-                "reason": str(item.get("reason") or ""),
-                "source_review_path": str(source_review_path or ""),
-            }
-        )
-    return items
 
 
 def _journal_payload(journal: Mapping[str, Any]) -> Dict[str, Any]:

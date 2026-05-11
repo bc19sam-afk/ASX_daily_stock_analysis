@@ -8,7 +8,6 @@ from pathlib import Path
 
 from src.review_journal import (
     append_manual_execution_note,
-    attach_intraday_review,
     bootstrap_review_journal_from_artifacts,
     build_weekly_review_summary,
     generate_weekly_review_summary_from_journals,
@@ -63,26 +62,6 @@ def _summary_payload():
     }
 
 
-def _intraday_payload():
-    return {
-        "report_date": "2026-05-06",
-        "items": [
-            {
-                "code": "BHP.AX",
-                "morning_action": "OPEN",
-                "review_status": "still_valid",
-                "reason": "Price deviation inside threshold; manual review only.",
-            },
-            {
-                "code": "NAB.AX",
-                "morning_action": "BLOCK",
-                "review_status": "observe_only",
-                "reason": "Morning BLOCK remains observe-only.",
-            },
-        ],
-    }
-
-
 def test_journal_initializes_from_daily_summary_without_mutating_it():
     summary = _summary_payload()
     original = copy.deepcopy(summary)
@@ -100,7 +79,6 @@ def test_journal_initializes_from_daily_summary_without_mutating_it():
     assert payload["source_summary_path"] == "reports/daily_decision_summary_20260506.json"
     assert payload["created_at"] == "2026-05-06T16:00:00+10:00"
     assert payload["updated_at"] == "2026-05-06T16:00:00+10:00"
-    assert payload["intraday_reviews"] == []
     assert payload["manual_execution_notes"] == []
     assert payload["post_trade_notes"] == []
 
@@ -111,44 +89,6 @@ def test_journal_initializes_from_daily_summary_without_mutating_it():
     assert by_code["BHP.AX"]["delta_amount"] == 10000.0
     assert by_code["NAB.AX"]["validation_status"] == "BLOCK"
     assert by_code["NAB.AX"]["morning_action"] == "BLOCK"
-
-
-def test_journal_attaches_intraday_review_without_changing_morning_actions():
-    journal = build_review_journal_from_summary(
-        _summary_payload(),
-        source_summary_path="reports/daily_decision_summary_20260506.json",
-        created_at="2026-05-06T16:00:00+10:00",
-    )
-    before_actions = copy.deepcopy(journal["review_journal"]["morning_actions"])
-
-    updated = attach_intraday_review(
-        journal,
-        _intraday_payload(),
-        source_review_path="reports/intraday_review_20260506.json",
-        updated_at="2026-05-06T16:30:00+10:00",
-    )
-
-    payload = updated["review_journal"]
-    assert payload["morning_actions"] == before_actions
-    assert payload["updated_at"] == "2026-05-06T16:30:00+10:00"
-    assert payload["intraday_reviews"] == [
-        {
-            "code": "BHP.AX",
-            "morning_action": "OPEN",
-            "review_status": "still_valid",
-            "reason": "Price deviation inside threshold; manual review only.",
-            "source_review_path": "reports/intraday_review_20260506.json",
-        },
-        {
-            "code": "NAB.AX",
-            "morning_action": "BLOCK",
-            "review_status": "observe_only",
-            "reason": "Morning BLOCK remains observe-only.",
-            "source_review_path": "reports/intraday_review_20260506.json",
-        },
-    ]
-
-
 def test_manual_execution_note_is_user_provided_and_append_only():
     journal = build_review_journal_from_summary(
         _summary_payload(),
@@ -223,19 +163,16 @@ def test_journal_file_is_serializable_and_uses_expected_name(tmp_path: Path):
     assert loaded["review_journal"]["report_date"] == "2026-05-06"
 
 
-def test_bootstrap_from_artifacts_merges_intraday_and_preserves_manual_notes(tmp_path: Path):
+def test_bootstrap_from_artifacts_preserves_manual_notes(tmp_path: Path):
     reports_dir = tmp_path / "reports"
     reports_dir.mkdir()
     summary_path = reports_dir / "daily_decision_summary_20260506.json"
-    intraday_path = reports_dir / "intraday_review_20260506.json"
     summary_path.write_text(json.dumps(_summary_payload(), ensure_ascii=False), encoding="utf-8")
-    intraday_path.write_text(json.dumps(_intraday_payload(), ensure_ascii=False), encoding="utf-8")
 
     result = bootstrap_review_journal_from_artifacts(
         summary_path=summary_path,
         output_dir=reports_dir,
         created_at="2026-05-06T16:00:00+10:00",
-        updated_at="2026-05-06T16:30:00+10:00",
     )
     journal_path = Path(result["journal_path"])
     with_note = append_manual_execution_note(
@@ -251,17 +188,13 @@ def test_bootstrap_from_artifacts_merges_intraday_and_preserves_manual_notes(tmp
         summary_path=summary_path,
         output_dir=reports_dir,
         created_at="2026-05-06T18:00:00+10:00",
-        updated_at="2026-05-06T18:30:00+10:00",
     )
     loaded = load_review_journal_file(rerun["journal_path"])
     payload = loaded["review_journal"]
 
-    assert result["attached_intraday_review"] is True
-    assert result["source_intraday_review_path"] == str(intraday_path)
     assert result["infers_real_fills"] is False
     assert payload["created_at"] == "2026-05-06T16:00:00+10:00"
     assert payload["manual_execution_notes"] == with_note["review_journal"]["manual_execution_notes"]
-    assert len(payload["intraday_reviews"]) == 2
 
 
 def test_weekly_review_summary_counts_local_journals_without_inferring_fills(tmp_path: Path):
@@ -269,12 +202,6 @@ def test_weekly_review_summary_counts_local_journals_without_inferring_fills(tmp
         _summary_payload(),
         source_summary_path="reports/daily_decision_summary_20260506.json",
         created_at="2026-05-06T16:00:00+10:00",
-    )
-    first = attach_intraday_review(
-        first,
-        _intraday_payload(),
-        source_review_path="reports/intraday_review_20260506.json",
-        updated_at="2026-05-06T16:30:00+10:00",
     )
     first = append_manual_execution_note(
         first,
@@ -305,8 +232,6 @@ def test_weekly_review_summary_counts_local_journals_without_inferring_fills(tmp
     assert weekly["morning_action_counts"]["OPEN"] == 2
     assert weekly["morning_action_counts"]["HOLD"] == 2
     assert weekly["morning_action_counts"]["BLOCK"] == 2
-    assert weekly["intraday_review_counts"]["still_valid"] == 1
-    assert weekly["intraday_review_counts"]["observe_only"] == 1
     assert weekly["manual_note_counts"]["skipped"] == 1
     assert weekly["real_fills_inferred"] is False
     assert weekly["broker_connected"] is False

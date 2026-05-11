@@ -5,7 +5,6 @@ The daily review journal is a local review artifact for the original roadmap ite
 It records:
 
 - the morning `daily_decision_summary` actions
-- any independent intraday review output
 - user-provided manual execution notes
 - optional post-trade notes
 
