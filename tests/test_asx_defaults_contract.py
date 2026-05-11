@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Regression tests for ASX-first default runtime surfaces."""
 
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 from src.config import Config
@@ -90,6 +93,48 @@ def test_cn_legacy_exposure_is_removed_from_active_examples_and_docs():
     assert "A股" not in full_guide_zh
     assert "A-shares" not in full_guide_en
     assert "A股/港股/美股" not in readme_cht
+
+
+def test_data_provider_default_package_exports_only_asx_path():
+    import data_provider
+
+    assert data_provider.__all__ == [
+        "BaseFetcher",
+        "DataFetcherManager",
+        "YfinanceFetcher",
+    ]
+
+    for legacy_name in [
+        "AkshareFetcher",
+        "TushareFetcher",
+        "BaostockFetcher",
+        "PytdxFetcher",
+        "EfinanceFetcher",
+    ]:
+        assert not hasattr(data_provider, legacy_name)
+
+    code = """
+import json
+import sys
+import data_provider
+
+legacy_modules = [
+    "data_provider.akshare_fetcher",
+    "data_provider.tushare_fetcher",
+    "data_provider.baostock_fetcher",
+    "data_provider.pytdx_fetcher",
+    "data_provider.efinance_fetcher",
+]
+print(json.dumps([name for name in legacy_modules if name in sys.modules]))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(result.stdout) == []
 
 
 def test_public_contract_docs_are_asx_first_with_compatibility_examples():
