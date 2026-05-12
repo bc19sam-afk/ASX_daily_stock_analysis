@@ -99,14 +99,10 @@ docker compose -f docker/docker-compose.yml up -d
 
 Execution/reference price basis is now explicitly configurable via `EXECUTION_PRICE_POLICY`:
 
-- `realtime_if_available` (default): prefer realtime price, fallback to latest close.
-- `close_only`: ignore realtime price and use latest close only.
+- `close_only` (default): ignore realtime price and use latest close only, preserving daily/manual rerun as a previous-close plan.
+- `realtime_if_available`: prefer realtime price, fallback to latest close. Use only when you intentionally want a non-close-only report.
 
-Legacy compatibility:
-
-- If `EXECUTION_PRICE_POLICY` is not set, behavior falls back to `ENABLE_REALTIME_QUOTE`:
-  - `ENABLE_REALTIME_QUOTE=true` → `realtime_if_available`
-  - `ENABLE_REALTIME_QUOTE=false` → `close_only`
+If `EXECUTION_PRICE_POLICY` is unset or invalid, the system fails closed to `close_only`.
 
 ## ASX executable sizing constraints (PR3: executable sizing realism)
 
