@@ -122,6 +122,7 @@ class Config:
     # === 新闻与分析筛选配置 ===
     news_max_age_days: int = 3   # 新闻最大时效（天）
     bias_threshold: float = 5.0  # 乖离率阈值（%），超过此值提示不追高
+    bias_strong_trend_relax_multiplier: float = 1.5  # 强趋势时乖离率阈值最多放宽倍数
     
     # === 通知配置（可同时配置多个，全部推送）===
     
@@ -439,6 +440,10 @@ class Config:
             bocha_api_keys=bocha_api_keys,
             news_max_age_days=max(1, int(os.getenv('NEWS_MAX_AGE_DAYS', '3'))),
             bias_threshold=max(1.0, float(os.getenv('BIAS_THRESHOLD', '5.0'))),
+            bias_strong_trend_relax_multiplier=max(
+                1.0,
+                float(os.getenv('BIAS_STRONG_TREND_RELAX_MULTIPLIER', '1.5')),
+            ),
             tavily_api_keys=tavily_api_keys,
             brave_api_keys=brave_api_keys,
             serpapi_keys=serpapi_keys,
