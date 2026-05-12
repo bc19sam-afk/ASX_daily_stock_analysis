@@ -1182,6 +1182,13 @@ class StockAnalysisPipeline:
             增强后的上下文
         """
         enhanced = context.copy()
+
+        execution_price_policy = str(
+            getattr(self.config, "execution_price_policy", "close_only")
+        ).strip().lower()
+        enhanced["execution_price_policy"] = self._resolve_runtime_execution_price_policy(
+            execution_price_policy=execution_price_policy,
+        )
         
         # 添加股票名称
         if stock_name:

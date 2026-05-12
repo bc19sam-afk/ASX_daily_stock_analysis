@@ -8,6 +8,10 @@
 ## [Unreleased]
 
 ### 修复
+- 🧭 **日报执行价口径默认收敛**
+  - `EXECUTION_PRICE_POLICY` 未设置或非法时保守回退到 `close_only`
+  - 日报分析上下文会记录本次 runtime execution price policy，并在 AI prompt 中披露价格口径约束
+  - 保留显式 `EXECUTION_PRICE_POLICY=realtime_if_available` opt-in，不改变调度、仓位或交易边界
 - 🧩 **Section C 组合闭环说明补全（PR #49）**
   - `Hypothetical Target Allocation` 新增面向用户的闭环说明，明确“已分析标的目标仓位 + 未纳入分析持仓 + 目标现金 + 闭环残差 = 100%”
   - 统一股票代码匹配规范（`strip + upper`），避免 `bhp.ax` / `BHP.AX` 大小写差异导致的分析覆盖与未纳入持仓识别偏差
@@ -46,9 +50,8 @@
   - 约束触发时执行统一回退：动作改为 HOLD，数量/Δ金额/现金字段保持一致
 - 🧭 **执行参考价口径策略（PR2 / PR45 follow-up）**
   - 新增 `EXECUTION_PRICE_POLICY`：支持 `realtime_if_available` 与 `close_only`
-  - 默认 `realtime_if_available`
-  - 兼容旧配置：未设置该项时回退到 `ENABLE_REALTIME_QUOTE`（`true`→`realtime_if_available`，`false`→`close_only`）
-  - 显式值非法时，同样按 `ENABLE_REALTIME_QUOTE` 回退，避免隐藏强制口径
+  - 当前默认 `close_only`；如需实时价参考，需要显式设置 `realtime_if_available`
+  - 未设置或显式值非法时保守回退到 `close_only`
 - 🧾 **GitHub Actions 手工记账工作流**
   - 新增 `Init Portfolio` 手工触发工作流：通过表单一次性初始化现金与最多 5 个持仓，空行自动忽略并拒绝重复代码
   - 新增 `Record Trade` 手工触发工作流：通过表单记录 BUY/SELL、手续费，自动更新 `trade_journal`、`portfolio_positions`、`account_snapshots`

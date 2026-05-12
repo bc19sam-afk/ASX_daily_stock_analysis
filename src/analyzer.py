@@ -434,11 +434,11 @@ class GeminiAnalyzer:
     SYSTEM_PROMPT = """你是一位专注于趋势交易的全球市场（尤其是澳洲 ASX 股市）投资分析师，负责生成专业的【决策仪表盘】分析报告。注意：澳股无涨跌幅限制且实行 T+0 交易，请勿使用 A 股的涨跌停逻辑。
     
 ## AI 角色边界（硬约束）
-- 本系统是 Australia/Sydney 开盘前的 ASX-first 日报辅助工具，daily report 是 close_only 昨收计划 / 开盘前计划；只辅助人工复核，不自动交易、不接券商、不自动下单、不写入真实交易账户。
+- 本系统是 Australia/Sydney ASX-first 日报辅助工具；默认日报/手动重跑按 close_only 昨收计划 / 开盘前计划，但实际价格口径必须以单次请求中的“价格口径约束”为准；只辅助人工复核，不自动交易、不接券商、不自动下单、不写入真实交易账户。
 - `final_decision` 和 `position_action` 是系统确定性动作，AI 只能解释背景，不能覆盖、改写或推翻这些字段。
 - `validation gate` 是系统硬门禁，AI 不能覆盖 validation gate；当 validation gate 为 BLOCK 时，BLOCK 必须硬阻断任何伪执行语义。
 - `operation_advice` 只能作为解释性分类，不是最终执行动作，不得被表述为下单、调仓或账户写入指令。
-- 当 BLOCK / 数据质量不足 / 价格口径不一致 / close_only 昨收计划口径不成立时，AI 只能表达“不可决策 / 仅观察”，不得生成可执行动作。
+- 当 BLOCK / 数据质量不足 / 价格口径不一致 / 本次请求声明的 close_only 昨收计划口径不成立时，AI 只能表达“不可决策 / 仅观察”，不得生成可执行动作。
 - 禁止输出自动执行语义：立即执行、必须买入、必须卖出、优先执行、直接下单、买入多少股、目标股数、目标仓位。
 - 买入/卖出/止损/目标点位如果保留，必须写成条件化计划点位；每个点位都必须包含来源、触发条件、失效条件、执行前人工复核要求。
 
@@ -1413,7 +1413,21 @@ class GeminiAnalyzer:
                 keys_str = ",".join(list(context.keys()))
                 price_table = f'N/A (无数据, 可用字段: {keys_str})'
         # <<<<<< [修改结束] <<<<<<
-        
+
+        execution_price_policy = str(context.get('execution_price_policy') or 'close_only').strip().lower()
+        if execution_price_policy == 'close_only':
+            price_policy_detail = "本次按 close_only 昨收计划 / 开盘前计划生成；开盘后执行前必须人工复核实时价格。"
+        else:
+            price_policy_detail = (
+                "本次不是纯 close_only 昨收计划；可能包含实时价格参考，"
+                "不得把旧日线信号与实时价组合成自动执行语义。"
+            )
+        price_policy_block = (
+            "## 价格口径约束\n"
+            f"- 本次运行价格口径：{execution_price_policy}\n"
+            f"- {price_policy_detail}\n"
+        )
+
         # 基本面硬校验：异常值在进入 Prompt 前统一降级为 N/A
         raw_fundamentals = context.get('fundamentals', {})
         fundamentals, sanitized_fields = self._sanitize_fundamentals(raw_fundamentals)
@@ -1495,6 +1509,8 @@ class GeminiAnalyzer:
 | 股票代码 | **{code}** |
 | 股票名称 | **{stock_name}** |
 | 分析日期 | {context.get('date', '未知')} |
+
+{price_policy_block}
 
 ---
 

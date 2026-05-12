@@ -95,6 +95,15 @@ docker compose -f docker/docker-compose.yml up -d
 
 `--webui` 与 `--webui-only` 仍可使用，但内部会映射到 `--serve` 与 `--serve-only`。
 
+## 执行参考价口径
+
+`EXECUTION_PRICE_POLICY` 用于控制报告中的执行参考价口径：
+
+- `close_only`（默认）：忽略实时价，仅使用最新收盘价，保持日报/手动重跑为昨收计划。
+- `realtime_if_available`：优先使用实时价，缺失时回退最新收盘价；只在明确需要非昨收计划时使用。
+
+如果 `EXECUTION_PRICE_POLICY` 未设置或值非法，系统会保守回退到 `close_only`。
+
 ## 报告输出与持久化产物
 
 当前 `main` 分支输出如下：

@@ -594,9 +594,8 @@ class Config:
         - realtime_if_available
         - close_only
 
-        Backward compatibility:
-        - If EXECUTION_PRICE_POLICY is unset, fallback to ENABLE_REALTIME_QUOTE
-          (true -> realtime_if_available, false -> close_only).
+        Default daily/manual report behavior is close_only. Realtime execution
+        pricing now requires an explicit EXECUTION_PRICE_POLICY opt-in.
         """
         explicit = str(os.getenv("EXECUTION_PRICE_POLICY", "")).strip().lower()
         aliases = {
@@ -611,12 +610,12 @@ class Config:
             if normalized:
                 return normalized
             logger.warning(
-                "Invalid EXECUTION_PRICE_POLICY=%s; fallback to ENABLE_REALTIME_QUOTE compatibility",
+                "Invalid EXECUTION_PRICE_POLICY=%s; fallback to close_only",
                 explicit,
             )
+            return "close_only"
 
-        enable_realtime = os.getenv("ENABLE_REALTIME_QUOTE", "true").lower() == "true"
-        return "realtime_if_available" if enable_realtime else "close_only"
+        return "close_only"
 
     @classmethod
     def reset_instance(cls) -> None:

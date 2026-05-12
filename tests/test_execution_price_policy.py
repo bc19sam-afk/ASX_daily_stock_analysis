@@ -6,13 +6,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from src.analyzer import AnalysisResult
+from src.analyzer import AnalysisResult, GeminiAnalyzer
 from src.config import Config
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.config_registry import get_field_definition
 
 
-def test_config_execution_price_policy_defaults_to_realtime_if_available():
+def test_config_execution_price_policy_defaults_to_close_only_for_daily_reports():
     with tempfile.TemporaryDirectory() as tmp:
         env_path = Path(tmp) / ".env"
         env_path.write_text("STOCK_LIST=BHP.AX\n", encoding="utf-8")
@@ -23,7 +23,7 @@ def test_config_execution_price_policy_defaults_to_realtime_if_available():
         Config.reset_instance()
         try:
             config = Config.get_instance()
-            assert config.execution_price_policy == "realtime_if_available"
+            assert config.execution_price_policy == "close_only"
         finally:
             Config.reset_instance()
             os.environ.pop("ENV_FILE", None)
@@ -82,7 +82,7 @@ def test_config_execution_price_policy_invalid_explicit_falls_back_to_legacy_fal
             os.environ.pop("ENABLE_REALTIME_QUOTE", None)
 
 
-def test_config_execution_price_policy_invalid_explicit_falls_back_to_legacy_true():
+def test_config_execution_price_policy_invalid_explicit_fails_closed():
     with tempfile.TemporaryDirectory() as tmp:
         env_path = Path(tmp) / ".env"
         env_path.write_text(
@@ -96,7 +96,7 @@ def test_config_execution_price_policy_invalid_explicit_falls_back_to_legacy_tru
         Config.reset_instance()
         try:
             config = Config.get_instance()
-            assert config.execution_price_policy == "realtime_if_available"
+            assert config.execution_price_policy == "close_only"
         finally:
             Config.reset_instance()
             os.environ.pop("ENV_FILE", None)
@@ -127,6 +127,38 @@ def test_config_classify_reload_scope_separates_runtime_and_process_start_keys()
 
     assert runtime_refreshable == ["STOCK_LIST"]
     assert process_start == ["EXECUTION_PRICE_POLICY", "LOG_LEVEL", "SCHEDULE_TIME"]
+
+
+def test_analysis_prompt_discloses_runtime_realtime_price_policy():
+    prompt = GeminiAnalyzer(api_key=None)._format_prompt(
+        {
+            "code": "BHP.AX",
+            "date": "2026-04-15",
+            "today": {"close": 118.4},
+            "execution_price_policy": "realtime_if_available",
+            "realtime": {"price": 120.2},
+        },
+        "BHP",
+    )
+
+    assert "本次运行价格口径：realtime_if_available" in prompt
+    assert "本次不是纯 close_only 昨收计划" in prompt
+
+
+def test_analysis_prompt_discloses_close_only_daily_plan():
+    prompt = GeminiAnalyzer(api_key=None)._format_prompt(
+        {
+            "code": "BHP.AX",
+            "date": "2026-04-15",
+            "today": {"close": 118.4},
+            "execution_price_policy": "close_only",
+            "realtime": {"price": 120.2},
+        },
+        "BHP",
+    )
+
+    assert "本次运行价格口径：close_only" in prompt
+    assert "本次按 close_only 昨收计划 / 开盘前计划生成" in prompt
 
 
 def test_runtime_execution_price_policy_close_only_ignores_realtime_price():
@@ -241,3 +273,22 @@ def test_apply_runtime_price_fields_forces_close_only_before_asx_open():
     assert result.realtime_price == "120.2"
     assert result.current_price == 118.4
     assert result.execution_price_source == "close_only"
+
+
+def test_enhance_context_records_runtime_execution_price_policy_after_open():
+    pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+    pipeline.config = SimpleNamespace(
+        execution_price_policy="realtime_if_available",
+        market_timezone="Australia/Sydney",
+        market_calendar="ASX",
+    )
+    pipeline._now_for_testing = datetime(2026, 4, 15, 0, 30, tzinfo=timezone.utc)
+
+    enhanced = pipeline._enhance_context(
+        {"code": "BHP.AX", "today": {"close": 118.4}},
+        realtime_quote=SimpleNamespace(price=120.2, change_pct=1.2),
+        trend_result=None,
+        stock_name="BHP",
+    )
+
+    assert enhanced["execution_price_policy"] == "realtime_if_available"
