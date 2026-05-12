@@ -1428,6 +1428,12 @@ class GeminiAnalyzer:
             f"- {price_policy_detail}\n"
         )
 
+        config = get_config()
+        total_assets = getattr(config, "total_assets", 0)
+        max_trade_risk_pct = max(0.0, float(getattr(config, "max_trade_risk_pct", 0.005) or 0.0))
+        trade_risk_pct_label = f"{max_trade_risk_pct * 100:.2f}".rstrip("0").rstrip(".")
+        trade_risk_budget_amount = round(total_assets * max_trade_risk_pct, 2)
+
         # 基本面硬校验：异常值在进入 Prompt 前统一降级为 N/A
         raw_fundamentals = context.get('fundamentals', {})
         fundamentals, sanitized_fields = self._sanitize_fundamentals(raw_fundamentals)
@@ -1582,8 +1588,8 @@ class GeminiAnalyzer:
 
 ## 💰 第四阶段：风险仓位控制 (Risk Control)
 **量化要求**：
-1. **本金基数**：当前账户总本金为 {get_config().total_assets} AUD。
-2. **风险红线**：单笔交易最大允许亏损为总本金的 1%（即 {get_config().total_assets * 0.01} AUD）。
+1. **本金基数**：当前账户总本金为 {total_assets} AUD。
+2. **风险红线**：单笔交易最大允许亏损为总本金的 {trade_risk_pct_label}%（即 {trade_risk_budget_amount} AUD）。
 3. **仓位计算**：计算 1.5 倍 ATR 的止损空间。(当前14日真实 ATR: **{round(context.get('atr', 0), 4)} AUD**，止损空间 = ATR × 1.5 = **{round(context.get('atr', 0) * 1.5, 4)} AUD**)
 4. **非执行输出边界**：不要输出任何建议买入股数、参考股数、目标股数、几成仓位或百分比仓位。请把风险预算转化为定性风险控制、观察位、入场条件、减仓条件和止损条件。
 

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from src.config import Config
 from src.analyzer import GeminiAnalyzer
 
 
@@ -58,3 +59,41 @@ def test_system_prompt_requires_conditional_plan_points_with_human_review():
     assert "条件化计划点位" in prompt
     for phrase in ["来源", "触发条件", "失效条件", "执行前人工复核"]:
         assert phrase in prompt
+
+
+def _prompt_with_runtime_risk_config(monkeypatch, tmp_path, max_trade_risk_pct=None):
+    env_path = tmp_path / ".env"
+    env_path.write_text("STOCK_LIST=BHP.AX\n", encoding="utf-8")
+
+    monkeypatch.setenv("ENV_FILE", str(env_path))
+    if max_trade_risk_pct is None:
+        monkeypatch.delenv("MAX_TRADE_RISK_PCT", raising=False)
+    else:
+        monkeypatch.setenv("MAX_TRADE_RISK_PCT", str(max_trade_risk_pct))
+
+    Config.reset_instance()
+    try:
+        return GeminiAnalyzer(api_key=None)._format_prompt(
+            {
+                "code": "BHP.AX",
+                "date": "2026-04-15",
+                "today": {"close": 118.4},
+                "execution_price_policy": "close_only",
+            },
+            "BHP",
+        )
+    finally:
+        Config.reset_instance()
+
+
+def test_analysis_prompt_uses_default_half_percent_trade_risk_budget(monkeypatch, tmp_path):
+    prompt = _prompt_with_runtime_risk_config(monkeypatch, tmp_path)
+
+    assert "单笔交易最大允许亏损为总本金的 0.5%（即 50.0 AUD）" in prompt
+    assert "单笔交易最大允许亏损为总本金的 1%" not in prompt
+
+
+def test_analysis_prompt_uses_configured_one_percent_trade_risk_budget(monkeypatch, tmp_path):
+    prompt = _prompt_with_runtime_risk_config(monkeypatch, tmp_path, max_trade_risk_pct=0.01)
+
+    assert "单笔交易最大允许亏损为总本金的 1%（即 100.0 AUD）" in prompt
