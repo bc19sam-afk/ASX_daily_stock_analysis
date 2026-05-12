@@ -1991,7 +1991,6 @@ class NotificationService:
                     trend_data = data_persp.get('trend_status', {})
                     price_data = data_persp.get('price_position', {})
                     vol_data = data_persp.get('volume_analysis', {})
-                    chip_data = data_persp.get('chip_structure', {})
                     
                     report_lines.extend([
                         "### 证据附录（技术/数据）",
@@ -2035,15 +2034,6 @@ class NotificationService:
                                 f"💡 *{volume_meaning}*",
                                 "",
                             ])
-                    # 筹码结构
-                    if chip_data:
-                        chip_health = chip_data.get('chip_health', 'N/A')
-                        chip_emoji = "✅" if chip_health == "健康" else ("⚠️" if chip_health == "一般" else "🚨")
-                        report_lines.extend([
-                            f"**筹码**: 获利比例 {chip_data.get('profit_ratio', 'N/A')} | 平均成本 {chip_data.get('avg_cost', 'N/A')} | 集中度 {chip_data.get('concentration', 'N/A')} {chip_emoji}{chip_health}",
-                            "",
-                        ])
-                
                 # ========== 作战计划 ==========
                 battle = dashboard.get('battle_plan', {}) if dashboard else {}
                 if battle:

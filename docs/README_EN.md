@@ -35,7 +35,7 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 | Module | Feature | Description |
 |--------|---------|-------------|
 | AI | Decision Dashboard | One-sentence conclusion + precise entry/exit levels + action checklist |
-| Analysis | Multi-dimensional Analysis | Technicals + chip distribution + sentiment + real-time quotes |
+| Analysis | Multi-dimensional Analysis | Technicals + valuation + sentiment + real-time quotes |
 | Market | ASX/AU/US | Current defaults use an ASX watchlist |
 | Review | Market Review | Daily overview, major indices, and macro context |
 | Backtest | AI Backtest Validation | Auto-evaluate historical analysis accuracy, direction win rate, SL/TP hit rates |
