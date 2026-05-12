@@ -24,14 +24,29 @@ from src.config import get_config
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MARKET_TIMEZONE = "Australia/Sydney"
 
-def _now_in_market_tz(market_tz: str) -> datetime:
-    """Get current time in market timezone with graceful fallback."""
+
+def _resolve_market_tz_safe(market_tz: Optional[str]) -> str:
+    """Return a valid market timezone, falling back to Sydney fail-safe."""
+    candidate = (market_tz or DEFAULT_MARKET_TIMEZONE).strip()
     try:
-        return datetime.now(ZoneInfo(market_tz))
+        ZoneInfo(candidate)
+        return candidate
     except Exception as exc:
-        logger.warning("无效市场时区 %s，已回退到系统本地时间: %s", market_tz, exc)
-        return datetime.now()
+        logger.warning(
+            "无效市场时区 %s，已回退到 %s: %s",
+            market_tz,
+            DEFAULT_MARKET_TIMEZONE,
+            exc,
+        )
+        return DEFAULT_MARKET_TIMEZONE
+
+
+def _now_in_market_tz(market_tz: Optional[str]) -> datetime:
+    """Get current time in market timezone with fail-safe fallback to Sydney."""
+    safe_tz = _resolve_market_tz_safe(market_tz)
+    return datetime.now(ZoneInfo(safe_tz))
 
 
 def run_market_review(

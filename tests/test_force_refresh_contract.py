@@ -122,21 +122,34 @@ def test_fetch_and_save_stock_data_uses_market_timezone_for_cache_date(monkeypat
     assert captured["cache_check"][1].isoformat() == "2026-04-28"
 
 
-def test_fetch_and_save_stock_data_fails_when_market_report_date_is_invalid():
+def test_fetch_and_save_stock_data_falls_back_to_sydney_when_market_timezone_invalid(monkeypatch):
     pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
     pipeline.config = SimpleNamespace(market_calendar="ASX", market_timezone="Invalid/Zone")
-    pipeline.db = SimpleNamespace(has_today_data=lambda *args: False)
+    captured = {}
+
+    def fake_now(timezone_name):
+        captured["timezone_name"] = timezone_name
+        return datetime(2026, 4, 29, 8, 0, 0, tzinfo=ZoneInfo("Australia/Sydney"))
+
+    def fake_has_today_data(code, today):
+        captured["cache_check"] = (code, today)
+        return True
 
     def fail_fetch(*args, **kwargs):
-        raise AssertionError("fetcher should not run when cache date cannot be resolved")
+        raise AssertionError("fetcher should not run when safe cache date already exists")
 
+    pipeline.db = SimpleNamespace(has_today_data=fake_has_today_data)
     pipeline.fetcher_manager = SimpleNamespace(get_daily_data=fail_fetch)
+    monkeypatch.setattr("src.core.pipeline._now_in_timezone_safe", fake_now)
 
     success, error, attrs = pipeline.fetch_and_save_stock_data("BHP.AX", force_refresh=False)
 
-    assert success is False
-    assert "无法解析市场报告日期" in error
+    assert success is True
+    assert error is None
     assert attrs == {}
+    assert captured["timezone_name"] == "Australia/Sydney"
+    assert captured["cache_check"][0] == "BHP.AX"
+    assert captured["cache_check"][1].isoformat() == "2026-04-28"
 
 
 def test_dry_run_success_count_uses_market_report_date(monkeypatch):
