@@ -39,19 +39,34 @@ from bot.models import BotMessage
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_MARKET_TIMEZONE = "Australia/Sydney"
 
-def _now_in_timezone_safe(timezone_name: str) -> datetime:
-    """Return timezone-aware now with graceful fallback to local time."""
+
+def _resolve_timezone_name_safe(timezone_name: Optional[str]) -> str:
+    """Return a valid market timezone name, falling back to Sydney fail-safe."""
+    candidate = (timezone_name or DEFAULT_MARKET_TIMEZONE).strip()
     try:
-        return datetime.now(ZoneInfo(timezone_name))
+        ZoneInfo(candidate)
+        return candidate
     except Exception as exc:
-        logger.warning("无效市场时区 %s，已回退到系统本地时间: %s", timezone_name, exc)
-        return datetime.now()
+        logger.warning(
+            "无效市场时区 %s，已回退到 %s: %s",
+            timezone_name,
+            DEFAULT_MARKET_TIMEZONE,
+            exc,
+        )
+        return DEFAULT_MARKET_TIMEZONE
+
+
+def _now_in_timezone_safe(timezone_name: Optional[str]) -> datetime:
+    """Return timezone-aware now with fail-safe fallback to Sydney."""
+    safe_timezone = _resolve_timezone_name_safe(timezone_name)
+    return datetime.now(ZoneInfo(safe_timezone))
 
 
 def _market_report_date_safe(config: Config) -> date:
     """Return the last closed market session used for cache and close-only data."""
-    market_timezone = getattr(config, "market_timezone", "Australia/Sydney")
+    market_timezone = _resolve_timezone_name_safe(getattr(config, "market_timezone", DEFAULT_MARKET_TIMEZONE))
     market_now = _now_in_timezone_safe(market_timezone)
     try:
         return get_market_report_date(
@@ -66,7 +81,7 @@ def _market_report_date_safe(config: Config) -> date:
 
 def _report_run_date_safe(config: Config) -> date:
     """Return the market-local report generation date used for labels."""
-    market_timezone = getattr(config, "market_timezone", "Australia/Sydney")
+    market_timezone = _resolve_timezone_name_safe(getattr(config, "market_timezone", DEFAULT_MARKET_TIMEZONE))
     return _now_in_timezone_safe(market_timezone).date()
 
 
