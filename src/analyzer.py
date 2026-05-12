@@ -1575,11 +1575,7 @@ class GeminiAnalyzer:
 | MA20 | {today.get('ma20', 'N/A')} | 中期趋势线 |
 | 均线形态 | {context.get('ma_status', '未知')} | 多头/空头/缠绕 |
 """
-        # ... (后续代码保持不变，注意不要删掉后面的部分) ...
-        
-        # 记得把 prompt 后面追加的内容接上 (实时行情等)
-        # 只要确保上面这段覆盖了对应的部分即可。
-        
+
         # 添加昨日对比数据
         if 'yesterday' in context:
             volume_change = context.get('volume_change_ratio', 'N/A')
