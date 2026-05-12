@@ -279,13 +279,12 @@ class StockTrendAnalyzer:
         self._analyze_rsi(df, result)
 
         # 7. 生成买入信号
-        # ... 前面的分析逻辑保持不变 ...
         self._generate_signal(result)
 
         # === [最后一步：装填量化数据与历史表] ===
         # 1. 提取最新指标数值
         latest = df.iloc[-1]
-        # 如果你的 _calculate_atr 算出来的列名叫 ATR，这里就能成功取到；取不到就默认给 0.0
+        # ATR 可能在短样本或部分数据源中缺失，缺失时保留 0.0。
         result.atr = float(latest.get('ATR', 0.0)) 
         result.rsi_14 = float(latest.get('RSI_12', 0.0)) 
         
