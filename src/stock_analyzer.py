@@ -12,7 +12,7 @@
 
 技术标准：
 - 多头排列：MA5 > MA10 > MA20
-- 乖离率：(Close - MA5) / MA5 < 5%（不追高）
+- 乖离率：以 Config.bias_threshold 为基础（默认 5%），强趋势最多按配置倍数放宽
 - 量能形态：缩量回调优先
 """
 
@@ -27,6 +27,11 @@ import numpy as np
 from src.config import get_config
 
 logger = logging.getLogger(__name__)
+
+
+def _format_compact_number(value: float) -> str:
+    """Render threshold values without noisy trailing decimals."""
+    return f"{float(value):.2f}".rstrip("0").rstrip(".")
 
 
 class TrendStatus(Enum):
@@ -190,14 +195,14 @@ class StockTrendAnalyzer:
 
     基于用户交易理念实现：
     1. 趋势判断 - MA5>MA10>MA20 多头排列
-    2. 乖离率检测 - 不追高，偏离 MA5 超过 5% 不买
+    2. 乖离率检测 - 以 Config.bias_threshold 为基础，强趋势最多按配置倍数放宽
     3. 量能分析 - 偏好缩量回调
     4. 买点识别 - 回踩 MA5/MA10 支撑
     5. MACD 指标 - 趋势确认和金叉死叉信号
     6. RSI 指标 - 超买超卖判断
     """
     
-    # 交易参数配置（BIAS_THRESHOLD 从 Config 读取，见 _generate_signal）
+    # 交易参数配置（BIAS_THRESHOLD 及强趋势放宽倍数从 Config 读取，见 _generate_signal）
     VOLUME_SHRINK_RATIO = 0.7   # 缩量判断阈值（当日量/5日均量）
     VOLUME_HEAVY_RATIO = 1.5    # 放量判断阈值
     MA_SUPPORT_TOLERANCE = 0.02  # MA 支撑判断容忍度（2%）
@@ -455,7 +460,7 @@ class StockTrendAnalyzer:
         
         乖离率 = (现价 - 均线) / 均线 * 100%
         
-        严进策略：乖离率超过 5% 不追高
+        阈值判断在 _generate_signal 中按 Config.bias_threshold 和强趋势放宽倍数执行。
         """
         price = result.current_price
         
@@ -674,20 +679,28 @@ class StockTrendAnalyzer:
         elif result.trend_status in [TrendStatus.BEAR, TrendStatus.STRONG_BEAR]:
             risks.append(f"⚠️ {result.trend_status.value}，不宜做多")
 
-        # === 乖离率评分（20分，强势趋势补偿）===
+        # === 乖离率评分（20分，强势趋势按配置倍数补偿）===
         bias = result.bias_ma5
         if bias != bias or bias is None:  # NaN or None defense
             bias = 0.0
-        base_threshold = get_config().bias_threshold
+        config = get_config()
+        base_threshold = max(1.0, float(getattr(config, "bias_threshold", 5.0) or 5.0))
+        relax_multiplier = max(
+            1.0,
+            float(getattr(config, "bias_strong_trend_relax_multiplier", 1.5) or 1.5),
+        )
 
-        # Strong trend compensation: relax threshold for STRONG_BULL with high strength
+        # Strong trend compensation: relax threshold for STRONG_BULL with high strength.
         trend_strength = result.trend_strength if result.trend_strength == result.trend_strength else 0.0
         if result.trend_status == TrendStatus.STRONG_BULL and (trend_strength or 0) >= 70:
-            effective_threshold = base_threshold * 1.5
+            effective_threshold = base_threshold * relax_multiplier
             is_strong_trend = True
         else:
             effective_threshold = base_threshold
             is_strong_trend = False
+        base_threshold_label = _format_compact_number(base_threshold)
+        relax_multiplier_label = _format_compact_number(relax_multiplier)
+        effective_threshold_label = _format_compact_number(effective_threshold)
 
         if bias < 0:
             # Price below MA5 (pullback)
@@ -705,21 +718,30 @@ class StockTrendAnalyzer:
             reasons.append(f"✅ 价格贴近MA5({bias:.1f}%)，介入好时机")
         elif bias < base_threshold:
             score += 14
-            reasons.append(f"⚡ 价格略高于MA5({bias:.1f}%)，可小仓介入")
+            reasons.append(
+                f"⚡ 价格略高于MA5({bias:.1f}%，基础阈值 {base_threshold_label}%)，可小仓介入"
+            )
         elif bias > effective_threshold:
             score += 4
-            risks.append(
-                f"❌ 乖离率过高({bias:.1f}%>{effective_threshold:.1f}%)，严禁追高！"
-            )
+            if is_strong_trend:
+                risks.append(
+                    f"❌ 乖离率过高({bias:.1f}%，基础阈值 {base_threshold_label}%，"
+                    f"强趋势放宽上限 {effective_threshold_label}%)，严禁追高！"
+                )
+            else:
+                risks.append(
+                    f"❌ 乖离率过高({bias:.1f}%，基础阈值 {base_threshold_label}%)，严禁追高！"
+                )
         elif bias > base_threshold and is_strong_trend:
             score += 10
             reasons.append(
-                f"⚡ 强势趋势中乖离率偏高({bias:.1f}%)，可轻仓追踪"
+                f"⚡ 强势趋势中乖离率偏高({bias:.1f}%，基础阈值 {base_threshold_label}%，"
+                f"按配置 {relax_multiplier_label}x 放宽至 {effective_threshold_label}%)，可轻仓追踪"
             )
         else:
             score += 4
             risks.append(
-                f"❌ 乖离率过高({bias:.1f}%>{base_threshold:.1f}%)，严禁追高！"
+                f"❌ 乖离率过高({bias:.1f}%，基础阈值 {base_threshold_label}%)，严禁追高！"
             )
 
         # === 量能评分（15分）===

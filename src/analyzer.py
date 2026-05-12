@@ -31,6 +31,11 @@ from src.security_logging import log_sensitive_payload, summarize_sensitive_payl
 logger = logging.getLogger(__name__)
 
 
+def _format_compact_number(value: float) -> str:
+    """Render config percentages without noisy trailing decimals."""
+    return f"{float(value):.2f}".rstrip("0").rstrip(".")
+
+
 class CoreConclusionSchema(BaseModel):
     """dashboard.core_conclusion 最小结构约束。"""
 
@@ -454,7 +459,7 @@ class GeminiAnalyzer:
 
 ### 3. 趋势与波动率 (Trend & Volatility)
 - 澳股蓝筹波动率较低，MA5 > MA10 > MA20 多头排列依然是有效的趋势确认指标。
-- 适当放宽乖离率要求：乖离率 < 8% 即可视为安全区间，不僵化死守 5%。
+- 乖离率判断必须遵循本次分析输入中的“乖离率阈值约束”：基础阈值来自配置，强趋势最多按配置倍数放宽，不得改写成固定安全区间。
 
 ### 4. 风险排查重点 (ASX 专属)
 - **绝对红线**：ASX 官方发布的价格敏感公告（Price Sensitive Announcements）若存在重大利空。
@@ -575,19 +580,19 @@ class GeminiAnalyzer:
 
 ### 强烈买入（80-100分）：
 - ✅ 多头排列：MA5 > MA10 > MA20
-- ✅ 低乖离率：<2%，最佳买点
+- ✅ 低乖离率：明显低于本次基础乖离率阈值，最佳买点
 - ✅ 缩量回调或放量突破
 - ✅ 价格结构健康
 - ✅ 消息面有利好催化
 
 ### 买入（60-79分）：
 - ✅ 多头排列或弱势多头
-- ✅ 乖离率 <5%
+- ✅ 乖离率处于本次基础阈值内
 - ✅ 量能正常
 - ⚪ 允许一项次要条件不满足
 
 ### 观望（40-59分）：
-- ⚠️ 乖离率 >5%（追高风险）
+- ⚠️ 乖离率超过本次基础阈值（强趋势只能按配置倍数放宽）
 - ⚠️ 均线缠绕趋势不明
 - ⚠️ 有风险事件
 
@@ -1433,6 +1438,19 @@ class GeminiAnalyzer:
         max_trade_risk_pct = max(0.0, float(getattr(config, "max_trade_risk_pct", 0.005) or 0.0))
         trade_risk_pct_label = f"{max_trade_risk_pct * 100:.2f}".rstrip("0").rstrip(".")
         trade_risk_budget_amount = round(total_assets * max_trade_risk_pct, 2)
+        bias_threshold = max(1.0, float(getattr(config, "bias_threshold", 5.0) or 5.0))
+        bias_relax_multiplier = max(
+            1.0,
+            float(getattr(config, "bias_strong_trend_relax_multiplier", 1.5) or 1.5),
+        )
+        bias_relaxed_threshold = bias_threshold * bias_relax_multiplier
+        bias_threshold_block = (
+            "## 乖离率阈值约束\n"
+            f"- 基础乖离率阈值：{_format_compact_number(bias_threshold)}%\n"
+            f"- 强趋势最多按配置倍数 {_format_compact_number(bias_relax_multiplier)}x "
+            f"放宽至 {_format_compact_number(bias_relaxed_threshold)}%\n"
+            "- 评分、风险提示和检查清单必须引用本次配置口径，不得改写成固定安全区间。\n"
+        )
 
         # 基本面硬校验：异常值在进入 Prompt 前统一降级为 N/A
         raw_fundamentals = context.get('fundamentals', {})
@@ -1517,6 +1535,7 @@ class GeminiAnalyzer:
 | 分析日期 | {context.get('date', '未知')} |
 
 {price_policy_block}
+{bias_threshold_block}
 
 ---
 
