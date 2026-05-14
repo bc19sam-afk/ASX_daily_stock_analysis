@@ -32,6 +32,7 @@ Daily Stock Analysis 是一个面向人工决策辅助的股票分析与报告�
 - **工作流自动化**
   - `.github/workflows/daily_analysis.yml`：定时/手动分析工作流。
   - `.github/workflows/init-portfolio.yml` 和 `.github/workflows/record-trade.yml`：通过 Actions 表单进行手动账户初始化与交易记录。
+  - `.github/workflows/record-cash.yml`：通过 Actions 表单记录股息、入金或其他现金变动。
 
 ## 安装与运行（当前、已验证路径）
 
@@ -75,6 +76,7 @@ docker compose -f docker/docker-compose.yml up -d
 - 每日/手动分析：`.github/workflows/daily_analysis.yml`。
 - 手动账户初始化：`.github/workflows/init-portfolio.yml`。
 - 手动交易记录：`.github/workflows/record-trade.yml`。
+- 手动现金变动：`.github/workflows/record-cash.yml`。
 - Gemini secrets：
   - 推荐使用 `GEMINI_API_KEYS`，多个 key 用英文逗号分隔；该配置优先于 `GEMINI_API_KEY`
   - 未配置 `GEMINI_API_KEYS` 时，会回退到单个 `GEMINI_API_KEY`

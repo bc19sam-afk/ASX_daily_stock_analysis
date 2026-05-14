@@ -1,35 +1,25 @@
-name: Record Trade
+name: Record Cash
 
 on:
   workflow_dispatch:
     inputs:
+      amount:
+        description: 'Cash movement amount (positive for dividends/deposits, negative for withdrawals/fees)'
+        required: true
+      reason:
+        description: 'Reason for the cash movement'
+        required: true
       code:
-        description: 'Stock code (example: AAPL)'
-        required: true
-      side:
-        description: 'Trade side'
-        required: true
-        type: choice
-        options:
-          - BUY
-          - SELL
-      quantity:
-        description: 'Executed quantity'
-        required: true
-      price:
-        description: 'Executed price'
-        required: true
-      fee:
-        description: 'Fee (default 0)'
+        description: 'Optional source code for the cash movement'
         required: false
-        default: '0'
+        default: 'CASH'
 
 concurrency:
   group: stock-analysis
   cancel-in-progress: false
 
 jobs:
-  record-trade:
+  record-cash:
     runs-on: ubuntu-latest
 
     steps:
@@ -55,15 +45,17 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Record trade from form inputs
+      - name: Record cash movement from form inputs
+        env:
+          CASH_AMOUNT: ${{ github.event.inputs.amount }}
+          CASH_REASON: ${{ github.event.inputs.reason }}
+          CASH_CODE: ${{ github.event.inputs.code }}
         run: |
           mkdir -p data
-          python -m scripts.manual_portfolio_workflows record-trade \
-            --code "${{ github.event.inputs.code }}" \
-            --side "${{ github.event.inputs.side }}" \
-            --quantity "${{ github.event.inputs.quantity }}" \
-            --price "${{ github.event.inputs.price }}" \
-            --fee "${{ github.event.inputs.fee }}"
+          python -m scripts.manual_portfolio_workflows record-cash \
+            --amount "$CASH_AMOUNT" \
+            --reason "$CASH_REASON" \
+            --code "$CASH_CODE"
 
       - name: Save database cache
         uses: actions/cache/save@v4

@@ -11,6 +11,7 @@ def test_cache_key_lineage_is_aligned_across_manual_and_daily_workflows():
     daily = _read(".github/workflows/daily_analysis.yml")
     init_workflow = _read(".github/workflows/init-portfolio.yml")
     record_workflow = _read(".github/workflows/record-trade.yml")
+    cash_workflow = _read(".github/workflows/record-cash.yml")
 
     expected_key = "stock-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}"
     expected_restore_prefix = "stock-db-${{ runner.os }}-${{ github.ref_name }}-"
@@ -18,22 +19,40 @@ def test_cache_key_lineage_is_aligned_across_manual_and_daily_workflows():
     assert f"key: {expected_key}" in daily
     assert f"key: {expected_key}" in init_workflow
     assert f"key: {expected_key}" in record_workflow
+    assert f"key: {expected_key}" in cash_workflow
 
     assert expected_restore_prefix in daily
     assert expected_restore_prefix in init_workflow
     assert expected_restore_prefix in record_workflow
+    assert expected_restore_prefix in cash_workflow
 
 
 def test_cache_path_is_consistent_for_portfolio_db():
     daily = _read(".github/workflows/daily_analysis.yml")
     init_workflow = _read(".github/workflows/init-portfolio.yml")
     record_workflow = _read(".github/workflows/record-trade.yml")
+    cash_workflow = _read(".github/workflows/record-cash.yml")
 
     expected_path_line = "path: data/stock_analysis.db"
 
     assert expected_path_line in daily
     assert expected_path_line in init_workflow
     assert expected_path_line in record_workflow
+    assert expected_path_line in cash_workflow
+
+
+def test_db_cache_writing_workflows_share_concurrency_group():
+    workflows = [
+        _read(".github/workflows/daily_analysis.yml"),
+        _read(".github/workflows/init-portfolio.yml"),
+        _read(".github/workflows/record-trade.yml"),
+        _read(".github/workflows/record-cash.yml"),
+    ]
+
+    for workflow in workflows:
+        assert "concurrency:" in workflow
+        assert "group: stock-analysis" in workflow
+        assert "cancel-in-progress: false" in workflow
 
 
 def test_daily_analysis_uses_timezone_aware_weekday_schedule():

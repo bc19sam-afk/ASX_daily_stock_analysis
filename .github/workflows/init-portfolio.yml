@@ -68,6 +68,10 @@ on:
         required: false
         default: ''
 
+concurrency:
+  group: stock-analysis
+  cancel-in-progress: false
+
 jobs:
   init-portfolio:
     runs-on: ubuntu-latest

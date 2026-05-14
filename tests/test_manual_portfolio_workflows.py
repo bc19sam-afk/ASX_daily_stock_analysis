@@ -9,12 +9,15 @@ from unittest.mock import patch
 
 from src.storage import DatabaseManager
 import scripts.manual_portfolio_workflows as manual_workflows
+from datetime import date, datetime
 from scripts.manual_portfolio_workflows import (
     HoldingInput,
     _parse_holding_rows,
     init_portfolio,
+    record_cash_adjustment,
     record_trade,
 )
+from src.storage import AccountSnapshot, PortfolioPosition
 
 
 class ManualPortfolioWorkflowTestCase(unittest.TestCase):
@@ -46,6 +49,16 @@ class ManualPortfolioWorkflowTestCase(unittest.TestCase):
         positions = self.db.get_portfolio_positions(only_open=True)
         self.assertEqual(len(positions), 2)
 
+    def test_init_portfolio_normalizes_common_asx_suffix_alias(self):
+        init_portfolio(
+            self.db,
+            cash=1000,
+            holdings=[HoldingInput(code="NHF.ASX", quantity=10, avg_cost=20)],
+        )
+
+        self.assertIsNone(self.db.get_portfolio_position("NHF.ASX"))
+        self.assertIsNotNone(self.db.get_portfolio_position("NHF.AX"))
+
     def test_first_buy(self):
         init_portfolio(self.db, cash=1000, holdings=[])
         record_trade(self.db, code="AAA", side="BUY", quantity=10, price=20, fee=0)
@@ -58,6 +71,53 @@ class ManualPortfolioWorkflowTestCase(unittest.TestCase):
         snapshot = self.db.get_latest_account_snapshot()
         self.assertAlmostEqual(snapshot.cash, 800.0, places=2)
         self.assertAlmostEqual(snapshot.equity_value, 200.0, places=2)
+
+    def test_record_trade_normalizes_common_asx_suffix_alias(self):
+        init_portfolio(self.db, cash=1000, holdings=[])
+        record_trade(self.db, code="NHF.ASX", side="BUY", quantity=10, price=20, fee=0)
+
+        self.assertIsNone(self.db.get_portfolio_position("NHF.ASX"))
+        pos = self.db.get_portfolio_position("NHF.AX")
+        self.assertIsNotNone(pos)
+        self.assertAlmostEqual(pos.quantity, 10.0, places=6)
+        journal = self.db.get_trade_journal(limit=10)
+        self.assertEqual(journal[0].code, "NHF.AX")
+
+    def test_record_trade_merges_existing_common_asx_suffix_alias(self):
+        with self.db.get_session() as session:
+            session.add(
+                AccountSnapshot(
+                    snapshot_date=date.today(),
+                    cash=1000.0,
+                    equity_value=200.0,
+                    total_value=1200.0,
+                    note="legacy_alias_fixture",
+                    created_at=datetime.now(),
+                )
+            )
+            session.add(
+                PortfolioPosition(
+                    code="NHF.ASX",
+                    name="NHF.ASX",
+                    quantity=10.0,
+                    avg_cost=20.0,
+                    current_price=20.0,
+                    market_value=200.0,
+                    weight=0.1667,
+                    status="OPEN",
+                    opened_at=datetime.now(),
+                    updated_at=datetime.now(),
+                )
+            )
+            session.commit()
+
+        record_trade(self.db, code="NHF.AX", side="BUY", quantity=5, price=20, fee=0)
+
+        self.assertIsNone(self.db.get_portfolio_position("NHF.ASX"))
+        pos = self.db.get_portfolio_position("NHF.AX")
+        self.assertIsNotNone(pos)
+        self.assertAlmostEqual(pos.quantity, 15.0, places=6)
+        self.assertEqual(pos.name, "NHF.AX")
 
     def test_add_to_existing_position(self):
         init_portfolio(
@@ -113,6 +173,84 @@ class ManualPortfolioWorkflowTestCase(unittest.TestCase):
         snapshot_after_sell = self.db.get_latest_account_snapshot()
         self.assertAlmostEqual(snapshot_after_sell.cash, 1012.0, places=2)
 
+    def test_cash_adjustment_adds_dividend_cash_before_buy(self):
+        init_portfolio(self.db, cash=1940.37, holdings=[])
+
+        record_cash_adjustment(self.db, amount=62.12, reason="LAU Dividend 2026-04-17")
+        record_trade(self.db, code="XRO.AX", side="BUY", quantity=26, price=75.5, fee=3)
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.cash, 36.49, places=2)
+
+        pos = self.db.get_portfolio_position("XRO.AX")
+        self.assertIsNotNone(pos)
+        self.assertAlmostEqual(pos.quantity, 26.0, places=6)
+
+    def test_cash_adjustment_records_cash_only_and_keeps_integrity(self):
+        init_portfolio(self.db, cash=100.0, holdings=[])
+
+        record_cash_adjustment(self.db, amount=25.5, reason="deposit")
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.cash, 125.5, places=2)
+        self.assertAlmostEqual(snapshot.total_value, 125.5, places=2)
+
+        journal = self.db.get_trade_journal(limit=10)
+        self.assertEqual(journal[0].code, "CASH")
+        self.assertIn("manual_cash_adjustment", journal[0].reason)
+        integrity = self.db.check_portfolio_account_integrity()
+        self.assertTrue(integrity["is_valid"], integrity)
+
+    def test_cash_adjustment_source_code_does_not_reconcile_as_stock_trade(self):
+        init_portfolio(
+            self.db,
+            cash=100.0,
+            holdings=[HoldingInput(code="LAU.AX", quantity=10, avg_cost=1)],
+        )
+
+        record_cash_adjustment(
+            self.db,
+            amount=62.12,
+            reason="LAU Dividend 2026-04-17",
+            code="LAU.AX",
+        )
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.cash, 162.12, places=2)
+        pos = self.db.get_portfolio_position("LAU.AX")
+        self.assertIsNotNone(pos)
+        self.assertAlmostEqual(pos.quantity, 10.0, places=6)
+
+        journal = self.db.get_trade_journal(limit=10)
+        self.assertEqual(journal[0].code, "CASH")
+        self.assertIn("source=LAU.AX", journal[0].reason)
+        integrity = self.db.check_portfolio_account_integrity()
+        self.assertTrue(integrity["is_valid"], integrity)
+
+    def test_cash_adjustment_rejects_overdraw_without_mutation(self):
+        init_portfolio(self.db, cash=10.0, holdings=[])
+        snapshot_before = self.db.get_latest_account_snapshot()
+        journal_before = len(self.db.get_trade_journal(limit=10))
+
+        with self.assertRaises(ValueError) as exc:
+            record_cash_adjustment(self.db, amount=-11.0, reason="fee")
+        self.assertIn("negative", str(exc.exception).lower())
+
+        snapshot_after = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot_after.cash, snapshot_before.cash, places=2)
+        self.assertEqual(len(self.db.get_trade_journal(limit=10)), journal_before)
+
+    def test_cash_adjustment_rejects_amount_that_rounds_to_zero(self):
+        init_portfolio(self.db, cash=10.0, holdings=[])
+
+        with self.assertRaises(ValueError) as exc:
+            record_cash_adjustment(self.db, amount=0.004, reason="rounding")
+        self.assertIn("non-zero", str(exc.exception))
+
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.cash, 10.0, places=2)
+        self.assertEqual(len(self.db.get_trade_journal(limit=10)), 0)
+
     def test_buy_exceeding_cash_fails_without_mutation(self):
         init_portfolio(self.db, cash=100.0, holdings=[])
         snapshot_before = self.db.get_latest_account_snapshot()
@@ -135,6 +273,19 @@ class ManualPortfolioWorkflowTestCase(unittest.TestCase):
         args = Namespace(
             code_1="AAA", quantity_1="10", avg_cost_1="10",
             code_2="aaa", quantity_2="5", avg_cost_2="9",
+            code_3="", quantity_3="", avg_cost_3="",
+            code_4="", quantity_4="", avg_cost_4="",
+            code_5="", quantity_5="", avg_cost_5="",
+        )
+
+        with self.assertRaises(ValueError) as exc:
+            _parse_holding_rows(args)
+        self.assertIn("Duplicate code", str(exc.exception))
+
+    def test_init_rejects_duplicate_asx_suffix_aliases(self):
+        args = Namespace(
+            code_1="NHF.ASX", quantity_1="10", avg_cost_1="10",
+            code_2="nhf.ax", quantity_2="5", avg_cost_2="9",
             code_3="", quantity_3="", avg_cost_3="",
             code_4="", quantity_4="", avg_cost_4="",
             code_5="", quantity_5="", avg_cost_5="",

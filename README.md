@@ -32,6 +32,7 @@ The current `main` branch is organized into these modules:
 - **Workflow automation**
   - `.github/workflows/daily_analysis.yml`: scheduled/manual analysis workflow.
   - `.github/workflows/init-portfolio.yml` and `.github/workflows/record-trade.yml`: manual portfolio/account updates via Actions forms.
+  - `.github/workflows/record-cash.yml`: manual dividends, deposits, withdrawals, and other cash movements via Actions forms.
 
 ## Setup (current, verified paths)
 
@@ -75,6 +76,7 @@ docker compose -f docker/docker-compose.yml up -d
 - Daily/manual analysis: `.github/workflows/daily_analysis.yml`.
 - Manual account initialization: `.github/workflows/init-portfolio.yml`.
 - Manual trade recording: `.github/workflows/record-trade.yml`.
+- Manual cash movements: `.github/workflows/record-cash.yml`.
 - Gemini secrets:
   - prefer `GEMINI_API_KEYS` with comma-separated keys; it takes precedence over `GEMINI_API_KEY`
   - fallback to `GEMINI_API_KEY` when `GEMINI_API_KEYS` is unset

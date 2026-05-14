@@ -16,6 +16,7 @@ from typing import Iterable, List
 from sqlalchemy import func, select
 
 from src.storage import AccountSnapshot, DatabaseManager, PortfolioPosition, TradeJournal
+from src.stock_code import canonical_stock_code, stock_code_aliases
 
 
 @dataclass
@@ -35,11 +36,43 @@ def _positive_float(raw: str, *, field_name: str, allow_zero: bool = False) -> f
     return value
 
 
+def _non_zero_float(raw: str, *, field_name: str) -> float:
+    value = round(float(str(raw).strip()), 2)
+    if value == 0:
+        raise ValueError(f"{field_name} must be non-zero")
+    return value
+
+
 def _normalize_code(value: str) -> str:
-    code = (value or "").strip().upper()
+    code = canonical_stock_code(value)
     if not code:
         raise ValueError("code is required")
     return code
+
+
+def _code_aliases(code: str) -> List[str]:
+    return list(stock_code_aliases(_normalize_code(code)))
+
+
+def _get_position_for_code_in_session(session, code: str) -> PortfolioPosition | None:
+    normalized = _normalize_code(code)
+    rows = (
+        session.execute(
+            select(PortfolioPosition).where(PortfolioPosition.code.in_(_code_aliases(normalized)))
+        )
+        .scalars()
+        .all()
+    )
+    if len(rows) > 1:
+        raise ValueError(f"Duplicate alias positions detected for {normalized}; please reconcile manually.")
+    row = rows[0] if rows else None
+    if row is not None and row.code != normalized:
+        old_code = row.code
+        row.code = normalized
+        if row.name == old_code:
+            row.name = normalized
+        session.flush()
+    return row
 
 
 def _position_action(before_qty: float, after_qty: float) -> str:
@@ -90,9 +123,8 @@ def _upsert_position_in_session(
     market_value: float,
 ) -> None:
     now = datetime.now()
-    row = session.execute(
-        select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
-    ).scalar_one_or_none()
+    code = _normalize_code(code)
+    row = _get_position_for_code_in_session(session, code)
 
     if row is None:
         row = PortfolioPosition(
@@ -161,6 +193,19 @@ def _upsert_snapshot_in_session(
     row.note = note
 
 
+def _refresh_open_position_weights_in_session(session, *, total_value: float) -> None:
+    rows = (
+        session.execute(select(PortfolioPosition).where(PortfolioPosition.status == "OPEN"))
+        .scalars()
+        .all()
+    )
+    now = datetime.now()
+    for row in rows:
+        market_value = float(row.market_value or 0.0)
+        row.weight = round(market_value / total_value, 4) if total_value > 0 else 0.0
+        row.updated_at = now
+
+
 def _parse_holding_rows(args: argparse.Namespace) -> List[HoldingInput]:
     rows: List[HoldingInput] = []
     seen_codes = set()
@@ -194,7 +239,15 @@ def _parse_holding_rows(args: argparse.Namespace) -> List[HoldingInput]:
 
 def init_portfolio(db: DatabaseManager, *, cash: float, holdings: Iterable[HoldingInput]) -> None:
     cash = round(float(cash), 2)
-    holdings = list(holdings)
+    normalized_holdings: List[HoldingInput] = []
+    seen_codes = set()
+    for row in holdings:
+        code = _normalize_code(row.code)
+        if code in seen_codes:
+            raise ValueError(f"Duplicate code detected in Init Portfolio rows: {code}")
+        seen_codes.add(code)
+        normalized_holdings.append(HoldingInput(code=code, quantity=row.quantity, avg_cost=row.avg_cost))
+    holdings = normalized_holdings
     if not holdings and cash <= 0:
         raise ValueError("Provide positive cash and/or at least one holding")
 
@@ -236,6 +289,83 @@ def init_portfolio(db: DatabaseManager, *, cash: float, holdings: Iterable[Holdi
             session.commit()
 
 
+def record_cash_adjustment(
+    db: DatabaseManager,
+    *,
+    amount: float,
+    reason: str,
+    code: str = "CASH",
+) -> None:
+    source_code = _normalize_code(code or "CASH")
+    journal_code = "CASH"
+    amount = _non_zero_float(str(amount), field_name="amount")
+    reason_text = (reason or "").strip() or "manual cash adjustment"
+
+    with db.get_portfolio_write_lock():
+        with db.get_session() as session:
+            db.begin_portfolio_write_transaction(session)
+            _ensure_initialized_in_session(session)
+
+            latest = session.execute(
+                select(AccountSnapshot)
+                .order_by(AccountSnapshot.snapshot_date.desc(), AccountSnapshot.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            cash_before = round(float(latest.cash) if latest else 0.0, 2)
+            cash_after = round(cash_before + amount, 2)
+            if cash_after < 0:
+                raise ValueError(
+                    "Cash adjustment rejected: cash would become negative. "
+                    f"Amount {amount:.2f}, available cash {cash_before:.2f}."
+                )
+
+            open_positions = session.execute(
+                select(PortfolioPosition).where(PortfolioPosition.status == "OPEN")
+            ).scalars().all()
+            equity_after = round(sum(float(p.market_value or 0.0) for p in open_positions), 2)
+            total_after = round(cash_after + equity_after, 2)
+            _refresh_open_position_weights_in_session(session, total_value=total_after)
+
+            session.add(
+                TradeJournal(
+                    query_id="manual_cash_workflow",
+                    code=journal_code,
+                    action_date=date.today(),
+                    action="HOLD",
+                    final_decision="CASH",
+                    market_regime="MANUAL",
+                    event_risk="NA",
+                    data_quality_flag="MANUAL",
+                    current_weight=0.0,
+                    target_weight=0.0,
+                    delta_amount=amount,
+                    current_quantity=0.0,
+                    target_quantity=0.0,
+                    current_price=None,
+                    available_cash_before=cash_before,
+                    available_cash_after=cash_after,
+                    reason=f"manual_cash_adjustment amount={amount:.2f}; source={source_code}; {reason_text}",
+                    created_at=datetime.now(),
+                )
+            )
+
+            _upsert_snapshot_in_session(
+                session,
+                snapshot_date=date.today(),
+                cash=cash_after,
+                equity_value=equity_after,
+                total_value=total_after,
+                note="updated_by_manual_cash_workflow",
+            )
+
+            integrity = db.check_portfolio_account_integrity(session=session, journal_code=journal_code)
+            if not integrity["is_valid"]:
+                detail = "; ".join(integrity["errors"])
+                raise ValueError(f"Manual cash adjustment aborted by integrity check: {detail}")
+
+            session.commit()
+
+
 def record_trade(
     db: DatabaseManager,
     *,
@@ -267,9 +397,7 @@ def record_trade(
             cash_before = float(latest.cash) if latest else 0.0
             total_before = float(latest.total_value) if latest else 0.0
 
-            existing = session.execute(
-                select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
-            ).scalar_one_or_none()
+            existing = _get_position_for_code_in_session(session, code)
             before_qty = float(existing.quantity) if existing else 0.0
             before_avg = float(existing.avg_cost) if existing else 0.0
             before_price = float(existing.current_price) if existing and existing.current_price else price
@@ -385,6 +513,11 @@ def _build_parser() -> argparse.ArgumentParser:
     trade_cmd.add_argument("--price", required=True)
     trade_cmd.add_argument("--fee", default="0")
 
+    cash_cmd = sub.add_parser("record-cash", help="Record a manual cash movement")
+    cash_cmd.add_argument("--amount", required=True)
+    cash_cmd.add_argument("--reason", required=True)
+    cash_cmd.add_argument("--code", default="CASH", help="Optional source code for the cash movement")
+
     return parser
 
 
@@ -410,6 +543,16 @@ def main() -> int:
             fee=float(args.fee),
         )
         print(f"Recorded {args.side.upper()} trade for {args.code.upper()}.")
+        return 0
+
+    if args.command == "record-cash":
+        record_cash_adjustment(
+            db,
+            amount=float(args.amount),
+            reason=args.reason,
+            code=args.code,
+        )
+        print(f"Recorded cash adjustment of {float(args.amount):.2f}.")
         return 0
 
     raise ValueError(f"Unsupported command: {args.command}")
