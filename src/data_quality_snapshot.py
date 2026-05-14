@@ -6,6 +6,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+from src.stock_code import canonical_stock_code
+
 
 VALUATION_FIELDS = ("pe_ttm", "pe_forward", "pb", "dividend_yield", "market_cap")
 SNAPSHOT_ATTENTION_LIMIT = 3
@@ -300,4 +302,4 @@ def _has_value(value: Any) -> bool:
 
 
 def _normalize_code(code: Any) -> str:
-    return str(code or "").strip().upper()
+    return canonical_stock_code(code)

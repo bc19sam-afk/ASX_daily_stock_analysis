@@ -239,6 +239,64 @@ def test_strong_consistent_action_is_not_marked_as_weak_confirmation():
     assert display["review_reasons"] == []
 
 
+def test_daily_summary_matches_asx_suffix_alias_in_raw_overview():
+    result = _result(
+        code="NHF.AX",
+        name="NHF",
+        final_decision="HOLD",
+        position_action="HOLD",
+        current_weight=0.2,
+        target_weight=0.2,
+    )
+
+    summary = build_daily_decision_summary(
+        results=[result],
+        report_date="2026-04-29",
+        generated_at=datetime(2026, 4, 29, 7, 30, tzinfo=ZoneInfo("Australia/Sydney")),
+        overview={"cash": 10000.0, "holdings": [{"code": "NHF.ASX", "weight": 0.2}]},
+        get_primary_action_model=_model,
+        classify_price_basis=lambda item: item.execution_price_source,
+        format_stock_display_name=lambda name, code: f"{name} ({code})",
+        format_validation_issue_text=lambda item: "；".join(item.validation_issues or []),
+    )
+
+    assert summary["uncovered_holdings"] == []
+    assert summary["watch_items"][0]["code"] == "NHF.AX"
+    assert summary["watch_items"][0]["is_current_holding"] is True
+    assert not any(flag["code"] == "uncovered_holding" for flag in summary["data_quality_flags"])
+    evidence = _by_category(summary["evidence_matrix"]["NHF.AX"])
+    assert evidence["portfolio"]["status"] == "available"
+    assert evidence["portfolio"]["source"] == "portfolio_overview"
+
+
+def test_data_quality_snapshot_uses_asx_alias_for_evidence_lookup():
+    result = _result(
+        code="NHF.ASX",
+        name="NHF",
+        final_decision="HOLD",
+        position_action="HOLD",
+        current_weight=0.2,
+        target_weight=0.2,
+        market_snapshot={"date": "2026-04-28", "close": "6.58", "source": "yfinance"},
+    )
+
+    summary = build_daily_decision_summary(
+        results=[result],
+        report_date="2026-04-29",
+        generated_at=datetime(2026, 4, 29, 7, 30, tzinfo=ZoneInfo("Australia/Sydney")),
+        overview={"cash": 10000.0, "holdings": [{"code": "NHF.AX", "weight": 0.2}]},
+        get_primary_action_model=_model,
+        classify_price_basis=lambda item: item.execution_price_source,
+        format_stock_display_name=lambda name, code: f"{name} ({code})",
+        format_validation_issue_text=lambda item: "；".join(item.validation_issues or []),
+    )
+
+    assert set(summary["evidence_matrix"].keys()) == {"NHF.AX"}
+    assert summary["data_quality_snapshot"]["market_data"]["available_count"] == 1
+    assert summary["data_quality_snapshot"]["market_data"]["missing_or_stale_count"] == 0
+    assert summary["data_quality_snapshot"]["market_data"]["attention"] == []
+
+
 def test_dashboard_report_renders_evidence_summary_and_detail_table(monkeypatch):
     service = NotificationService.__new__(NotificationService)
     service._report_summary_only = False

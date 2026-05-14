@@ -190,6 +190,60 @@ class GetLatestDataTestCase(unittest.TestCase):
         self.assertEqual(rows[0].date, trade_date)
         self.assertTrue(str(rows[0].data_source).startswith("writer-"))
 
+    def test_get_latest_data_deduplicates_legacy_asx_alias_rows_by_date(self) -> None:
+        """同一交易日存在 .AX/.ASX 旧重复行时，最近数据只返回一个交易日。"""
+        with self.db.get_session() as session:
+            session.add_all([
+                StockDaily(code="NHF.ASX", date=date(2026, 5, 13), open=9.0, high=10.0, low=8.0, close=9.5, volume=900),
+                StockDaily(code="NHF.AX", date=date(2026, 5, 13), open=10.0, high=11.0, low=9.0, close=10.5, volume=1000),
+                StockDaily(code="NHF.AX", date=date(2026, 5, 12), open=8.0, high=9.0, low=7.0, close=8.5, volume=800),
+            ])
+            session.commit()
+
+        rows = self.db.get_latest_data("NHF.ASX", days=2)
+
+        self.assertEqual([row.date for row in rows], [date(2026, 5, 13), date(2026, 5, 12)])
+        self.assertEqual(rows[0].code, "NHF.AX")
+        self.assertEqual(rows[0].close, 10.5)
+
+        context = self.db.get_analysis_context("NHF.ASX", target_date=date(2026, 5, 13))
+        self.assertIsNotNone(context)
+        assert context is not None
+        self.assertEqual(context["today"]["date"], date(2026, 5, 13))
+        self.assertEqual(context["yesterday"]["date"], date(2026, 5, 12))
+
+    def test_save_daily_data_reconciles_duplicate_legacy_asx_alias_rows(self) -> None:
+        """刷新日线时应合并同日 .AX/.ASX 旧重复行并保留 canonical .AX。"""
+        trade_date = date(2026, 5, 14)
+        with self.db.get_session() as session:
+            session.add_all([
+                StockDaily(code="NHF.ASX", date=trade_date, open=9.0, high=10.0, low=8.0, close=9.5, volume=900),
+                StockDaily(code="NHF.AX", date=trade_date, open=10.0, high=11.0, low=9.0, close=10.5, volume=1000),
+            ])
+            session.commit()
+
+        df = pd.DataFrame([{
+            "date": trade_date,
+            "open": 11.0,
+            "high": 12.0,
+            "low": 10.0,
+            "close": 11.5,
+            "volume": 1100,
+            "amount": 12650,
+            "pct_chg": 3.0,
+        }])
+
+        self.db.save_daily_data(df, "NHF.ASX", data_source="refresh")
+
+        with self.db.get_session() as session:
+            rows = session.query(StockDaily).filter(StockDaily.code.in_(["NHF.AX", "NHF.ASX"])).all()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].code, "NHF.AX")
+        self.assertEqual(rows[0].date, trade_date)
+        self.assertEqual(rows[0].close, 11.5)
+        self.assertEqual(rows[0].data_source, "refresh")
+
 
 if __name__ == "__main__":
     unittest.main()

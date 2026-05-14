@@ -41,16 +41,16 @@ from sqlalchemy import (
     inspect,
     text,
 )
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import (
     declarative_base,
     sessionmaker,
     Session,
 )
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
 from src.config import get_config
 from src.security_logging import describe_database_url_for_log
+from src.stock_code import canonical_stock_code, stock_code_aliases
 
 logger = logging.getLogger(__name__)
 
@@ -760,6 +760,34 @@ class DatabaseManager:
             session.close()
             raise
 
+    @staticmethod
+    def _preferred_stock_daily_row(rows: List[StockDaily], code: str) -> Optional[StockDaily]:
+        """同一日期存在别名重复行时，优先保留 canonical 行。"""
+        if not rows:
+            return None
+        canonical_code = canonical_stock_code(code)
+        for row in rows:
+            if row.code == canonical_code:
+                return row
+        return rows[0]
+
+    @classmethod
+    def _deduplicate_stock_daily_rows(
+        cls,
+        rows: List[StockDaily],
+        code: str,
+        *,
+        descending: bool,
+    ) -> List[StockDaily]:
+        """按交易日去重，避免 .AX/.ASX 旧重复行污染今日/昨日语义。"""
+        preferred_by_date: Dict[date, StockDaily] = {}
+        canonical_code = canonical_stock_code(code)
+        for row in rows:
+            current = preferred_by_date.get(row.date)
+            if current is None or (current.code != canonical_code and row.code == canonical_code):
+                preferred_by_date[row.date] = row
+        return sorted(preferred_by_date.values(), key=lambda row: row.date, reverse=descending)
+
     def get_portfolio_write_lock(self) -> threading.RLock:
         """
         获取组合账户写入锁（进程内）。
@@ -809,15 +837,16 @@ class DatabaseManager:
         """
         if target_date is None:
             target_date = date.today()
+        aliases = stock_code_aliases(code)
         
         with self.get_session() as session:
             result = session.execute(
-                select(StockDaily).where(
+                select(StockDaily.id).where(
                     and_(
-                        StockDaily.code == code,
+                        StockDaily.code.in_(aliases),
                         StockDaily.date == target_date
                     )
-                )
+                ).limit(1)
             ).scalar_one_or_none()
             
             return result is not None
@@ -841,18 +870,22 @@ class DatabaseManager:
         Returns:
             StockDaily 对象列表（按日期降序）
         """
+        code = canonical_stock_code(code)
+        aliases = stock_code_aliases(code)
+        if not aliases:
+            return []
         with self.get_session() as session:
-            filters = [StockDaily.code == code]
+            filters = [StockDaily.code.in_(aliases)]
             if target_date is not None:
                 filters.append(StockDaily.date <= target_date)
             results = session.execute(
                 select(StockDaily)
                 .where(and_(*filters))
                 .order_by(desc(StockDaily.date))
-                .limit(days)
+                .limit(days * len(aliases))
             ).scalars().all()
-            
-            return list(results)
+
+            return self._deduplicate_stock_daily_rows(list(results), code, descending=True)[:days]
 
     def save_news_intel(
         self,
@@ -1115,7 +1148,7 @@ class DatabaseManager:
                 conditions.append(AnalysisHistory.created_at >= cutoff_date)
 
             if code:
-                conditions.append(AnalysisHistory.code == code)
+                conditions.append(AnalysisHistory.code.in_(stock_code_aliases(code)))
 
             results = session.execute(
                 select(AnalysisHistory)
@@ -1153,7 +1186,7 @@ class DatabaseManager:
             conditions = []
             
             if code:
-                conditions.append(AnalysisHistory.code == code)
+                conditions.append(AnalysisHistory.code.in_(stock_code_aliases(code)))
             if start_date:
                 # created_at >= start_date 00:00:00
                 conditions.append(AnalysisHistory.created_at >= datetime.combine(start_date, datetime.min.time()))
@@ -1197,20 +1230,24 @@ class DatabaseManager:
         Returns:
             StockDaily 对象列表
         """
+        code = canonical_stock_code(code)
+        aliases = stock_code_aliases(code)
+        if not aliases:
+            return []
         with self.get_session() as session:
             results = session.execute(
                 select(StockDaily)
                 .where(
                     and_(
-                        StockDaily.code == code,
+                        StockDaily.code.in_(aliases),
                         StockDaily.date >= start_date,
                         StockDaily.date <= end_date
                     )
                 )
                 .order_by(StockDaily.date)
             ).scalars().all()
-            
-            return list(results)
+
+            return self._deduplicate_stock_daily_rows(list(results), code, descending=False)
     
     def save_daily_data(
         self, 
@@ -1236,6 +1273,8 @@ class DatabaseManager:
         if df is None or df.empty:
             logger.warning(f"保存数据为空，跳过 {code}")
             return 0
+        code = canonical_stock_code(code)
+        aliases = stock_code_aliases(code)
         
         saved_count = 0
 
@@ -1273,9 +1312,27 @@ class DatabaseManager:
                 for _, row in df.iterrows():
                     row_date = _row_date(row.get('date'))
                     now = datetime.now()
+                    values = _row_values(row, row_date, now)
+                    existing_rows = session.execute(
+                        select(StockDaily).where(
+                            and_(
+                                StockDaily.code.in_(aliases),
+                                StockDaily.date == row_date
+                            )
+                        )
+                    ).scalars().all()
+                    existing = self._preferred_stock_daily_row(list(existing_rows), code)
 
-                    if self._engine.dialect.name == "sqlite":
-                        values = _row_values(row, row_date, now)
+                    if existing:
+                        for duplicate in existing_rows:
+                            if duplicate is not existing:
+                                session.delete(duplicate)
+                        if existing.code != code:
+                            existing.code = code
+                        for key, value in _row_values(row, row_date, now).items():
+                            if key not in {"code", "date", "created_at"}:
+                                setattr(existing, key, value)
+                    elif self._engine.dialect.name == "sqlite":
                         stmt = sqlite_insert(StockDaily).values(**values)
                         update_columns = {
                             key: getattr(stmt.excluded, key)
@@ -1303,22 +1360,8 @@ class DatabaseManager:
                         )
                         saved_count += int(result.rowcount or 0)
                         continue
-
-                    existing = session.execute(
-                        select(StockDaily).where(
-                            and_(
-                                StockDaily.code == code,
-                                StockDaily.date == row_date
-                            )
-                        )
-                    ).scalar_one_or_none()
-
-                    if existing:
-                        for key, value in _row_values(row, row_date, now).items():
-                            if key not in {"code", "date", "created_at"}:
-                                setattr(existing, key, value)
                     else:
-                        session.add(StockDaily(**_row_values(row, row_date, now)))
+                        session.add(StockDaily(**values))
                     saved_count += 1
                 
                 session.commit()
@@ -1450,6 +1493,11 @@ class DatabaseManager:
                 select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
             ).scalar_one_or_none()
 
+    def get_portfolio_position_by_alias(self, code: str) -> Optional[PortfolioPosition]:
+        """按 .AX/.ASX 别名读取单只股票持仓。"""
+        with self.get_session() as session:
+            return self.get_portfolio_position_by_alias_in_session(session, code)
+
     def upsert_portfolio_position(
         self,
         *,
@@ -1490,6 +1538,20 @@ class DatabaseManager:
         ).scalars().all()
         return list(rows)
 
+    def get_portfolio_position_by_alias_in_session(self, session: Session, code: str) -> Optional[PortfolioPosition]:
+        """在给定 session 中按 .AX/.ASX 别名读取单只股票持仓。"""
+        aliases = stock_code_aliases(code)
+        if not aliases:
+            return None
+        rows = session.execute(
+            select(PortfolioPosition).where(PortfolioPosition.code.in_(aliases))
+        ).scalars().all()
+        if len(rows) > 1:
+            raise ValueError(
+                f"Duplicate alias positions detected for {canonical_stock_code(code)}; please reconcile manually."
+            )
+        return rows[0] if rows else None
+
     def upsert_portfolio_position_in_session(
         self,
         *,
@@ -1504,9 +1566,8 @@ class DatabaseManager:
     ) -> None:
         """在给定 session 中更新当前持仓（不提交事务）。quantity<=0 时标记为 CLOSED。"""
         now = datetime.now()
-        row = session.execute(
-            select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
-        ).scalar_one_or_none()
+        code = canonical_stock_code(code)
+        row = self.get_portfolio_position_by_alias_in_session(session, code)
         if row is None:
             row = PortfolioPosition(
                 code=code,
@@ -1525,6 +1586,11 @@ class DatabaseManager:
             session.add(row)
             return
 
+        old_code = row.code
+        if row.code != code:
+            row.code = code
+            if row.name == old_code:
+                row.name = code
         prev_qty = float(row.quantity or 0.0)
         row.name = name or row.name
         row.quantity = max(float(quantity), 0.0)
@@ -1545,6 +1611,8 @@ class DatabaseManager:
 
     def save_trade_journal_in_session(self, *, session: Session, **kwargs: Any) -> None:
         """在给定 session 中保存单条交易日志（不提交事务）。"""
+        if "code" in kwargs:
+            kwargs["code"] = canonical_stock_code(kwargs["code"])
         entry = TradeJournal(created_at=datetime.now(), **kwargs)
         session.add(entry)
 
@@ -1588,7 +1656,10 @@ class DatabaseManager:
         with self.get_session() as session:
             query = select(TradeJournal)
             if code:
-                query = query.where(TradeJournal.code == code)
+                aliases = stock_code_aliases(code)
+                if not aliases:
+                    return []
+                query = query.where(TradeJournal.code.in_(aliases))
             rows = session.execute(
                 query.order_by(desc(TradeJournal.action_date), desc(TradeJournal.created_at)).limit(limit)
             ).scalars().all()
@@ -1703,24 +1774,28 @@ class DatabaseManager:
         latest_journals_stmt = (
             select(TradeJournal)
             .order_by(
-                TradeJournal.code.asc(),
                 desc(TradeJournal.action_date),
                 desc(TradeJournal.created_at),
                 desc(TradeJournal.id),
             )
         )
         if journal_code:
-            latest_journals_stmt = latest_journals_stmt.where(TradeJournal.code == journal_code)
-        journals = session.execute(latest_journals_stmt).scalars().all()
+            journal_aliases = stock_code_aliases(journal_code)
+            if not journal_aliases:
+                journals = []
+            else:
+                latest_journals_stmt = latest_journals_stmt.where(TradeJournal.code.in_(journal_aliases))
+                journals = session.execute(latest_journals_stmt).scalars().all()
+        else:
+            journals = session.execute(latest_journals_stmt).scalars().all()
         latest_by_code: Dict[str, TradeJournal] = {}
         for journal in journals:
-            if journal.code not in latest_by_code:
-                latest_by_code[journal.code] = journal
+            canonical_journal_code = canonical_stock_code(journal.code)
+            if canonical_journal_code not in latest_by_code:
+                latest_by_code[canonical_journal_code] = journal
 
         for code, journal in latest_by_code.items():
-            related_position = session.execute(
-                select(PortfolioPosition).where(PortfolioPosition.code == code).limit(1)
-            ).scalar_one_or_none()
+            related_position = self.get_portfolio_position_by_alias_in_session(session, code)
 
             target_qty = float(journal.target_quantity or 0.0)
             target_weight = float(journal.target_weight or 0.0)

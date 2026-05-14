@@ -128,6 +128,28 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertAlmostEqual(snap.equity_value, 0.0, places=2)
         self.assertAlmostEqual(snap.total_value, 10000.0, places=2)
 
+    def test_position_management_updates_ax_position_for_asx_alias_result_without_duplicate(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=8000, equity_value=2000, total_value=10000)
+        self.db.upsert_portfolio_position(
+            code="NHF.AX",
+            name="NHF",
+            quantity=100,
+            avg_cost=20,
+            current_price=20,
+            weight=0.2,
+            market_value=2000,
+        )
+
+        result = self._result("NHF.ASX", final_decision="BUY")
+        self.pipeline._apply_position_management(result=result, query_id="q_alias", current_price=20)
+
+        positions = self.db.get_portfolio_positions(only_open=False)
+        self.assertEqual([position.code for position in positions], ["NHF.AX"])
+        self.assertEqual(result.code, "NHF.AX")
+        self.assertEqual(result.position_action, "ADD")
+        self.assertAlmostEqual(result.current_weight, 0.2, places=4)
+        self.assertAlmostEqual(positions[0].quantity, 125.0, places=6)
+
     def test_multi_symbol_sequential_updates_keep_snapshot_consistent(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
 

@@ -30,6 +30,7 @@ from tenacity import (
     wait_exponential,
     retry_if_exception_type,
 )
+from src.stock_code import canonical_stock_code
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -59,12 +60,13 @@ def normalize_stock_code(stock_code: str) -> str:
     This function is applied at the DataProviderManager layer so that
     all individual fetchers receive a clean 6-digit code (for A-shares/ETFs).
     """
-    code = stock_code.strip()
+    original = str(stock_code or "").strip()
+    code = canonical_stock_code(original)
     upper = code.upper()
 
     # Strip SH/SZ prefix (e.g. SH600519 -> 600519)
     if upper.startswith(('SH', 'SZ')) and not upper.startswith('SH.') and not upper.startswith('SZ.'):
-        candidate = code[2:]
+        candidate = original[2:]
         # Only strip if the remainder looks like a valid numeric code
         if candidate.isdigit() and len(candidate) in (5, 6):
             return candidate
@@ -405,7 +407,7 @@ class DataFetcherManager:
         - 美股：以 .US 结尾，或 1~5 位纯英文代码（如 AAPL、TSLA）
         - 显式排除常见交易所前缀缩写，避免误判（如 HK/SH/SZ）
         """
-        code = stock_code.strip().upper()
+        code = normalize_stock_code(stock_code).strip().upper()
 
         if code.endswith('.AX') or code.endswith('.US'):
             return True
@@ -425,7 +427,7 @@ class DataFetcherManager:
         stock_list = getattr(config, "stock_list", None) or []
         bases = set()
         for item in stock_list:
-            code = str(item).strip().upper()
+            code = canonical_stock_code(item)
             if code.endswith(".AX"):
                 bases.add(code[:-3])
         return bases

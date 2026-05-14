@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 
 from src.enums import ReportType
 from src.gemini_key_manager import parse_gemini_api_keys
+from src.stock_code import canonical_stock_codes
 
 logger = logging.getLogger(__name__)
 
@@ -376,11 +377,7 @@ class Config:
         
         # 解析自选股列表（逗号分隔）
         stock_list_str = os.getenv('STOCK_LIST', '')
-        stock_list = [
-            code.strip() 
-            for code in stock_list_str.split(',') 
-            if code.strip()
-        ]
+        stock_list = canonical_stock_codes(stock_list_str.split(','))
         
         # 如果没有配置，使用 ASX-first 默认示例股票
         if not stock_list:
@@ -700,11 +697,7 @@ class Config:
         if not stock_list_str:
             stock_list_str = os.getenv('STOCK_LIST', '')
 
-        stock_list = [
-            code.strip()
-            for code in stock_list_str.split(',')
-            if code.strip()
-        ]
+        stock_list = canonical_stock_codes(stock_list_str.split(','))
 
         if not stock_list:
             stock_list = list(self._DEFAULT_STOCK_LIST)

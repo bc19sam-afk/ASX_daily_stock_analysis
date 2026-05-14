@@ -8,7 +8,7 @@ from datetime import date
 from sqlalchemy import select
 
 from scripts.manual_portfolio_workflows import record_trade
-from src.storage import DatabaseManager, PortfolioPosition
+from src.storage import DatabaseManager, PortfolioPosition, TradeJournal
 
 
 class PortfolioIntegrityChecksTestCase(unittest.TestCase):
@@ -322,6 +322,54 @@ class PortfolioIntegrityChecksTestCase(unittest.TestCase):
         self.assertTrue(result["is_valid"])
         self.assertEqual(result["errors"], [])
         self.assertTrue(any("weight mismatch" in msg.lower() for msg in result["warnings"]))
+
+    def test_legacy_asx_trade_journal_matches_canonical_position(self):
+        self.db.save_account_snapshot(
+            snapshot_date=date.today(),
+            cash=900.0,
+            equity_value=100.0,
+            total_value=1000.0,
+        )
+        self.db.upsert_portfolio_position(
+            code="NHF.AX",
+            name="NHF",
+            quantity=10.0,
+            avg_cost=10.0,
+            current_price=10.0,
+            weight=0.1,
+            market_value=100.0,
+        )
+        with self.db.get_session() as session:
+            session.add(
+                TradeJournal(
+                    query_id="legacy_manual_trade",
+                    code="NHF.ASX",
+                    action_date=date.today(),
+                    action="OPEN",
+                    final_decision="BUY",
+                    market_regime="MANUAL",
+                    event_risk="NA",
+                    data_quality_flag="MANUAL",
+                    current_weight=0.0,
+                    target_weight=0.1,
+                    delta_amount=100.0,
+                    current_quantity=0.0,
+                    target_quantity=10.0,
+                    current_price=10.0,
+                    available_cash_before=1000.0,
+                    available_cash_after=900.0,
+                    reason="legacy .ASX journal row",
+                )
+            )
+            session.commit()
+
+        journal = self.db.get_trade_journal(code="NHF.AX", limit=10)
+        self.assertEqual(len(journal), 1)
+        self.assertEqual(journal[0].code, "NHF.ASX")
+
+        result = self.db.check_portfolio_account_integrity(journal_code="NHF.AX")
+        self.assertTrue(result["is_valid"])
+        self.assertEqual(result["errors"], [])
 
 
 if __name__ == "__main__":

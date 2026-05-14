@@ -50,6 +50,7 @@ from src.services.task_queue import (
     DuplicateTaskError,
     TaskStatus as TaskStatusEnum,
 )
+from src.stock_code import canonical_stock_codes
 
 logger = logging.getLogger(__name__)
 
@@ -175,8 +176,16 @@ def trigger_analysis(
             }
         )
 
-    # 去重
-    stock_codes = list(dict.fromkeys(stock_codes))
+    # 去重：先统一常见 ASX 别名，避免 .ASX/.AX 被当作两只股票。
+    stock_codes = canonical_stock_codes(stock_codes)
+    if not stock_codes:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "validation_error",
+                "message": "必须提供有效的 stock_code 或 stock_codes 参数"
+            }
+        )
     if len(stock_codes) > 1:
         raise HTTPException(
             status_code=400,

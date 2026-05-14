@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.stock_code import canonical_stock_code
+
 
 ANNOUNCEMENT_CLEAR = "clear"
 ANNOUNCEMENT_RISK_FOUND = "risk_found"
@@ -121,7 +123,7 @@ def default_announcement_reason(status: str) -> str:
 
 
 def _normalize_code(value: Any) -> str:
-    return str(value or "").strip().upper()
+    return canonical_stock_code(value)
 
 
 def _item_dict(value: Any) -> Dict[str, Any]:

@@ -62,6 +62,7 @@ from src.formatters import (
     markdown_to_archive_html_document,
     markdown_to_html_document,
 )
+from src.stock_code import canonical_stock_code
 from src.notification_formatting import (
     format_position_action_label as _format_position_action_label_helper,
     format_price_basis_label as _format_price_basis_label_helper,
@@ -1652,7 +1653,7 @@ class NotificationService:
     @staticmethod
     def _normalize_stock_code(code: Any) -> str:
         """Normalize stock code for cross-source matching (e.g. bhp.ax vs BHP.AX)."""
-        return str(code or "").strip().upper()
+        return canonical_stock_code(code)
 
     def _build_report_time_portfolio_overview(
         self,

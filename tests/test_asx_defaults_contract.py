@@ -46,6 +46,26 @@ def test_refresh_stock_list_empty_env_preserves_asx_first_default(monkeypatch, t
         Config.reset_instance()
 
 
+def test_config_stock_list_canonicalizes_common_asx_suffix_alias(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("STOCK_LIST=NHF.ASX,NHF.AX,BHP.AX\n", encoding="utf-8")
+
+    monkeypatch.setenv("ENV_FILE", str(env_path))
+    monkeypatch.delenv("STOCK_LIST", raising=False)
+    Config.reset_instance()
+    try:
+        config = Config.get_instance()
+
+        assert config.stock_list == ["NHF.AX", "BHP.AX"]
+
+        env_path.write_text("STOCK_LIST=SHL.ASX,GMG.AX\n", encoding="utf-8")
+        config.refresh_stock_list()
+
+        assert config.stock_list == ["SHL.AX", "GMG.AX"]
+    finally:
+        Config.reset_instance()
+
+
 def test_config_registry_stock_list_default_is_asx_first():
     stock_list = get_field_definition("STOCK_LIST")
 

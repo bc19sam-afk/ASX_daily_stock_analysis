@@ -34,6 +34,7 @@ from src.core.pipeline_notifications import send_single_stock_notification
 from src.core.pipeline_validation import apply_validation_gate as apply_pipeline_validation_gate
 from src.market_calendar import get_market_report_date, is_pre_market_open
 from src.security_logging import log_sensitive_payload
+from src.stock_code import canonical_stock_code, canonical_stock_codes
 from bot.models import BotMessage
 
 
@@ -170,6 +171,7 @@ class StockAnalysisPipeline:
         Returns:
             Tuple[是否成功, 错误信息]
         """
+        code = canonical_stock_code(code)
         try:
             today = _market_report_date_safe(self.config)
             
@@ -218,6 +220,7 @@ class StockAnalysisPipeline:
         Returns:
             AnalysisResult 或 None（如果分析失败）
         """
+        code = canonical_stock_code(code)
         try:
             # 获取股票名称（优先从实时行情获取真实名称）
             stock_name = STOCK_NAME_MAP.get(code, '')
@@ -717,10 +720,11 @@ class StockAnalysisPipeline:
             return None
         try:
             latest_snapshot = db.get_latest_account_snapshot()
-            existing = db.get_portfolio_position(result.code)
+            code = canonical_stock_code(result.code)
+            existing = db.get_portfolio_position_by_alias(code)
             open_positions = db.get_portfolio_positions(only_open=True)
             return self._build_live_portfolio_state(
-                code=result.code,
+                code=code,
                 existing=existing,
                 open_positions=open_positions,
                 latest_snapshot=latest_snapshot,
@@ -797,6 +801,7 @@ class StockAnalysisPipeline:
         current_price: Optional[float],
         persist: bool = True,
     ) -> None:
+        result.code = canonical_stock_code(result.code)
         if str(getattr(result, "event_risk", "") or "").upper() == "HIGH" and str(
             getattr(result, "final_decision", "") or ""
         ).upper() in {"BUY", "SELL"}:
@@ -829,9 +834,10 @@ class StockAnalysisPipeline:
         current_price: Optional[float],
         persist: bool = True,
     ) -> None:
+        result.code = canonical_stock_code(result.code)
         if not persist:
             latest_snapshot = self.db.get_latest_account_snapshot()
-            existing = self.db.get_portfolio_position(result.code)
+            existing = self.db.get_portfolio_position_by_alias(result.code)
             open_positions = self.db.get_portfolio_positions(only_open=True)
             portfolio_state = self._build_live_portfolio_state(
                 code=result.code,
@@ -894,7 +900,7 @@ class StockAnalysisPipeline:
             with self.db.get_session() as session:
                 self.db.begin_portfolio_write_transaction(session)
                 latest_snapshot = self.db.get_latest_account_snapshot_in_session(session)
-                existing = self.db.get_portfolio_position_in_session(session, result.code)
+                existing = self.db.get_portfolio_position_by_alias_in_session(session, result.code)
                 open_positions = self.db.get_open_portfolio_positions_in_session(session)
                 portfolio_state = self._build_live_portfolio_state(
                     code=result.code,
@@ -1386,6 +1392,7 @@ class StockAnalysisPipeline:
         Returns:
             AnalysisResult 或 None
         """
+        code = canonical_stock_code(code)
         logger.info(f"========== 开始处理 {code} ==========")
         
         try:
@@ -1490,6 +1497,7 @@ class StockAnalysisPipeline:
         if stock_codes is None:
             self.config.refresh_stock_list()
             stock_codes = self.config.stock_list
+        stock_codes = canonical_stock_codes(stock_codes)
         
         if not stock_codes:
             logger.error("未配置自选股列表，请在 .env 文件中设置 STOCK_LIST")

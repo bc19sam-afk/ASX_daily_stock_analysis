@@ -288,6 +288,45 @@ def test_normal_open_is_counted_as_buy_action(mock_get_db):
 
 
 @patch("src.notification.get_db")
+def test_asx_suffix_alias_in_holdings_matches_ax_analysis(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = {
+        "cash": 10000.0,
+        "holdings": [
+            {
+                "code": "NHF.ASX",
+                "name": "NHF",
+                "quantity": 47,
+                "market_value": 308.0,
+            }
+        ],
+    }
+    service = _service()
+
+    report = service.generate_dashboard_report(
+        [
+            _result(
+                code="NHF.AX",
+                name="NHF",
+                final_decision="HOLD",
+                position_action="HOLD",
+                current_weight=0.2,
+                target_weight=0.2,
+            )
+        ],
+        report_date="2026-04-29",
+    )
+    summary = service.get_last_daily_decision_summary()
+    nhf_item = summary["watch_items"][0]
+
+    assert summary["uncovered_holdings"] == []
+    assert summary["data_quality_flags"] == []
+    assert nhf_item["code"] == "NHF.AX"
+    assert nhf_item["is_current_holding"] is True
+    assert "NHF.ASX 当前持仓未覆盖今日分析" not in report
+    assert "当前持仓有 **1** 只未覆盖分析" not in report
+
+
+@patch("src.notification.get_db")
 def test_daily_decision_summary_schema_is_stable(mock_get_db):
     mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
     service = _service()

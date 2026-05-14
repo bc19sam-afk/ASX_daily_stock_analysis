@@ -13,6 +13,7 @@ from src.asx_announcements import (
     coerce_asx_announcement_check,
 )
 from src.core.validator import normalize_validation_status
+from src.stock_code import canonical_stock_code
 
 
 def build_evidence_matrix(
@@ -275,7 +276,7 @@ def _holdings_by_code(holdings: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str,
 
 
 def _normalize_code(value: Any) -> str:
-    return str(value or "").strip().upper()
+    return canonical_stock_code(value)
 
 
 def _normal_text(value: Any) -> Optional[str]:

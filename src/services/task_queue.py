@@ -24,6 +24,7 @@ from enum import Enum
 from typing import Optional, Dict, Set, List, Callable, Any, TYPE_CHECKING
 
 from src.enums import ReportType
+from src.stock_code import canonical_stock_code
 
 if TYPE_CHECKING:
     from asyncio import Queue as AsyncQueue
@@ -179,6 +180,7 @@ class AnalysisTaskQueue:
         Returns:
             True 表示正在分析中
         """
+        stock_code = canonical_stock_code(stock_code)
         with self._data_lock:
             return stock_code in self._analyzing_stocks
     
@@ -192,6 +194,7 @@ class AnalysisTaskQueue:
         Returns:
             任务 ID，如果没有则返回 None
         """
+        stock_code = canonical_stock_code(stock_code)
         with self._data_lock:
             return self._analyzing_stocks.get(stock_code)
     
@@ -217,6 +220,7 @@ class AnalysisTaskQueue:
         Raises:
             DuplicateTaskError: 股票正在分析中
         """
+        stock_code = canonical_stock_code(stock_code)
         with self._data_lock:
             # 检查重复
             if stock_code in self._analyzing_stocks:

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from src.core.validator import normalize_validation_status
+from src.stock_code import canonical_stock_code
 from src.backtest_confidence import (
     build_backtest_confidence_panel,
     build_score_bucket_calibration,
@@ -80,7 +81,7 @@ WATCH_TRIGGER_RULE = "仅在价格突破/回撤到参考位、验证状态变化
 
 
 def _normalize_stock_code(code: Any) -> str:
-    return str(code or "").strip().upper()
+    return canonical_stock_code(code)
 
 
 def _is_failed_analysis(result: Any) -> bool:
@@ -543,8 +544,8 @@ def _item_low_confidence_reasons(
         reasons.append(bucket_reason)
 
     comparison = risk_sizing_comparison.get(code) if isinstance(risk_sizing_comparison, dict) else None
-    if isinstance(comparison, dict) and comparison.get("would_change_target") is True:
-        reasons.append("风险仓位试算和当前计划不一致")
+    if _risk_sizing_differs_significantly(comparison):
+        reasons.append("风险仓位试算与目标仓位差异较大")
 
     return reasons
 

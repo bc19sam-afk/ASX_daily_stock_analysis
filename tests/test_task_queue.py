@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Regression tests for async task queue failure payloads."""
 
-from src.services.task_queue import AnalysisTaskQueue, TaskInfo, TaskStatus
+import pytest
+
+from src.services.task_queue import AnalysisTaskQueue, DuplicateTaskError, TaskInfo, TaskStatus
 
 
 def _new_queue() -> AnalysisTaskQueue:
@@ -73,3 +75,25 @@ def test_execute_task_failure_when_task_disappears_broadcasts_safe_error(monkeyp
         "error": "original disappeared-task failure",
     }
     assert queue._analyzing_stocks.get("CBA.AX") is None
+
+
+def test_submit_task_rejects_common_asx_alias_duplicate():
+    class _ExecutorStub:
+        def submit(self, *_args, **_kwargs):
+            return object()
+
+    queue = _new_queue()
+    queue._executor = _ExecutorStub()
+    queue._broadcast_event = lambda *_args, **_kwargs: None
+
+    first = queue.submit_task("NHF.AX")
+
+    assert first.stock_code == "NHF.AX"
+    assert queue.is_analyzing("NHF.ASX")
+    assert queue.get_analyzing_task_id("NHF.ASX") == first.task_id
+
+    with pytest.raises(DuplicateTaskError) as exc_info:
+        queue.submit_task("NHF.ASX")
+
+    assert exc_info.value.stock_code == "NHF.AX"
+    assert exc_info.value.existing_task_id == first.task_id

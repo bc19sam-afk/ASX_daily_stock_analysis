@@ -137,6 +137,93 @@ def _readability_results():
     ]
 
 
+def _may14_overview():
+    return {
+        "cash": 1940.37,
+        "equity_value": 8083.42,
+        "total_value": 10023.79,
+        "holdings": [
+            {"code": "SHL.AX", "name": "SHL", "quantity": 172, "market_value": 3251.0, "weight": 0.3243},
+            {"code": "NHF.ASX", "name": "NHF", "quantity": 308, "market_value": 2026.0, "weight": 0.2022},
+            {"code": "LAU.AX", "name": "LAU", "quantity": 2958, "market_value": 1804.0, "weight": 0.1800},
+            {"code": "GMG.AX", "name": "GMG", "quantity": 32, "market_value": 1002.0, "weight": 0.0999},
+        ],
+    }
+
+
+def _may14_report_results():
+    return [
+        _result(
+            code="GMG.AX",
+            name="GOOD GROUP [GMG]",
+            final_decision="BUY",
+            position_action="ADD",
+            current_weight=0.0999,
+            target_weight=0.1404,
+            delta_amount=532.10,
+            sentiment_score=88,
+            operation_advice="解释性分类：持有/加仓（基于趋势确认，非执行指令）",
+            trend_prediction="强烈看多",
+            technical_analysis="多头排列稳固，趋势强度 95/100",
+            market_snapshot={"date": "2026-05-13", "close": "31.30", "source": "yfinance"},
+            stop_loss=30.16,
+        ),
+        _result(
+            code="LAU.AX",
+            name="LINDSAY AU [LAU]",
+            final_decision="BUY",
+            position_action="ADD",
+            current_weight=0.1800,
+            target_weight=0.2184,
+            delta_amount=535.58,
+            sentiment_score=52,
+            operation_advice="观望",
+            trend_prediction="震荡",
+            technical_analysis="均线缠绕，技术确认偏弱",
+            market_snapshot={"date": "2026-05-13", "close": "0.61", "source": "yfinance"},
+            stop_loss=0.59,
+        ),
+        _result(
+            code="NHF.AX",
+            name="NIBHOLDING [NHF]",
+            final_decision="HOLD",
+            position_action="HOLD",
+            current_weight=0.2022,
+            target_weight=0.2022,
+            delta_amount=0.0,
+            sentiment_score=42,
+            operation_advice="观望",
+            trend_prediction="震荡",
+            technical_analysis="技术面偏空",
+            market_snapshot={"date": "2026-05-13", "close": "6.58", "source": "yfinance"},
+        ),
+        _result(
+            code="SHL.AX",
+            name="SONIC HLTH [SHL]",
+            final_decision="HOLD",
+            position_action="HOLD",
+            current_weight=0.3243,
+            target_weight=0.3243,
+            delta_amount=0.0,
+            sentiment_score=42,
+            operation_advice="观望",
+            trend_prediction="震荡",
+            technical_analysis="空头排列向震荡格局转换",
+            market_snapshot={"date": "2026-05-13", "close": "18.90", "source": "yfinance"},
+        ),
+        _result(
+            code="BHP.AX",
+            name="BHP GROUP [BHP]",
+            market_snapshot={"date": "2026-05-13", "close": "61.52", "source": "yfinance"},
+        ),
+        _result(
+            code="SXE.AX",
+            name="STH X ELEC [SXE]",
+            market_snapshot={"date": "2026-05-13", "close": "4.24", "source": "yfinance"},
+        ),
+    ]
+
+
 def _landing_section(report: str) -> str:
     marker = "## 开盘前决策驾驶舱"
     start = report.index(marker)
@@ -326,6 +413,41 @@ def test_dashboard_homepage_banner_uses_actual_price_policy(mock_get_db):
     assert "> 价格来源混用。开盘后必须先确认价格。" in landing
     assert "> 昨收数据计划 / 开盘前参考。开盘后先确认价格。" not in landing
     assert "**价格来源**：价格来源混用" in landing
+
+
+@patch("src.notification.get_db")
+def test_may14_report_fixture_keeps_alias_and_material_review_hints_separate(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _may14_overview()
+    service = _service()
+
+    report = service.generate_dashboard_report(_may14_report_results(), report_date="2026-05-14")
+    landing = _landing_section(report)
+    summary = service.get_last_daily_decision_summary()
+    card = summary["triage_card"]
+
+    assert summary["uncovered_holdings"] == []
+    assert "NHF.ASX 当前持仓未覆盖今日分析" not in report
+    assert "当前持仓有 **1** 只未覆盖分析" not in report
+    assert "**今日动作数量**：买入 0 / 加仓 2 / 减仓 0 / 清仓 0" in landing
+    assert "**价格来源**：全部使用昨收数据；技术基准日 2026-05-13" in landing
+    assert "| GOOD GROUP [GMG] (GMG.AX) | 加仓 | 14.04% | 计划投入约 532.10 | 需二次确认：" in landing
+    assert "| LINDSAY AU [LAU] (LAU.AX) | 加仓 | 21.84% | 计划投入约 535.58 | 需二次确认：" in landing
+    assert "1 只股票风险仓位试算与目标仓位差异较大，执行前先复核仓位。" in landing
+    assert "回测证据未检查" in landing
+    assert "风险仓位试算与目标仓位差异较大" in landing
+
+    gmg_low_confidence = [
+        item for item in card["high_value_low_confidence"] if item["code"] == "GMG.AX"
+    ][0]
+    lau_low_confidence = [
+        item for item in card["high_value_low_confidence"] if item["code"] == "LAU.AX"
+    ][0]
+
+    assert "风险仓位" not in gmg_low_confidence["confidence_note"]
+    assert "风险仓位试算与目标仓位差异较大" in lau_low_confidence["confidence_note"]
+    assert summary["actionable_items"][0]["target_weight"] == 0.1404
+    assert summary["actionable_items"][1]["target_weight"] == 0.2184
+    assert summary["risk_sizing_comparison"]["LAU.AX"]["would_change_target"] is True
 
 
 def test_archive_html_still_contains_compact_homepage_text(tmp_path: Path):

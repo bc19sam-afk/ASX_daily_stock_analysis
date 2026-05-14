@@ -96,6 +96,32 @@ def test_bare_configured_asx_ticker_is_normalized_to_ax_before_fetch():
     assert yf_fetcher.last_stock_code == "BHP.AX"
 
 
+def test_bare_configured_asx_alias_ticker_is_normalized_to_ax_before_fetch():
+    yf_fetcher = DummyFetcher("YfinanceFetcher", priority=1)
+    manager = DataFetcherManager(
+        fetchers=[yf_fetcher],
+        config=SimpleNamespace(market_calendar="ASX", stock_list=["NHF.ASX"]),
+    )
+
+    _, source = manager.get_daily_data("NHF", days=5)
+
+    assert source == "YfinanceFetcher"
+    assert yf_fetcher.last_stock_code == "NHF.AX"
+
+
+def test_common_asx_suffix_alias_is_normalized_to_ax_before_fetch():
+    yf_fetcher = DummyFetcher("YfinanceFetcher", priority=1)
+    manager = DataFetcherManager(
+        fetchers=[yf_fetcher],
+        config=SimpleNamespace(market_calendar="ASX", stock_list=["NHF.AX"]),
+    )
+
+    _, source = manager.get_daily_data("NHF.ASX", days=5)
+
+    assert source == "YfinanceFetcher"
+    assert yf_fetcher.last_stock_code == "NHF.AX"
+
+
 def test_asx_default_rejects_numeric_ticker_before_fetch():
     other_fetcher = DummyFetcher("OtherFetcher", priority=1)
     yf_fetcher = DummyFetcher("YfinanceFetcher", priority=2)
@@ -115,9 +141,16 @@ def test_yfinance_asx_first_conversion_preserves_ax_and_rejects_numeric_default(
     fetcher = YfinanceFetcher(market_calendar="ASX", stock_list=["BHP.AX"])
 
     assert fetcher._convert_stock_code("BHP.AX") == "BHP.AX"
+    assert fetcher._convert_stock_code("BHP.ASX") == "BHP.AX"
     assert fetcher._convert_stock_code("BHP") == "BHP.AX"
     with pytest.raises(DataFetchError, match="ASX-first"):
         fetcher._convert_stock_code("600519")
+
+
+def test_yfinance_asx_first_conversion_accepts_asx_watchlist_alias():
+    fetcher = YfinanceFetcher(market_calendar="ASX", stock_list=["NHF.ASX"])
+
+    assert fetcher._convert_stock_code("NHF") == "NHF.AX"
 
 
 def test_yfinance_numeric_legacy_conversion_is_removed():
@@ -129,6 +162,7 @@ def test_yfinance_numeric_legacy_conversion_is_removed():
 
 def test_market_symbol_classifier():
     assert DataFetcherManager._is_au_us_symbol("CBA.AX") is True
+    assert DataFetcherManager._is_au_us_symbol("CBA.ASX") is True
     assert DataFetcherManager._is_au_us_symbol("AAPL") is True
     assert DataFetcherManager._is_au_us_symbol("MSFT.US") is True
     assert DataFetcherManager._is_au_us_symbol("600519") is False

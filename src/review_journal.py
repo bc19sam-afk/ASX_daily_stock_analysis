@@ -15,6 +15,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
+from src.stock_code import canonical_stock_code
+
 
 SCHEMA_VERSION = "review_journal.v1"
 WEEKLY_SUMMARY_SCHEMA_VERSION = "review_weekly_summary.v1"
@@ -292,7 +294,7 @@ def _date_slug(value: Any) -> str:
 
 
 def _normalize_code(value: Any) -> str:
-    return str(value or "").strip().upper()
+    return canonical_stock_code(value)
 
 
 def _now_iso() -> str:

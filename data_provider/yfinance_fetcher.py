@@ -31,6 +31,7 @@ from tenacity import (
 
 from .base import BaseFetcher, DataFetchError, STANDARD_COLUMNS
 from .realtime_types import UnifiedRealtimeQuote, RealtimeSource, ValuationSnapshot, safe_float
+from src.stock_code import canonical_stock_code
 import os
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ class YfinanceFetcher(BaseFetcher):
                 stock_list = []
         bases = set()
         for item in stock_list or []:
-            code = str(item).strip().upper()
+            code = canonical_stock_code(item)
             if code.endswith(".AX"):
                 bases.add(code[:-3])
         return bases
@@ -100,7 +101,7 @@ class YfinanceFetcher(BaseFetcher):
         """
         import re
 
-        code = stock_code.strip().upper()
+        code = canonical_stock_code(stock_code)
 
         if code.endswith(('.SS', '.SZ')):
             raise DataFetchError(
