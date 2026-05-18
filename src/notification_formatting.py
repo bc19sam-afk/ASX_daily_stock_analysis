@@ -6,6 +6,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from src.stock_code import canonical_stock_code
+
 
 def format_price_basis_label(basis: str) -> str:
     return {
@@ -42,7 +44,8 @@ def format_position_action_label(action: str) -> str:
 
 def format_stock_display_name(raw_name: Any, raw_code: Any) -> str:
     """Normalize noisy source names to a user-facing display title."""
-    code = str(raw_code or "").strip().upper()
+    raw_code_text = str(raw_code or "").strip().upper()
+    code = canonical_stock_code(raw_code_text)
     if not code:
         code = "N/A"
     code_display = code
@@ -53,6 +56,9 @@ def format_stock_display_name(raw_name: Any, raw_code: Any) -> str:
 
     name = re.sub(r"\b(FPO|STAPLED|ORDINARY|ORD|UNITS?|UNIT)\b", " ", name, flags=re.IGNORECASE)
     name = re.sub(r"\s+", " ", name).strip(" -_/")
+    name_as_code = canonical_stock_code(name)
+    if code.endswith(".AX") and name_as_code == code:
+        name = code.split(".", 1)[0]
     if code and name.upper().endswith(f" {code}"):
         name = name[: -(len(code) + 1)].strip()
     if not name:
