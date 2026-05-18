@@ -1694,7 +1694,7 @@ class StockAnalysisPipeline:
                     log_sensitive_payload(logger, logging.DEBUG, "企业微信推送内容", dashboard_content)
                     wechat_success = self.notifier.send_to_wechat(dashboard_content)
 
-                # 其他渠道：发完整报告（避免自定义 Webhook 被 wechat 截断逻辑污染）
+                # 其他渠道按各自口径发送；Email 使用精简正文，非 Email 保留完整报告。
                 non_wechat_success = False
                 stock_email_groups = getattr(self.config, 'stock_email_groups', []) or []
                 for channel in channels:
@@ -1724,15 +1724,19 @@ class StockAnalysisPipeline:
                                     group_results,
                                     report_date=report_date or None,
                                 )
+                                grp_email_report = self.notifier.build_email_report_body(grp_report)
                                 if key is None:
-                                    non_wechat_success = self.notifier.send_to_email(grp_report) or non_wechat_success
+                                    non_wechat_success = (
+                                        self.notifier.send_to_email(grp_email_report) or non_wechat_success
+                                    )
                                 else:
                                     non_wechat_success = (
-                                        self.notifier.send_to_email(grp_report, receivers=list(key))
+                                        self.notifier.send_to_email(grp_email_report, receivers=list(key))
                                         or non_wechat_success
                                     )
                         else:
-                            non_wechat_success = self.notifier.send_to_email(report) or non_wechat_success
+                            email_report = self.notifier.build_email_report_body(report)
+                            non_wechat_success = self.notifier.send_to_email(email_report) or non_wechat_success
                     elif channel == NotificationChannel.CUSTOM:
                         non_wechat_success = self.notifier.send_to_custom(report) or non_wechat_success
                     elif channel == NotificationChannel.PUSHPLUS:
