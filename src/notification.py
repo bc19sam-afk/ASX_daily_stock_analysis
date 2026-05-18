@@ -262,6 +262,7 @@ class NotificationService:
 
     AI_POSITION_REFERENCE_DOWNGRADE = "AI仓位测算已降级为非执行参考；执行数量以主动作目标仓位/模拟调仓为准"
     AI_NUMERIC_QUANTITY_PATTERN = r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+    AUDIT_APPENDIX_HEADING = "## 详情 / 审计附录"
     
     def __init__(self, source_message: Optional[BotMessage] = None):
         """
@@ -1916,10 +1917,13 @@ class NotificationService:
         content = str(archive_report or "").strip()
         if not content:
             return ""
-        marker = "\n## 详情 / 审计附录"
+        marker = f"\n{self.AUDIT_APPENDIX_HEADING}"
         if marker not in content:
             return content
         email_body = content.split(marker, 1)[0].rstrip()
+        trailing_separator = "\n---"
+        if email_body.endswith(trailing_separator):
+            email_body = email_body[:-len(trailing_separator)].rstrip()
         email_body += (
             "\n\n---\n\n"
             "## 完整归档\n\n"
@@ -2104,11 +2108,27 @@ class NotificationService:
             else:
                 report_lines.append("- 今日无新开仓 / 观察标的。")
             report_lines.append("")
+            observation_items = [
+                self._build_dashboard_observation_item(result)
+                for result in display_non_holding_results
+            ]
+            report_lines.extend(
+                self._build_dashboard_observation_appendix_lines(
+                    observation_items=observation_items,
+                )
+            )
 
         # 逐个股票的决策仪表盘（Issue #262: summary_only 时跳过详情）
         if not self._report_summary_only:
-            detail_results = effective_actionable_results
+            detail_results = display_holding_results + display_non_holding_results
             detail_seen_codes = set()
+            if detail_results:
+                report_lines.extend([
+                    "## 个股详细分析",
+                    "",
+                    "> 以下保留每只股票的详细分析、关键理由、风险和条件化参考；证据矩阵与校准细节仍在完整归档附录。",
+                    "",
+                ])
             for result in detail_results:
                 code = self._normalize_stock_code(getattr(result, "code", ""))
                 if code in detail_seen_codes:
@@ -2362,23 +2382,9 @@ class NotificationService:
                     "---",
                     "",
                 ])
-            observation_non_holding_results = [
-                r for r in non_holding_results
-                if self._normalize_stock_code(getattr(r, "code", "")) not in detail_seen_codes
-                and not self._is_suppressed_executable_action_today(r)
-            ]
-            if observation_non_holding_results:
-                observation_items = []
-                for result in observation_non_holding_results:
-                    observation_items.append(self._build_dashboard_observation_item(result))
-                report_lines.extend(
-                    self._build_dashboard_observation_appendix_lines(
-                        observation_items=observation_items,
-                    )
-                )
 
         appendix_lines = [
-            "## 详情 / 审计附录",
+            self.AUDIT_APPENDIX_HEADING,
             "",
             "### 审计范围 / 数据基准",
             "",

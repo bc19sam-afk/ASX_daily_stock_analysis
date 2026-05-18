@@ -77,6 +77,13 @@ def test_email_body_projection_keeps_mainline_and_points_to_full_archive():
         "| 标的 | 主动作 |\n"
         "| --- | --- |\n"
         "| AAA | 观察 |\n\n"
+        "## 个股详细分析\n\n"
+        "### ⚪ AAA (AAA.AX)\n\n"
+        "### 证据附录（技术/数据）\n\n"
+        "| 价格指标 | 数值 |\n"
+        "| --- | --- |\n"
+        "| MA10 | 10.00 |\n\n"
+        "---\n\n"
         "## 详情 / 审计附录\n\n"
         "## 个股证据矩阵\n\n"
         "审计明细"
@@ -86,9 +93,12 @@ def test_email_body_projection_keeps_mainline_and_points_to_full_archive():
 
     assert "## 开盘前决策驾驶舱" in email_body
     assert "## 当前持仓动作" in email_body
+    assert "## 个股详细分析" in email_body
+    assert "### 证据附录（技术/数据）" in email_body
     assert "## 详情 / 审计附录" not in email_body
     assert "## 个股证据矩阵" not in email_body
     assert "## 完整归档" in email_body
+    assert "\n---\n\n---\n\n## 完整归档" not in email_body
     assert "仅作计划，供人工决策辅助；系统不自动下单" in email_body
 
 
