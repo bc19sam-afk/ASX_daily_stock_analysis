@@ -1010,8 +1010,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             dashboard={"core_conclusion": {"one_sentence": "必须卖出", "time_sensitivity": "今日"}},
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("## 详细个股附录（非持仓观察版）", report)
-        self.assertIn("非持仓且今日无明确动作的标的进入观察版", report)
+        self.assertIn("## 重点观察复盘（非持仓）", report)
+        self.assertIn("非持仓且今日无明确动作的标的进入重点观察复盘", report)
         self.assertIn("### ⚪ 贵州茅台 (600519)", report)
         self.assertIn("- 核心结论：持有/观望 | 评分 75 | 震荡上行", report)
         self.assertIn("- 关键理由：N/A", report)
@@ -1040,7 +1040,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             },
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("## 详细个股附录（非持仓观察版）", report)
+        self.assertIn("## 重点观察复盘（非持仓）", report)
         self.assertIn("- 风险：财报窗口临近；流动性偏弱", report)
 
     def test_build_dashboard_observation_item_normalizes_risk_and_reference_lines(self) -> None:
@@ -1142,10 +1142,10 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         mock_item_helper.assert_called_once_with(result)
         mock_builder.assert_called_once()
         kwargs = mock_builder.call_args.kwargs
-        self.assertEqual(kwargs["section_title"], "## 详细个股附录（非持仓观察版）")
+        self.assertEqual(kwargs["section_title"], "## 重点观察复盘（非持仓）")
         self.assertEqual(
             kwargs["section_intro"],
-            "> 规则：非持仓且今日无明确动作的标的进入观察版，保留结论/理由/风险/参考位，不再只显示一行摘要。",
+            "> 非持仓且今日无明确动作的标的进入重点观察复盘；保留结论、理由、风险和参考位，供人工开盘前筛选。",
         )
         self.assertEqual(kwargs["observation_items"], [mock_item_helper.return_value])
 

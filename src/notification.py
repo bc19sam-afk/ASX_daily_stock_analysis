@@ -1712,12 +1712,32 @@ class NotificationService:
         self,
         *,
         observation_items: List[Dict[str, str]],
+        section_title: str = "## 重点观察复盘（非持仓）",
+        section_intro: str = "> 非持仓且今日无明确动作的标的进入重点观察复盘；保留结论、理由、风险和参考位，供人工开盘前筛选。",
     ) -> List[str]:
         return build_dashboard_observation_appendix_lines(
             observation_items=observation_items,
-            section_title="## 详细个股附录（非持仓观察版）",
-            section_intro="> 规则：非持仓且今日无明确动作的标的进入观察版，保留结论/理由/风险/参考位，不再只显示一行摘要。",
+            section_title=section_title,
+            section_intro=section_intro,
         )
+
+    def _build_dashboard_observation_items_lines(
+        self,
+        results: List[AnalysisResult],
+    ) -> List[str]:
+        lines: List[str] = []
+        for result in results:
+            item = self._build_dashboard_observation_item(result)
+            lines.extend([
+                item["heading"],
+                item["summary_line"],
+                item["action_line"],
+                item["reason_line"],
+                item["risk_line"],
+                item["reference_line"],
+                "",
+            ])
+        return lines
     
     def generate_dashboard_report(
         self,
@@ -1802,6 +1822,10 @@ class NotificationService:
         actionable_holding_results = self._effective_actionable_results(holding_results)
         actionable_non_holding_results = self._effective_actionable_results(non_holding_results)
         effective_actionable_results = actionable_holding_results + actionable_non_holding_results
+        display_holding_results = [
+            r for r in holding_results
+            if not self._is_suppressed_executable_action_today(r)
+        ]
         display_non_holding_results = [
             r for r in non_holding_results
             if not self._is_suppressed_executable_action_today(r)
@@ -1821,13 +1845,24 @@ class NotificationService:
                     f"账户总值 **{overview.get('total_value', 0.0):,.2f}**"
                 ),
                 "",
-                "> 仅列出当前持仓中需要处理的确定性动作；未出现即表示继续持有/观察。",
+                "> 有明确调仓动作时列出待人工处理项；无调仓动作时保留持仓复盘，供开盘前人工确认。",
                 "",
             ])
             if actionable_holding_results:
                 report_lines.extend(self._build_recommended_actions_table(actionable_holding_results))
             else:
                 report_lines.append("- 当前持仓暂无明确调仓动作。")
+                if display_holding_results:
+                    report_lines.extend([
+                        "",
+                        "### 持仓复盘（无调仓观察）",
+                        "",
+                        "> 当前持仓今日没有明确调仓动作；以下保留 AI 摘要、关键理由和风险，供开盘前人工复核。",
+                        "",
+                    ])
+                    report_lines.extend(self._build_recommended_actions_table(display_holding_results))
+                    report_lines.append("")
+                    report_lines.extend(self._build_dashboard_observation_items_lines(display_holding_results))
             report_lines.append("")
             if uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis:
                 report_lines.extend([
