@@ -63,5 +63,5 @@ def test_dashboard_body_flows_homepage_to_holdings_to_watchlist_to_details_to_ap
     assert "## 证据质量摘要" in report
     assert "## 历史校准" in report
     assert "## 评分校准" in report
-    assert "风险仓位参考（Shadow" in report
-    assert "风险仓位对比（Dry Run" in report
+    assert "风险仓位参考（观察模式" in report
+    assert "风险仓位对比（试算" in report

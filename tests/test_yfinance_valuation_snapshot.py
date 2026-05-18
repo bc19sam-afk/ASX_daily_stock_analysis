@@ -205,21 +205,57 @@ def test_single_stock_report_renders_structured_valuation_and_missing_state():
             },
         },
     )
+    auxiliary_only_snapshot = _result(
+        code="AUX.AX",
+        name="AUX",
+        market_snapshot={
+            "date": "2026-05-04",
+            "close": "100.00",
+            "source": "yfinance",
+            "valuation_snapshot": {
+                "market_cap": 123456789,
+                "source": "yfinance",
+                "as_of_date": "2026-05-04",
+            },
+        },
+    )
+    forward_only_snapshot = _result(
+        code="FWD.AX",
+        name="FWD",
+        market_snapshot={
+            "date": "2026-05-04",
+            "close": "100.00",
+            "source": "yfinance",
+            "valuation_snapshot": {
+                "pe_forward": 13.8,
+                "source": "yfinance",
+                "as_of_date": "2026-05-04",
+            },
+        },
+    )
 
     report = service.generate_single_stock_report(with_snapshot)
     missing_report = service.generate_single_stock_report(missing_snapshot)
     undated_report = service.generate_single_stock_report(undated_snapshot)
     empty_report = service.generate_single_stock_report(empty_snapshot)
+    auxiliary_report = service.generate_single_stock_report(auxiliary_only_snapshot)
+    forward_only_report = service.generate_single_stock_report(forward_only_snapshot)
 
     assert "### 估值快照" in report
     assert "PE(TTM)：14.20" in report
     assert "PB：1.70" in report
     assert "股息率：4.80%" in report
     assert "来源：Yahoo Finance" in report
+    assert "不改变今日主动作" in report
+    assert "deterministic action" not in report
     assert "估值数据缺失，不参与估值增强。" in missing_report
     assert "时间：missing" in undated_report
     assert "时间：2026-05-04" not in undated_report
     assert "估值数据缺失，不参与估值增强。" in empty_report
+    assert "估值关键字段缺失（PE/PB/股息率）" in auxiliary_report
+    assert "PE(TTM)：missing" not in auxiliary_report
+    assert "PE(Forward)：13.80" in forward_only_report
+    assert "PE(TTM)：missing" not in forward_only_report
 
 
 def test_valuation_snapshot_does_not_change_actions_or_counts():

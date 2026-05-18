@@ -105,6 +105,28 @@ def test_missing_news_and_evidence_reduce_reliability():
     assert any(flag["code"] == "evidence_missing" for flag in missing["flags"])
 
 
+def test_partial_valuation_counts_as_evidence_gap():
+    reliability = build_report_reliability(
+        price_policy="close_only",
+        price_basis_counts={"close_only": 1, "latest_close": 0, "realtime": 0},
+        evidence_matrix={
+            "BHP.AX": [
+                {"category": "market_data", "status": "available", "severity": "info"},
+                {"category": "technical", "status": "available", "severity": "info"},
+                {"category": "valuation", "status": "partial", "severity": "warning"},
+                {"category": "news", "status": "available", "severity": "info"},
+                {"category": "backtest", "status": "available", "severity": "info"},
+                {"category": "validation", "status": "available", "severity": "info"},
+            ]
+        },
+        evidence_summary={"stock_count": 1, "market_data_available": 1, "market_data_missing_or_stale": 0},
+        data_quality_flags=[],
+    )
+
+    assert reliability["components"]["evidence_completeness"] < 25
+    assert any("部分可用" in flag["message"] for flag in reliability["flags"])
+
+
 def test_mixed_or_non_close_only_price_policy_reduces_reliability():
     summary = _summary(
         [

@@ -74,7 +74,7 @@ def summarize_evidence_matrix(matrix: Dict[str, List[Dict[str, Any]]]) -> Dict[s
             summary["market_data_missing_or_stale"] += 1
         if (by_category.get("news") or {}).get("status") in {"missing", "not_checked", "stale"}:
             summary["news_missing"] += 1
-        if (by_category.get("valuation") or {}).get("status") in {"missing", "not_checked", "stale"}:
+        if (by_category.get("valuation") or {}).get("status") in {"missing", "not_checked", "stale", "partial"}:
             summary["valuation_missing"] += 1
         announcement_status = (by_category.get("announcement") or {}).get("status")
         if announcement_status == ANNOUNCEMENT_NOT_CHECKED:
@@ -188,10 +188,21 @@ def _technical_evidence(result: Any) -> Dict[str, Any]:
 def _valuation_evidence(result: Any) -> Dict[str, Any]:
     snapshot = getattr(result, "market_snapshot", None) or {}
     valuation_snapshot = _valuation_snapshot_dict(snapshot.get("valuation_snapshot"))
-    if valuation_snapshot and _has_valuation_values(valuation_snapshot):
+    if valuation_snapshot and _has_core_valuation_values(valuation_snapshot):
         source = _normal_text(valuation_snapshot.get("source")) or "valuation_snapshot"
         as_of_date = _normal_text(valuation_snapshot.get("as_of_date"))
         return _entry("valuation", source, as_of_date, "available", _format_valuation_snapshot(valuation_snapshot), "info")
+    if valuation_snapshot and _has_valuation_values(valuation_snapshot):
+        source = _normal_text(valuation_snapshot.get("source")) or "valuation_snapshot"
+        as_of_date = _normal_text(valuation_snapshot.get("as_of_date"))
+        return _entry(
+            "valuation",
+            source,
+            as_of_date,
+            "partial",
+            "估值快照仅含辅助字段，缺少 PE/PB/股息率等核心字段；按估值覆盖缺口处理。",
+            "warning",
+        )
     if valuation_snapshot:
         source = _normal_text(valuation_snapshot.get("source")) or "valuation_snapshot"
         as_of_date = _normal_text(valuation_snapshot.get("as_of_date"))
@@ -319,9 +330,19 @@ def _valuation_snapshot_dict(value: Any) -> Optional[Dict[str, Any]]:
 
 def _format_valuation_snapshot(snapshot: Dict[str, Any]) -> str:
     parts = ["估值快照"]
-    parts.append(f"PE(TTM)：{_format_number(snapshot.get('pe_ttm'))}")
-    parts.append(f"PB：{_format_number(snapshot.get('pb'))}")
-    parts.append(f"股息率：{_format_percent(snapshot.get('dividend_yield'))}")
+    present_fields: List[str] = []
+    if _has_value(snapshot.get("pe_ttm")):
+        present_fields.append(f"PE(TTM)：{_format_number(snapshot.get('pe_ttm'))}")
+    if _has_value(snapshot.get("pe_forward")):
+        present_fields.append(f"PE(Forward)：{_format_number(snapshot.get('pe_forward'))}")
+    if _has_value(snapshot.get("pb")):
+        present_fields.append(f"PB：{_format_number(snapshot.get('pb'))}")
+    if _has_value(snapshot.get("dividend_yield")):
+        present_fields.append(f"股息率：{_format_percent(snapshot.get('dividend_yield'))}")
+    if present_fields:
+        parts.extend(present_fields)
+    else:
+        parts.append("核心估值字段缺口较多，已按部分可用处理。")
     parts.append(f"来源：{snapshot.get('source') or 'unknown'}")
     if snapshot.get("as_of_date"):
         parts.append(f"时间：{snapshot.get('as_of_date')}")
@@ -351,7 +372,16 @@ def _format_announcement_details(check: Dict[str, Any]) -> str:
 
 def _has_valuation_values(snapshot: Dict[str, Any]) -> bool:
     fields = ("pe_ttm", "pe_forward", "pb", "dividend_yield", "market_cap", "roe", "debt_to_equity")
-    return any(snapshot.get(field) is not None for field in fields)
+    return any(_has_value(snapshot.get(field)) for field in fields)
+
+
+def _has_core_valuation_values(snapshot: Dict[str, Any]) -> bool:
+    fields = ("pe_ttm", "pe_forward", "pb", "dividend_yield")
+    return any(_has_value(snapshot.get(field)) for field in fields)
+
+
+def _has_value(value: Any) -> bool:
+    return value is not None and str(value).strip().lower() not in {"", "n/a", "none", "null", "unknown", "nan"}
 
 
 def _format_number(value: Any) -> str:

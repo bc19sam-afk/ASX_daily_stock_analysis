@@ -266,7 +266,7 @@ def build_risk_sizing_preview(
         base["current_target_weight"] = round(current_weight, 4)
         base["current_delta_amount"] = 0.0
         base["warning_flags"].append("validation_block")
-        base["sizing_reason"] = "validation BLOCK，仅观察；风险仓位参考不可用。"
+        base["sizing_reason"] = "验证阻断，仅观察；风险仓位参考不可用。"
         return base
 
     action = str(action_model.get("position_action") or "HOLD").strip().upper()
@@ -327,7 +327,7 @@ def build_risk_sizing_preview(
     base["raw_risk_target_weight"] = round(raw_weight, 4)
     base["capped_risk_target_weight"] = round(max(capped_weight, 0.0), 4)
     base["constraints_applied"] = constraints
-    base["sizing_reason"] = "风险预算参考上限，仅供人工复核，不改变今日 deterministic action。"
+    base["sizing_reason"] = "风险预算参考上限，仅供人工复核，不改变今日主动作。"
     return base
 
 
@@ -403,7 +403,7 @@ def build_risk_sizing_comparisons(
             "constraints_applied": list(candidate.get("constraints_applied") or []),
             "warning_flags": warning_flags,
             "unavailable_reason": str(candidate.get("unavailable_reason") or ""),
-            "note": "Dry run only; does not change today's action",
+            "note": "仅试算风险仓位，不改变今日主动作",
         }
 
     return comparisons
@@ -413,27 +413,27 @@ def render_risk_sizing_preview_lines(previews: List[Dict[str, Any]]) -> List[str
     if not previews:
         return []
 
-    lines = ["**风险仓位参考（Shadow，不改变今日动作）**"]
+    lines = ["**风险仓位参考（观察模式，不改变今日动作）**"]
     for preview in previews[:6]:
         code = str(preview.get("code") or "unknown")
         flags = set(preview.get("warning_flags") or [])
         if "validation_block" in flags:
-            lines.append(f"- {code}：风险仓位参考：不可用，原因：validation BLOCK，仅观察。")
+            lines.append(f"- {code}：风险仓位参考：不可用，原因：验证阻断，仅观察。")
             continue
         capped = preview.get("capped_risk_target_weight")
         raw = preview.get("raw_risk_target_weight")
         if capped is None or raw is None:
             reason = preview.get("sizing_reason") or "输入不足；风险仓位参考不可用。"
-            lines.append(f"- {code}：风险仓位参考不可用（{reason}）仅供人工复核，不改变今日 deterministic action。")
+            lines.append(f"- {code}：风险仓位参考不可用（{reason}）仅供人工复核，不改变今日主动作。")
             continue
         constraints = " / ".join(str(item) for item in (preview.get("constraints_applied") or [])) or "无额外约束"
         lines.append(
             f"- {code}：当前系统目标仓位 {float(preview.get('current_target_weight') or 0.0):.2%}；"
             f"风险预算参考上限 {float(capped):.2%}；约束：{constraints}；"
-            "仅供人工复核，不改变今日 deterministic action。"
+            "仅供人工复核，不改变今日主动作。"
         )
     if len(previews) > 6:
-        lines.append(f"- 其余 {len(previews) - 6} 只标的保留在 summary artifact 的 risk_sizing_previews 中。")
+        lines.append(f"- 其余 {len(previews) - 6} 只标的保留在完整摘要的风险仓位参考明细中。")
     lines.append("")
     return lines
 
@@ -442,18 +442,18 @@ def render_risk_sizing_comparison_lines(comparisons: Dict[str, Dict[str, Any]]) 
     if not comparisons:
         return []
 
-    lines = ["**风险仓位对比（Dry Run，不改变今日动作）**"]
+    lines = ["**风险仓位对比（试算，不改变今日动作）**"]
     for code, comparison in list(comparisons.items())[:6]:
         flags = set(comparison.get("warning_flags") or [])
         if "validation_block" in flags:
-            lines.append(f"- {code}：风险仓位对比：不可用，原因：validation BLOCK，仅观察。")
+            lines.append(f"- {code}：风险仓位对比：不可用，原因：验证阻断，仅观察。")
             continue
 
         candidate_weight = comparison.get("risk_capped_candidate_weight")
         if candidate_weight is None:
-            reason = comparison.get("unavailable_reason") or "missing_price_or_stop_distance"
+            reason = _display_unavailable_reason(comparison.get("unavailable_reason") or "missing_price_or_stop_distance")
             lines.append(
-                f"- {code}：风险仓位对比不可用（{reason}）；Dry Run，仅供人工复核，不改变今日 deterministic action。"
+                f"- {code}：风险仓位对比不可用（{reason}）；仅试算，供人工复核，不改变今日主动作。"
             )
             continue
 
@@ -464,12 +464,26 @@ def render_risk_sizing_comparison_lines(comparisons: Dict[str, Dict[str, Any]]) 
         lines.append(
             f"- {code}：当前系统目标仓位 {current_target:.2%}；"
             f"风险上限候选仓位 {float(candidate_weight):.2%}；差异 {difference:+.2%}；"
-            f"约束原因：{constraints}；Dry Run，仅供人工复核，不改变今日 deterministic action。"
+            f"约束原因：{constraints}；仅试算，供人工复核，不改变今日主动作。"
         )
     if len(comparisons) > 6:
-        lines.append(f"- 其余 {len(comparisons) - 6} 只标的保留在 summary artifact 的 risk_sizing_comparison 中。")
+        lines.append(f"- 其余 {len(comparisons) - 6} 只标的保留在完整摘要的风险仓位试算明细中。")
     lines.append("")
     return lines
+
+
+def _display_unavailable_reason(reason: Any) -> str:
+    labels = {
+        "validation_block": "验证阻断",
+        "non_buy_action_context": "不是买入或加仓场景",
+        "shadow_mode": "观察模式不生成试算仓位",
+        "missing_price_or_stop_distance": "缺少昨收价、止损距离或组合总值",
+        "missing_close_price": "缺少昨收价",
+        "missing_stop_distance": "缺少止损距离",
+        "missing_portfolio_total_value": "缺少组合总值",
+    }
+    text = str(reason or "").strip()
+    return labels.get(text, text or "输入不足")
 
 
 def _resolve_stop_distance(

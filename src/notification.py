@@ -801,7 +801,7 @@ class NotificationService:
                 # 买入/卖出理由
                 if hasattr(result, 'buy_reason') and result.buy_reason:
                     report_lines.extend([
-                        f"**💡 操作理由**：{result.buy_reason}",
+                        f"**💡 操作理由**：{self._sanitize_user_facing_ai_text(result, result.buy_reason, strip_position_sizing=False)}",
                         "",
                     ])
                 
@@ -879,14 +879,14 @@ class NotificationService:
                 if result.analysis_summary:
                     report_lines.extend([
                         "#### 📝 综合分析",
-                        result.analysis_summary,
+                        self._sanitize_user_facing_ai_text(result, result.analysis_summary, strip_position_sizing=False),
                         "",
                     ])
                 
                 # 风险提示
                 if hasattr(result, 'risk_warning') and result.risk_warning:
                     report_lines.extend([
-                        f"⚠️ **风险提示**：{result.risk_warning}",
+                        f"⚠️ **风险提示**：{self._sanitize_user_facing_ai_text(result, result.risk_warning, strip_position_sizing=False)}",
                         "",
                     ])
                 
@@ -1109,7 +1109,12 @@ class NotificationService:
             sanitized = re.sub(pattern, "", sanitized, flags=re.IGNORECASE)
         return re.sub(r"\s+", " ", sanitized).strip(" ；;，,。.")
 
-    def _sanitize_ai_position_strategy_text(self, text: Any, action_model: Dict[str, Any]) -> str:
+    def _sanitize_ai_position_strategy_text(
+        self,
+        text: Any,
+        action_model: Dict[str, Any],
+        result: Optional[AnalysisResult] = None,
+    ) -> str:
         normalized = str(text or "").strip()
         if not normalized or normalized.upper() == "N/A":
             return ""
@@ -1124,15 +1129,20 @@ class NotificationService:
             if sanitized and not self._contains_ai_position_sizing(sanitized):
                 sanitized_directions = self._extract_ai_commentary_directions(sanitized)
                 if not (decision in {"SELL", "HOLD"} and "BUY" in sanitized_directions):
-                    return sanitized
+                    if result is not None:
+                        return self._sanitize_user_facing_ai_text(result, sanitized, strip_position_sizing=False)
+                    return self._sanitize_report_jargon(sanitized)
             return self.AI_POSITION_REFERENCE_DOWNGRADE
 
-        return normalized
+        if result is not None:
+            return self._sanitize_user_facing_ai_text(result, normalized, strip_position_sizing=False)
+        return self._sanitize_report_jargon(normalized)
 
     def _build_ai_position_strategy_lines(
         self,
         position: Dict[str, Any],
         action_model: Dict[str, Any],
+        result: Optional[AnalysisResult] = None,
     ) -> List[str]:
         fields = (
             ("仓位测算", position.get("suggested_position")),
@@ -1142,7 +1152,7 @@ class NotificationService:
         lines: List[str] = []
         seen: Set[str] = set()
         for label, raw_text in fields:
-            sanitized = self._sanitize_ai_position_strategy_text(raw_text, action_model)
+            sanitized = self._sanitize_ai_position_strategy_text(raw_text, action_model, result)
             if not sanitized:
                 continue
             if sanitized == self.AI_POSITION_REFERENCE_DOWNGRADE:
@@ -1465,6 +1475,67 @@ class NotificationService:
         advice = advice.replace("\r\n", "\n").replace("\r", "\n")
         return " ".join(part.strip() for part in advice.split("\n") if part.strip())
 
+    @staticmethod
+    def _has_verified_backtest_summary(result: AnalysisResult) -> bool:
+        summary = getattr(result, "backtest_summary", None)
+        return isinstance(summary, dict) and bool(summary)
+
+    @staticmethod
+    def _looks_like_backtest_claim(text: str) -> bool:
+        if not text:
+            return False
+        return bool(
+            re.search(r"(回测|历史样本|历史).*?(胜率|准确率)|(?:胜率|准确率)\s*[0-9]", text, re.IGNORECASE)
+        )
+
+    def _sanitize_unverified_backtest_claim(self, result: AnalysisResult, text: Any) -> str:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return ""
+        if self._has_verified_backtest_summary(result):
+            return normalized
+        if not self._looks_like_backtest_claim(normalized):
+            return normalized
+        return "系统未检查该标的回测证据；AI 提到的历史胜率/准确率不作为已验证依据。"
+
+    @staticmethod
+    def _sanitize_report_jargon(text: Any) -> str:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return ""
+        replacements = {
+            "deterministic action": "今日主动作",
+            "summary artifact": "完整摘要",
+            "Dry Run": "试算",
+            "Shadow": "观察模式",
+            "non_buy_action_context": "不是买入或加仓场景",
+            "无需二次确认": "必须二次确认",
+            "不需要二次确认": "必须二次确认",
+            "无需人工确认": "必须人工确认",
+            "强制执行": "人工复核后再处理",
+            "自动执行": "人工复核后再处理",
+            "立即执行": "人工复核后再处理",
+            "直接执行": "人工复核后再处理",
+        }
+        for source, replacement in replacements.items():
+            normalized = normalized.replace(source, replacement)
+        return normalized
+
+    def _sanitize_user_facing_ai_text(
+        self,
+        result: AnalysisResult,
+        text: Any,
+        *,
+        strip_position_sizing: bool = True,
+    ) -> str:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return ""
+        if strip_position_sizing:
+            normalized = self._sanitize_ai_share_count_commentary(normalized)
+        normalized = self._sanitize_unverified_backtest_claim(result, normalized)
+        return self._sanitize_report_jargon(normalized)
+
     def _get_conflict_safe_ai_commentary(self, result: AnalysisResult) -> str:
         """Return AI commentary text safe for conflict-state presentation."""
         if _is_validation_blocked(result):
@@ -1472,8 +1543,8 @@ class NotificationService:
         action_model = self._get_primary_action_model(result)
         if action_model['ai_conflict']:
             return "AI解读与确定性主动作存在方向冲突，已转为中性说明"
-        safe_advice = self._sanitize_ai_share_count_commentary(self._get_normalized_ai_operation_advice(result))
-        return self._guard_volume_commentary(result, safe_advice)
+        safe_advice = self._sanitize_user_facing_ai_text(result, self._get_normalized_ai_operation_advice(result))
+        return self._sanitize_report_jargon(self._guard_volume_commentary(result, safe_advice))
 
     def _get_conflict_safe_core_conclusion(self, result: AnalysisResult, text: Any) -> str:
         """Return core conclusion text safe for conflict-state presentation."""
@@ -1482,7 +1553,7 @@ class NotificationService:
         if self._get_primary_action_model(result)['ai_conflict']:
             return "AI总结与确定性主动作存在方向冲突，请仅按确定性主动作执行"
         normalized = str(text or '').strip()
-        return self._sanitize_ai_share_count_commentary(normalized)
+        return self._sanitize_user_facing_ai_text(result, normalized)
 
     def _build_simulated_target_allocation_table(
         self,
@@ -1679,7 +1750,11 @@ class NotificationService:
         sniper = battle.get("sniper_points", {}) if battle else {}
         plan_points = self._build_conditional_plan_points(result, sniper)
         risk_alerts = intel.get("risk_alerts", []) if intel else []
-        reason_text = result.buy_reason or result.analysis_summary or "N/A"
+        reason_text = self._sanitize_user_facing_ai_text(
+            result,
+            result.buy_reason or result.analysis_summary or "N/A",
+            strip_position_sizing=False,
+        )
 
         normalized_risk_alerts = []
         for item in risk_alerts:
@@ -1690,11 +1765,15 @@ class NotificationService:
             else:
                 text = str(item).strip()
             if text:
-                normalized_risk_alerts.append(text)
+                normalized_risk_alerts.append(self._sanitize_user_facing_ai_text(result, text, strip_position_sizing=False))
 
         risk_text = (
             "；".join(normalized_risk_alerts[:2])
-            if normalized_risk_alerts else (result.risk_warning or "暂无新增高优先级风险")
+            if normalized_risk_alerts else self._sanitize_user_facing_ai_text(
+                result,
+                result.risk_warning or "暂无新增高优先级风险",
+                strip_position_sizing=False,
+            )
         )
 
         ref_text = format_conditional_plan_points_inline(plan_points)
@@ -1905,21 +1984,37 @@ class NotificationService:
                     ])
                     # 舆情情绪总结
                     if intel.get('sentiment_summary'):
-                        report_lines.append(f"**💭 舆情情绪**: {intel['sentiment_summary']}")
+                        sentiment_summary = self._sanitize_user_facing_ai_text(
+                            result,
+                            intel['sentiment_summary'],
+                            strip_position_sizing=False,
+                        )
+                        report_lines.append(f"**💭 舆情情绪**: {sentiment_summary}")
                     # 业绩预期
                     if intel.get('earnings_outlook'):
-                        report_lines.append(f"**📊 业绩预期**: {intel['earnings_outlook']}")
+                        earnings_outlook = self._sanitize_user_facing_ai_text(
+                            result,
+                            intel['earnings_outlook'],
+                            strip_position_sizing=False,
+                        )
+                        report_lines.append(f"**📊 业绩预期**: {earnings_outlook}")
                     # 利好催化
                     catalysts = intel.get('positive_catalysts', [])
                     if catalysts:
                         report_lines.append("")
                         report_lines.append("**✨ 利好催化**:")
                         for cat in catalysts:
-                            report_lines.append(f"- {cat}")
+                            cat_text = self._sanitize_user_facing_ai_text(result, cat, strip_position_sizing=False)
+                            report_lines.append(f"- {cat_text}")
                     # 最新消息
                     if intel.get('latest_news'):
                         report_lines.append("")
-                        report_lines.append(f"**📢 最新动态**: {intel['latest_news']}")
+                        latest_news = self._sanitize_user_facing_ai_text(
+                            result,
+                            intel['latest_news'],
+                            strip_position_sizing=False,
+                        )
+                        report_lines.append(f"**📢 最新动态**: {latest_news}")
                     report_lines.append("")
                 
                 # ========== 核心结论 ==========
@@ -1928,8 +2023,14 @@ class NotificationService:
                     result,
                     core.get('one_sentence', result.analysis_summary),
                 )
+                one_sentence = self._sanitize_user_facing_ai_text(result, one_sentence)
                 time_sense = core.get('time_sensitivity', '本周内')
                 pos_advice = core.get('position_advice', {})
+                reason_text = self._sanitize_user_facing_ai_text(
+                    result,
+                    result.buy_reason or result.analysis_summary or '暂无',
+                    strip_position_sizing=False,
+                )
                 
                 report_lines.extend([
                     "### 核心结论",
@@ -1940,7 +2041,7 @@ class NotificationService:
                     f"- {self._format_position_action_label(action_model['position_action'])}（{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])}）",
                     "",
                     "### 关键理由",
-                    f"- {result.buy_reason or result.analysis_summary or '暂无'}",
+                    f"- {reason_text}",
                     f"- AI补充（非执行）：{self._get_conflict_safe_ai_commentary(result)}",
                     "",
                     "### 风险",
@@ -1954,12 +2055,14 @@ class NotificationService:
                         if isinstance(risk_item, dict) else str(risk_item or "").strip()
                     )
                     if risk_text:
-                        canonical_risk = risk_text
+                        canonical_risk = self._sanitize_user_facing_ai_text(result, risk_text, strip_position_sizing=False)
                         break
                 if canonical_risk:
                     report_lines.append(f"- ⚠️ {canonical_risk}")
                 elif result.risk_warning:
-                    report_lines.append(f"- ⚠️ {result.risk_warning}")
+                    report_lines.append(
+                        f"- ⚠️ {self._sanitize_user_facing_ai_text(result, result.risk_warning, strip_position_sizing=False)}"
+                    )
                 report_lines.append("")
                 if action_model['ai_conflict']:
                     report_lines.extend([
@@ -1969,8 +2072,8 @@ class NotificationService:
                 # 持仓分类建议（仅在确有差异时双分支展示）
                 if pos_advice:
                     is_holding = code in holding_codes
-                    no_position_text = self._sanitize_ai_share_count_commentary(pos_advice.get('no_position'))
-                    has_position_text = self._sanitize_ai_share_count_commentary(pos_advice.get('has_position'))
+                    no_position_text = self._sanitize_user_facing_ai_text(result, pos_advice.get('no_position'))
+                    has_position_text = self._sanitize_user_facing_ai_text(result, pos_advice.get('has_position'))
                     report_lines.append("### 持仓指引")
                     if no_position_text and has_position_text and no_position_text != has_position_text:
                         if is_holding:
@@ -2052,7 +2155,7 @@ class NotificationService:
                     # 仓位策略
                     position = battle.get('position_strategy', {})
                     if position:
-                        position_lines = self._build_ai_position_strategy_lines(position, action_model)
+                        position_lines = self._build_ai_position_strategy_lines(position, action_model, result)
                         if position_lines:
                             report_lines.extend([
                                 "**💰 AI作战计划（非执行参考）**",
@@ -2075,13 +2178,13 @@ class NotificationService:
                     # 操作理由
                     if result.buy_reason:
                         report_lines.extend([
-                            f"**💡 操作理由**: {result.buy_reason}",
+                            f"**💡 操作理由**: {self._sanitize_report_jargon(self._sanitize_unverified_backtest_claim(result, result.buy_reason))}",
                             "",
                         ])
                     # 风险提示
                     if result.risk_warning:
                         report_lines.extend([
-                            f"**⚠️ 风险提示**: {result.risk_warning}",
+                            f"**⚠️ 风险提示**: {self._sanitize_report_jargon(self._sanitize_unverified_backtest_claim(result, result.risk_warning))}",
                             "",
                         ])
                     # 技术面分析
@@ -2320,10 +2423,18 @@ class NotificationService:
                 
                 # 业绩预期
                 if intel.get('earnings_outlook'):
-                    outlook = intel['earnings_outlook'][:60]
+                    outlook = self._sanitize_user_facing_ai_text(
+                        result,
+                        intel['earnings_outlook'],
+                        strip_position_sizing=False,
+                    )[:60]
                     info_lines.append(f"📊 业绩: {outlook}")
                 if intel.get('sentiment_summary'):
-                    sentiment = intel['sentiment_summary'][:50]
+                    sentiment = self._sanitize_user_facing_ai_text(
+                        result,
+                        intel['sentiment_summary'],
+                        strip_position_sizing=False,
+                    )[:50]
                     info_lines.append(f"💭 舆情: {sentiment}")
                 if info_lines:
                     lines.extend(info_lines)
@@ -2334,7 +2445,16 @@ class NotificationService:
                 if risks:
                     lines.append("🚨 **风险**:")
                     for risk in risks[:2]:  # 最多显示2条
-                        risk_text = risk[:50] + "..." if len(risk) > 50 else risk
+                        raw_risk = (
+                            str(risk.get("message") or risk.get("title") or "").strip()
+                            if isinstance(risk, dict) else str(risk or "").strip()
+                        )
+                        risk_text = self._sanitize_user_facing_ai_text(
+                            result,
+                            raw_risk,
+                            strip_position_sizing=False,
+                        )
+                        risk_text = risk_text[:50] + "..." if len(risk_text) > 50 else risk_text
                         lines.append(f"   • {risk_text}")
                     lines.append("")
                 
@@ -2343,6 +2463,7 @@ class NotificationService:
                 if catalysts:
                     lines.append("✨ **利好**:")
                     for cat in catalysts[:2]:  # 最多显示2条
+                        cat = self._sanitize_user_facing_ai_text(result, cat, strip_position_sizing=False)
                         cat_text = cat[:50] + "..." if len(cat) > 50 else cat
                         lines.append(f"   • {cat_text}")
                     lines.append("")
@@ -2362,12 +2483,12 @@ class NotificationService:
                     no_pos = pos_advice.get('no_position', '')
                     has_pos = pos_advice.get('has_position', '')
                     if no_pos:
-                        ai_no_pos = self._sanitize_ai_share_count_commentary(no_pos)
+                        ai_no_pos = self._sanitize_user_facing_ai_text(result, no_pos)
                         if action_model['ai_conflict']:
                             ai_no_pos = self._get_conflict_safe_ai_commentary(result)
                         lines.append(f"💬 AI空仓者评论(非执行): {ai_no_pos[:44]}")
                     if has_pos:
-                        ai_has_pos = self._sanitize_ai_share_count_commentary(has_pos)
+                        ai_has_pos = self._sanitize_user_facing_ai_text(result, has_pos)
                         if action_model['ai_conflict']:
                             ai_has_pos = self._get_conflict_safe_ai_commentary(result)
                         lines.append(f"💬 AI持仓者评论(非执行): {ai_has_pos[:44]}")
@@ -2475,7 +2596,8 @@ class NotificationService:
             
             # 操作理由（截断）
             if hasattr(result, 'buy_reason') and result.buy_reason:
-                reason = result.buy_reason[:80] + "..." if len(result.buy_reason) > 80 else result.buy_reason
+                sanitized_reason = self._sanitize_user_facing_ai_text(result, result.buy_reason, strip_position_sizing=False)
+                reason = sanitized_reason[:80] + "..." if len(sanitized_reason) > 80 else sanitized_reason
                 lines.append(f"💡 {reason}")
             
             # 核心看点
@@ -2485,7 +2607,8 @@ class NotificationService:
             
             # 风险提示（截断）
             if hasattr(result, 'risk_warning') and result.risk_warning:
-                risk = result.risk_warning[:50] + "..." if len(result.risk_warning) > 50 else result.risk_warning
+                sanitized_risk = self._sanitize_user_facing_ai_text(result, result.risk_warning, strip_position_sizing=False)
+                risk = sanitized_risk[:50] + "..." if len(sanitized_risk) > 50 else sanitized_risk
                 lines.append(f"⚠️ {risk}")
             
             lines.append("")
@@ -2595,15 +2718,25 @@ class NotificationService:
                     lines.append("### 📰 重要信息")
                     lines.append("")
                     info_added = True
-                lines.append(f"📊 **业绩预期**: {intel['earnings_outlook'][:100]}")
-            
+                earnings_outlook = self._sanitize_user_facing_ai_text(
+                    result,
+                    intel['earnings_outlook'],
+                    strip_position_sizing=False,
+                )
+                lines.append(f"📊 **业绩预期**: {earnings_outlook[:100]}")
+
             if intel.get('sentiment_summary'):
                 if not info_added:
                     lines.append("### 📰 重要信息")
                     lines.append("")
                     info_added = True
-                lines.append(f"💭 **舆情情绪**: {intel['sentiment_summary'][:80]}")
-            
+                sentiment_summary = self._sanitize_user_facing_ai_text(
+                    result,
+                    intel['sentiment_summary'],
+                    strip_position_sizing=False,
+                )
+                lines.append(f"💭 **舆情情绪**: {sentiment_summary[:80]}")
+
             # 风险警报
             risks = intel.get('risk_alerts', [])
             if risks:
@@ -2614,7 +2747,12 @@ class NotificationService:
                 lines.append("")
                 lines.append("🚨 **风险警报**:")
                 for risk in risks[:3]:
-                    lines.append(f"- {risk[:60]}")
+                    risk_text = (
+                        str(risk.get("message") or risk.get("title") or "").strip()
+                        if isinstance(risk, dict) else str(risk or "").strip()
+                    )
+                    risk_text = self._sanitize_user_facing_ai_text(result, risk_text, strip_position_sizing=False)
+                    lines.append(f"- {risk_text[:60]}")
             
             # 利好催化
             catalysts = intel.get('positive_catalysts', [])
@@ -2622,7 +2760,8 @@ class NotificationService:
                 lines.append("")
                 lines.append("✨ **利好催化**:")
                 for cat in catalysts[:3]:
-                    lines.append(f"- {cat[:60]}")
+                    cat_text = self._sanitize_user_facing_ai_text(result, cat, strip_position_sizing=False)
+                    lines.append(f"- {cat_text[:60]}")
         
         if info_added:
             lines.append("")
@@ -2641,10 +2780,12 @@ class NotificationService:
                 no_position_text = self._get_conflict_safe_ai_commentary(result)
                 has_position_text = no_position_text
             else:
-                no_position_text = self._sanitize_ai_share_count_commentary(
+                no_position_text = self._sanitize_user_facing_ai_text(
+                    result,
                     pos_advice.get('no_position', self._get_normalized_ai_operation_advice(result))
                 )
-                has_position_text = self._sanitize_ai_share_count_commentary(
+                has_position_text = self._sanitize_user_facing_ai_text(
+                    result,
                     pos_advice.get('has_position', '继续持有')
                 )
             lines.extend([
@@ -2708,17 +2849,27 @@ class NotificationService:
         if not isinstance(valuation, dict) or not valuation or not self._has_valuation_snapshot_values(valuation):
             lines.append("- 估值数据缺失，不参与估值增强。")
             return
+        if not self._has_core_valuation_snapshot_values(valuation):
+            lines.append("- 估值关键字段缺失（PE/PB/股息率），仅保留为降级参考，不参与估值增强。")
+            return
 
         source = str(valuation.get("source") or snapshot.get("source") or "unknown")
         display_source = self._SOURCE_DISPLAY_NAMES.get(source, source)
-        lines.extend([
-            f"- PE(TTM)：{self._format_optional_number(valuation.get('pe_ttm'))}",
-            f"- PB：{self._format_optional_number(valuation.get('pb'))}",
-            f"- 股息率：{self._format_optional_percent(valuation.get('dividend_yield'))}",
-            f"- 来源：{display_source}",
-            f"- 时间：{valuation.get('as_of_date') or 'missing'}",
-            "- 说明：仅作估值证据展示，不改变 deterministic action。",
-        ])
+        if self._has_nonempty_valuation_value(valuation.get("pe_ttm")):
+            lines.append(f"- PE(TTM)：{self._format_optional_number(valuation.get('pe_ttm'))}")
+        if self._has_nonempty_valuation_value(valuation.get("pe_forward")):
+            lines.append(f"- PE(Forward)：{self._format_optional_number(valuation.get('pe_forward'))}")
+        if self._has_nonempty_valuation_value(valuation.get("pb")):
+            lines.append(f"- PB：{self._format_optional_number(valuation.get('pb'))}")
+        if self._has_nonempty_valuation_value(valuation.get("dividend_yield")):
+            lines.append(f"- 股息率：{self._format_optional_percent(valuation.get('dividend_yield'))}")
+        lines.extend(
+            [
+                f"- 来源：{display_source}",
+                f"- 时间：{valuation.get('as_of_date') or 'missing'}",
+                "- 说明：仅作估值证据展示，不改变今日主动作。",
+            ]
+        )
 
     @staticmethod
     def _format_optional_number(value: Any) -> str:
@@ -2737,7 +2888,16 @@ class NotificationService:
     @staticmethod
     def _has_valuation_snapshot_values(valuation: Dict[str, Any]) -> bool:
         fields = ("pe_ttm", "pe_forward", "pb", "dividend_yield", "market_cap", "roe", "debt_to_equity")
-        return any(valuation.get(field) is not None for field in fields)
+        return any(NotificationService._has_nonempty_valuation_value(valuation.get(field)) for field in fields)
+
+    @staticmethod
+    def _has_core_valuation_snapshot_values(valuation: Dict[str, Any]) -> bool:
+        fields = ("pe_ttm", "pe_forward", "pb", "dividend_yield")
+        return any(NotificationService._has_nonempty_valuation_value(valuation.get(field)) for field in fields)
+
+    @staticmethod
+    def _has_nonempty_valuation_value(value: Any) -> bool:
+        return value is not None and str(value).strip().lower() not in {"", "n/a", "none", "null", "unknown", "nan"}
     
     def send_to_wechat(self, content: str) -> bool:
         """

@@ -124,15 +124,15 @@ def _build_point(
     technical_levels: Dict[str, Any],
 ) -> ConditionalPlanPoint:
     if isinstance(value, dict):
-        raw_value = _stringify(value.get("price") or value.get("value") or value.get("raw_value") or "")
+        raw_value = _sanitize_manual_review_text(value.get("price") or value.get("value") or value.get("raw_value") or "")
         source_type = _normalize_source_type(value.get("source_type")) or _infer_source_type(value)
         source_detail = _source_detail_for(source_type, value.get("source_detail") or raw_value)
-        condition = _stringify(value.get("condition")) or DEFAULT_TRIGGER_CONDITION
-        invalidation = _stringify(value.get("invalidation")) or DEFAULT_INVALIDATION
+        condition = _sanitize_manual_review_text(value.get("condition")) or DEFAULT_TRIGGER_CONDITION
+        invalidation = _sanitize_manual_review_text(value.get("invalidation")) or DEFAULT_INVALIDATION
         requires_manual_review = bool(value.get("requires_manual_review", True))
         price = _coerce_price(value.get("price") or value.get("value") or raw_value, reference_price=reference_price)
     else:
-        raw_value = _stringify(value)
+        raw_value = _sanitize_manual_review_text(value)
         source_type = _infer_source_type(raw_value)
         source_detail = _source_detail_for(source_type, raw_value)
         condition = DEFAULT_TRIGGER_CONDITION
@@ -150,6 +150,10 @@ def _build_point(
         price, structured_source_type, structured_detail = structured
         source_type = structured_source_type
         source_detail = structured_detail
+
+    source_detail = _sanitize_manual_review_text(source_detail)
+    condition = _sanitize_manual_review_text(condition)
+    invalidation = _sanitize_manual_review_text(invalidation)
 
     if price is not None and not _is_plausible_price(price, reference_price):
         source_detail = (
@@ -333,6 +337,24 @@ def _display_price_basis(value: str) -> str:
     if value == "non_executable_reference":
         return "观察参考（不是下单价）"
     return value or "观察参考（不是下单价）"
+
+
+def _sanitize_manual_review_text(value: Any) -> str:
+    text = _stringify(value)
+    if not text:
+        return ""
+    replacements = (
+        ("无需二次确认", "必须二次确认"),
+        ("不需要二次确认", "必须二次确认"),
+        ("无需人工确认", "必须人工确认"),
+        ("强制执行", "人工复核后再处理"),
+        ("自动执行", "人工复核后再处理"),
+        ("立即执行", "人工复核后再处理"),
+        ("直接执行", "人工复核后再处理"),
+    )
+    for unsafe, safe in replacements:
+        text = text.replace(unsafe, safe)
+    return text
 
 
 def _coerce_price(value: Any, *, reference_price: Optional[float] = None) -> Optional[float]:

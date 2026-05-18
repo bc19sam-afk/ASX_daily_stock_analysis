@@ -132,6 +132,40 @@ def test_evidence_gaps_feed_review_reasons_without_changing_summary_actions():
     assert "未发现阻断（BLOCK）或数据质量风险" not in dashboard
 
 
+def test_partial_valuation_snapshot_feeds_low_confidence_reason_without_changing_action():
+    result = _result(
+        code="CBA.AX",
+        name="CBA",
+        final_decision="BUY",
+        position_action="OPEN",
+        target_weight=0.10,
+        delta_amount=5000.0,
+        backtest_summary={"sample_size": 30, "win_rate_pct": 55},
+        market_snapshot={
+            "date": "2026-04-28",
+            "close": "100.00",
+            "source": "yfinance",
+            "valuation_snapshot": {
+                "market_cap": 123456789,
+                "source": "yfinance",
+                "as_of_date": "2026-04-28",
+            },
+        },
+    )
+
+    summary = _summary([result])
+    item = summary["actionable_items"][0]
+    low_confidence = summary["triage_card"]["high_value_low_confidence"][0]
+    evidence = _by_category(summary["evidence_matrix"]["CBA.AX"])
+
+    assert item["position_action"] == "OPEN"
+    assert item["target_weight"] == 0.10
+    assert item["delta_amount"] == 5000.0
+    assert evidence["valuation"]["status"] == "partial"
+    assert "估值覆盖缺口" in item["final_action_display"]["review_reasons"]
+    assert "估值数据部分可用" in low_confidence["confidence_note"]
+
+
 def test_blocked_report_with_evidence_gaps_does_not_claim_no_validation_block():
     actionable = _result(
         code="BHP.AX",

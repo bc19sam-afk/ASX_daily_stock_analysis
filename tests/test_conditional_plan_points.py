@@ -77,6 +77,32 @@ def test_free_text_indicator_numbers_are_not_rendered_as_prices():
     ]
 
 
+def test_manual_review_text_strips_autonomous_execution_phrases():
+    points = build_conditional_plan_points(
+        {
+            "ideal_buy": {
+                "price": "10.50",
+                "condition": "强制执行买入，不需要二次确认",
+                "source_detail": "强制执行风险对冲，无需二次确认",
+            },
+            "stop_loss": "遇到风险后无需人工确认",
+        },
+        price_basis="close_only",
+        technical_basis_date="2026-05-07",
+    )
+
+    assert len(points) == 2
+    rendered = " ".join(
+        " ".join([point.raw_value, point.source_detail, point.condition, point.invalidation])
+        for point in points
+    )
+    assert "强制执行" not in rendered
+    assert "无需二次确认" not in rendered
+    assert "无需人工确认" not in rendered
+    assert "人工复核后再处理" in rendered
+    assert "必须二次确认" in rendered or "必须人工确认" in rendered
+
+
 def test_free_text_indicator_reference_uses_structured_ma_level_when_available():
     points = build_conditional_plan_points(
         {"ideal_buy": "20日均线支撑"},

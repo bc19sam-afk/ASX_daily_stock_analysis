@@ -262,8 +262,8 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "## 个股证据矩阵" not in landing
     assert "## 历史校准" not in landing
     assert "## 评分校准" not in landing
-    assert "风险仓位参考（Shadow" not in landing
-    assert "风险仓位对比（Dry Run" not in landing
+    assert "风险仓位参考（观察模式" not in landing
+    assert "风险仓位对比（试算" not in landing
     assert "validation BLOCK，仅观察" not in landing
 
     actionable_section = _section_between(landing, "**今日重点股票**", "**主要风险 / 暂停动作**")
@@ -283,8 +283,11 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "## 个股证据矩阵" in report
     assert "## 历史校准" in report
     assert "## 评分校准" in report
-    assert "风险仓位参考（Shadow" in report
-    assert "风险仓位对比（Dry Run" in report
+    assert "风险仓位参考（观察模式" in report
+    assert "风险仓位对比（试算" in report
+    assert "Shadow" not in report
+    assert "Dry Run" not in report
+    assert "deterministic action" not in report
     assert "| 项目 | 今天状态 |" in landing
 
 
@@ -367,6 +370,107 @@ def test_triage_card_reuses_existing_artifacts_without_changing_actions(mock_get
     high_value = card["high_value_low_confidence"][0]
     assert "evidence_matrix" in high_value["source_fields"]
     assert high_value["section"] == "high_value_low_confidence"
+
+
+@patch("src.notification.get_db")
+def test_unverified_backtest_claims_are_sanitized_from_user_facing_report(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+
+    result = _result(
+        code="BHP.AX",
+        final_decision="BUY",
+        position_action="ADD",
+        target_weight=0.20,
+        delta_amount=2500.0,
+        analysis_summary="历史回测胜率 78%，准确率 81%，但仍需人工复核。",
+        buy_reason="历史回测胜率 78%，准确率 81%，但仍需人工复核。",
+        risk_warning="历史回测胜率较高，仅供参考。",
+    )
+    result.backtest_summary = {}
+
+    report = service.generate_dashboard_report([result], report_date="2026-04-29")
+    landing = _landing_section(report)
+    detail_section = report.split("## 详情 / 审计附录", 1)[0]
+
+    assert "历史回测胜率 78%" not in landing
+    assert "准确率 81%" not in landing
+    assert "历史回测胜率" not in detail_section
+    assert "系统未检查该标的回测证据" in landing or "系统未检查该标的回测证据" in detail_section
+
+
+@patch("src.notification.get_db")
+def test_legacy_daily_and_wechat_reports_sanitize_raw_ai_backtest_claims(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+
+    result = _result(
+        final_decision="BUY",
+        position_action="ADD",
+        target_weight=0.20,
+        delta_amount=2500.0,
+        analysis_summary="历史回测胜率 78%，准确率 81%，但仍需人工复核。",
+        buy_reason="历史回测胜率 78%，准确率 81%，但仍需人工复核。",
+        risk_warning="历史回测胜率较高，仅供参考。",
+    )
+    result.backtest_summary = {}
+
+    daily_report = service.generate_daily_report([result], report_date="2026-04-29")
+    wechat_report = service.generate_wechat_summary([result], report_date="2026-04-29")
+    combined = "\n".join([daily_report, wechat_report])
+
+    assert "历史回测胜率 78%" not in combined
+    assert "准确率 81%" not in combined
+    assert "系统未检查该标的回测证据" in combined
+
+
+@patch("src.notification.get_db")
+def test_legacy_daily_and_wechat_reports_sanitize_internal_jargon(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+
+    raw_jargon = (
+        "Dry Run / Shadow / deterministic action / summary artifact / non_buy_action_context；"
+        "强制执行、自动执行、立即执行、直接执行；无需二次确认、不需要二次确认、无需人工确认。"
+    )
+    result = _result(
+        final_decision="BUY",
+        position_action="ADD",
+        target_weight=0.20,
+        delta_amount=2500.0,
+        analysis_summary=raw_jargon,
+        buy_reason=raw_jargon,
+        risk_warning=raw_jargon,
+    )
+
+    daily_report = service.generate_daily_report([result], report_date="2026-04-29")
+    wechat_report = service.generate_wechat_summary([result], report_date="2026-04-29")
+    combined = "\n".join([daily_report, wechat_report])
+
+    for raw_term in [
+        "Dry Run",
+        "Shadow",
+        "deterministic action",
+        "summary artifact",
+        "non_buy_action_context",
+        "强制执行",
+        "自动执行",
+        "立即执行",
+        "直接执行",
+        "无需二次确认",
+        "不需要二次确认",
+        "无需人工确认",
+    ]:
+        assert raw_term not in combined
+
+    assert "试算" in combined
+    assert "观察模式" in combined
+    assert "今日主动作" in combined
+    assert "完整摘要" in combined
+    assert "不是买入或加仓场景" in combined
+    assert "人工复核后再处理" in combined
+    assert "必须二次确认" in combined
+    assert "必须人工确认" in combined
 
 
 @patch("src.notification.get_db")

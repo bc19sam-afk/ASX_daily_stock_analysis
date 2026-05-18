@@ -162,7 +162,7 @@ def _score_evidence_completeness(matrix: Dict[str, List[Dict[str, Any]]], flags:
                     announcement_risk_found += 1
                     issue_count += 1
                     continue
-            if status in {"missing", "stale", "not_checked", "unavailable"}:
+            if status in {"missing", "stale", "not_checked", "unavailable", "partial"}:
                 missing += 1
                 issue_count += 1
     if total <= 0:
@@ -174,7 +174,7 @@ def _score_evidence_completeness(matrix: Dict[str, List[Dict[str, Any]]], flags:
             {
                 "code": "evidence_missing",
                 "severity": "warning",
-                "message": f"{missing}/{total} 项技术 / 估值 / 新闻证据缺失、过期或未检查。",
+                "message": f"{missing}/{total} 项技术 / 估值 / 新闻证据缺失、部分可用、过期或未检查。",
             }
         )
     if announcement_not_checked > 0:

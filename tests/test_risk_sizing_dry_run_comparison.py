@@ -92,12 +92,14 @@ def test_dry_run_comparison_renders_without_changing_action_fields():
     assert comparison["difference_weight"] == -0.10
     assert "risk_budget" in comparison["constraints_applied"]
     assert "dry_run_no_action_change" in comparison["warning_flags"]
-    assert comparison["note"] == "Dry run only; does not change today's action"
+    assert comparison["note"] == "仅试算风险仓位，不改变今日主动作"
 
-    assert "风险仓位对比（Dry Run，不改变今日动作）" in report
+    assert "风险仓位对比（试算，不改变今日动作）" in report
     assert "当前系统目标仓位 20.00%" in report
     assert "风险上限候选仓位 10.00%" in report
-    assert "Dry Run，仅供人工复核，不改变今日 deterministic action" in report
+    assert "仅试算，供人工复核，不改变今日主动作" in report
+    assert "Dry Run" not in report
+    assert "deterministic action" not in report
     assert "需二次确认" in report
     assert "风险仓位试算与目标仓位差异较大" in report
 
@@ -127,7 +129,7 @@ def test_blocked_item_gets_unavailable_comparison_and_stays_blocked():
     assert comparison["would_change_target"] is False
     assert comparison["unavailable_reason"] == "validation_block"
     assert "validation_block" in comparison["warning_flags"]
-    assert "风险仓位对比：不可用，原因：validation BLOCK，仅观察。" in report
+    assert "风险仓位对比：不可用，原因：验证阻断，仅观察。" in report
     assert "风险上限候选仓位" not in report
 
 

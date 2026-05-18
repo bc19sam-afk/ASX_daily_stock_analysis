@@ -119,15 +119,17 @@ def test_blocked_result_gets_unavailable_shadow_preview_and_stays_blocked():
     assert preview["current_delta_amount"] == 0.0
     assert preview["is_actionable_context"] is False
     assert "validation_block" in preview["warning_flags"]
-    assert "风险仓位参考：不可用，原因：validation BLOCK，仅观察。" in report
+    assert "风险仓位参考：不可用，原因：验证阻断，仅观察。" in report
 
 
 def test_dashboard_renders_shadow_wording_without_changing_close_only_context():
     summary = _summary([_result()])
     report = _render_dashboard(summary)
 
-    assert "风险仓位参考（Shadow，不改变今日动作）" in report
-    assert "仅供人工复核，不改变今日 deterministic action" in report
+    assert "风险仓位参考（观察模式，不改变今日动作）" in report
+    assert "仅供人工复核，不改变今日主动作" in report
+    assert "Shadow" not in report
+    assert "deterministic action" not in report
     assert summary["price_policy"] == "close_only"
     assert summary["technical_basis_date"] == "2026-05-04"
     assert "**价格来源**：全部使用昨收数据；技术基准日 2026-05-04" in report
