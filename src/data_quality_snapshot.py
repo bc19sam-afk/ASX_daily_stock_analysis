@@ -141,7 +141,7 @@ def render_data_quality_snapshot_lines(snapshot: Dict[str, Any]) -> List[str]:
         "| 项目 | 今天状态 |",
         "| --- | --- |",
         f"| 行情 | {int(market.get('available_count') or 0)}/{stock_count} 可用；基准日 {date_text} |",
-        f"| 估值 | {int(valuation.get('available_count') or 0)}/{stock_count} 有快照；{valuation_text} |",
+        f"| 估值 | {int(valuation.get('available_count') or 0)}/{stock_count} 核心估值可用；{valuation_text} |",
         f"| 新闻 | {int(news.get('available_count') or 0)}/{stock_count} 有证据 |",
         (
             f"| 可信度 | {_score_text(reliability.get('score'))} "
@@ -233,17 +233,17 @@ def _valuation_snapshot_dict(value: Any) -> Optional[Dict[str, Any]]:
 
 def _format_field_coverage(field_coverage: Dict[str, Any], stock_count: int) -> str:
     if stock_count <= 0:
-        return "字段覆盖 0/0"
-    labels = {
-        "pe_ttm": "PE",
-        "pb": "PB",
-        "dividend_yield": "股息率",
-    }
+        return "核心字段覆盖 0/0"
+    pe_coverage = max(
+        int(field_coverage.get("pe_ttm") or 0),
+        int(field_coverage.get("pe_forward") or 0),
+    )
     parts = [
-        f"{label} {int(field_coverage.get(field) or 0)}/{stock_count}"
-        for field, label in labels.items()
+        f"PE {pe_coverage}/{stock_count}",
+        f"PB {int(field_coverage.get('pb') or 0)}/{stock_count}",
+        f"股息率 {int(field_coverage.get('dividend_yield') or 0)}/{stock_count}",
     ]
-    return "字段覆盖 " + "，".join(parts)
+    return "核心字段覆盖 " + "，".join(parts)
 
 
 def _date_range_text(dates: Iterable[Any]) -> str:

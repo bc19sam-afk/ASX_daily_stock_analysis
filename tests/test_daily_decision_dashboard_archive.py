@@ -514,7 +514,7 @@ def test_data_quality_snapshot_summarizes_free_inputs_without_changing_actions(m
     assert snapshot["news"]["missing_or_stale_count"] == 1
     assert any(item["code"] == "analysis_failed" for item in snapshot["attention"])
     assert "**免费数据质量快照**" in report
-    assert "| 估值 | 1/2 有快照" in report
+    assert "| 估值 | 1/2 核心估值可用" in report
     assert report.index("**免费数据质量快照**") < report.index("\n---\n")
 
 

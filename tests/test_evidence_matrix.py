@@ -165,6 +165,38 @@ def test_empty_valuation_snapshot_is_marked_missing():
     assert "缺少" in valuation["details"]
 
 
+def test_auxiliary_only_valuation_snapshot_is_marked_partial():
+    matrix = build_evidence_matrix(
+        results=[
+            _result(
+                code="CBA.AX",
+                fundamental_analysis="legacy valuation prose",
+                market_snapshot={
+                    "date": "2026-05-04",
+                    "close": "100.00",
+                    "source": "yfinance",
+                    "valuation_snapshot": {
+                        "market_cap": 123456789,
+                        "source": "yfinance",
+                        "as_of_date": "2026-05-04",
+                    },
+                },
+            )
+        ],
+        overview={"holdings": []},
+        classify_price_basis=lambda result: "close_only",
+        format_validation_issue_text=lambda result: "",
+    )
+
+    valuation = _by_category(matrix["CBA.AX"])["valuation"]
+    summary = summarize_evidence_matrix(matrix)
+
+    assert valuation["status"] == "partial"
+    assert valuation["severity"] == "warning"
+    assert "缺少 PE/PB/股息率" in valuation["details"]
+    assert summary["valuation_missing"] == 1
+
+
 def test_undated_valuation_snapshot_does_not_fallback_to_market_date():
     matrix = build_evidence_matrix(
         results=[

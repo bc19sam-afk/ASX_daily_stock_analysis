@@ -1444,6 +1444,72 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("AI仓位建议（非执行）", wechat)
 
     @patch("src.notification.get_db")
+    def test_user_facing_ai_text_is_sanitized_across_position_and_intel_paths(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        raw_backtest = "历史回测胜率 78%，准确率 81%，建议参考。"
+        raw_jargon = (
+            "Dry Run / Shadow / deterministic action / summary artifact / non_buy_action_context；"
+            "强制执行、自动执行、立即执行、直接执行；无需二次确认、不需要二次确认、无需人工确认。"
+        )
+        result = self._build_result(
+            final_decision="BUY",
+            position_action="ADD",
+            target_weight=0.18,
+            delta_amount=3200.0,
+            dashboard={
+                "core_conclusion": {
+                    "one_sentence": raw_backtest,
+                    "position_advice": {
+                        "no_position": raw_backtest,
+                        "has_position": raw_jargon,
+                    },
+                },
+                "intelligence": {
+                    "earnings_outlook": raw_jargon,
+                    "sentiment_summary": raw_backtest,
+                    "risk_alerts": [{"message": raw_backtest}],
+                    "positive_catalysts": [raw_jargon],
+                },
+            },
+        )
+        result.backtest_summary = {}
+
+        dashboard = service.generate_dashboard_report([result], report_date="2026-03-30")
+        single = service.generate_single_stock_report(result)
+        wechat = service.generate_wechat_dashboard([result])
+        combined = "\n".join([dashboard, single, wechat])
+
+        for raw_term in [
+            "历史回测胜率 78%",
+            "准确率 81%",
+            "Dry Run",
+            "Shadow",
+            "deterministic action",
+            "summary artifact",
+            "non_buy_action_context",
+            "强制执行",
+            "自动执行",
+            "立即执行",
+            "直接执行",
+            "无需二次确认",
+            "不需要二次确认",
+            "无需人工确认",
+        ]:
+            self.assertNotIn(raw_term, combined)
+
+        self.assertIn("系统未检查该标的回测证据", combined)
+        self.assertIn("试算", combined)
+        self.assertIn("观察模式", combined)
+        self.assertIn("今日主动作", combined)
+        self.assertIn("完整摘要", combined)
+        self.assertIn("不是买入或加仓场景", combined)
+        self.assertIn("人工复核后再处理", combined)
+        self.assertIn("必须二次确认", combined)
+        self.assertIn("必须人工确认", combined)
+
+    @patch("src.notification.get_db")
     def test_per_stock_close_position_renders_zero_target_quantity_as_deterministic(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
         service = self._build_service()

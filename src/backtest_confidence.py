@@ -269,7 +269,8 @@ def render_backtest_confidence_lines(
         lines.append(
             f"- 历史校准：{window_text}，样本 {sample_size} 次，"
             f"胜率 {_format_pct(overall.get('win_rate_pct'))}，"
-            f"平均模拟收益 {_format_pct(overall.get('avg_simulated_return_pct'), signed=True)}。"
+            f"平均模拟收益 {_format_pct(overall.get('avg_simulated_return_pct'), signed=True)}；"
+            "仅作历史校准，个股回测状态以证据矩阵为准。"
         )
 
     active_counts = action_counts or {}
@@ -286,7 +287,8 @@ def render_backtest_confidence_lines(
             lines.append(
                 f"- {action} 历史样本：样本 {action_sample} 次，"
                 f"胜率 {_format_pct(entry.get('win_rate_pct'))}，"
-                f"平均模拟收益 {_format_pct(entry.get('avg_simulated_return_pct'), signed=True)}。"
+                f"平均模拟收益 {_format_pct(entry.get('avg_simulated_return_pct'), signed=True)}；"
+                "仅作历史校准，个股回测状态以证据矩阵为准。"
             )
 
     lines.extend(["", ""])
@@ -321,7 +323,7 @@ def render_score_bucket_calibration_lines(calibration: Dict[str, Any]) -> List[s
                 f"- {label}：{window_text}，样本 {sample_size} 次，"
                 f"胜率 {_format_pct(entry.get('win_rate_pct'))}，"
                 f"平均模拟收益 {_format_pct(entry.get('avg_simulated_return_pct'), signed=True)}；"
-                "仅作历史校准，不是交易保证。"
+                "仅作历史校准，不是交易保证；个股回测状态以证据矩阵为准。"
             )
 
     lines.extend(["", ""])

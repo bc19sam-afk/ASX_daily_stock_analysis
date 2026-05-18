@@ -71,7 +71,7 @@ TECHNICAL_WEAK_TERMS = (
     "多头排列: 否",
     "多头排列：否",
 )
-EVIDENCE_GAP_STATUSES = {"missing", "stale", "not_checked", "unavailable"}
+EVIDENCE_GAP_STATUSES = {"missing", "stale", "not_checked", "unavailable", "partial"}
 EXECUTION_CHECKLIST = [
     "确认报告为昨收计划 / 开盘前计划，技术信号基于已收盘日线。",
     "开盘后执行前复核实时价格、盘口流动性和重大新闻。",
@@ -531,12 +531,7 @@ def _item_low_confidence_reasons(
         status = str(entry.get("status") or "")
         if category == "announcement" and status == "not_checked":
             continue
-        if category in {"market_data", "valuation", "news", "backtest"} and status in {
-            "missing",
-            "stale",
-            "not_checked",
-            "unavailable",
-        }:
+        if category in {"market_data", "valuation", "news", "backtest"} and status in EVIDENCE_GAP_STATUSES:
             reasons.append(_human_data_gap_reason(category=category, status=status))
 
     bucket_reason = _score_bucket_low_sample_reason(code, score_bucket_calibration)
@@ -577,6 +572,7 @@ def _human_data_gap_reason(*, category: str, status: str) -> str:
         "stale": "过期",
         "not_checked": "不足",
         "unavailable": "暂不可用",
+        "partial": "部分可用",
     }.get(str(status or ""), "需要确认")
     return f"{category_label}{status_label}"
 

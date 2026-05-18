@@ -112,6 +112,7 @@ def test_backtest_confidence_panel_builds_enough_sample_metrics():
     assert "样本 30 次" in rendered
     assert "胜率 66.67%" in rendered
     assert "平均模拟收益 +0.50%" in rendered
+    assert "个股回测状态以证据矩阵为准" in rendered
 
 
 def test_backtest_confidence_panel_marks_low_sample_without_confidence_boost():
@@ -174,6 +175,7 @@ def test_dashboard_renders_backtest_confidence_without_action_changes(mock_get_d
     assert "样本 42 次" in report
     assert "胜率 58.30%" in report
     assert "平均模拟收益 +1.20%" in report
+    assert "个股回测状态以证据矩阵为准" in report
     assert summary["action_counts"] == {"buy": 1, "add": 0, "reduce": 0, "close": 0, "hold_watch": 0, "blocked": 0, "total_actions": 1}
 
 
