@@ -224,6 +224,111 @@ def _may14_report_results():
     ]
 
 
+def _may18_no_action_overview():
+    return {
+        "cash": 36.49,
+        "equity_value": 10140.48,
+        "total_value": 10176.97,
+        "holdings": [
+            {"code": "GMG.AX", "name": "GOOD GROUP [GMG]", "quantity": 32, "market_value": 1000.0, "weight": 0.0983},
+            {"code": "NHF.AX", "name": "NIBHOLDING [NHF]", "quantity": 308, "market_value": 2020.0, "weight": 0.1985},
+            {"code": "XRO.AX", "name": "XERO [XRO]", "quantity": 14, "market_value": 2071.0, "weight": 0.2035},
+        ],
+    }
+
+
+def _may18_no_action_results():
+    return [
+        _result(
+            code="GMG.AX",
+            name="GOOD GROUP [GMG]",
+            sentiment_score=72,
+            operation_advice="持有/观望",
+            trend_prediction="震荡",
+            analysis_summary="继续观察资金流，不新增仓位。",
+            buy_reason="趋势仍未重新转强，先复核开盘承接。",
+            risk_warning="外盘走弱可能拖累开盘情绪。",
+            final_decision="HOLD",
+            position_action="HOLD",
+            current_weight=0.0983,
+            target_weight=0.0983,
+            delta_amount=0.0,
+            market_snapshot={"date": "2026-05-15", "close": "31.30", "source": "yfinance"},
+        ),
+        _result(
+            code="NHF.AX",
+            name="NIBHOLDING [NHF]",
+            sentiment_score=61,
+            operation_advice="观望",
+            trend_prediction="震荡偏弱",
+            analysis_summary="持仓继续观察，等待支撑确认。",
+            buy_reason="估值和技术信号未形成新动作。",
+            risk_warning="若跌破近期支撑，需要人工复核仓位。",
+            final_decision="HOLD",
+            position_action="HOLD",
+            current_weight=0.1985,
+            target_weight=0.1985,
+            delta_amount=0.0,
+            market_snapshot={"date": "2026-05-15", "close": "6.56", "source": "yfinance"},
+        ),
+        _result(
+            code="XRO.AX",
+            name="XERO [XRO]",
+            sentiment_score=54,
+            operation_advice="观望",
+            trend_prediction="震荡",
+            analysis_summary="财报后仍在消化期，暂不加仓。",
+            buy_reason="价格仍未脱离震荡区间。",
+            risk_warning="高估值品种受市场情绪影响更大。",
+            final_decision="HOLD",
+            position_action="HOLD",
+            current_weight=0.2035,
+            target_weight=0.2035,
+            delta_amount=0.0,
+            market_snapshot={"date": "2026-05-15", "close": "147.95", "source": "yfinance"},
+        ),
+        _result(
+            code="BHP.AX",
+            name="BHP GROUP [BHP]",
+            sentiment_score=68,
+            operation_advice="持有/观望",
+            trend_prediction="看多",
+            analysis_summary="等待回踩支撑确认。",
+            buy_reason="MA10 支撑附近可观察，但未形成今日买入动作。",
+            risk_warning="若跌破 MA10 支撑，短期趋势转弱。",
+            final_decision="HOLD",
+            position_action="HOLD",
+            market_snapshot={"date": "2026-05-15", "close": "60.20", "source": "yfinance"},
+        ),
+        _result(
+            code="SXE.AX",
+            name="STH X ELEC [SXE]",
+            sentiment_score=52,
+            operation_advice="观望",
+            trend_prediction="震荡",
+            analysis_summary="量能不足，继续观察。",
+            buy_reason="缺少突破确认。",
+            risk_warning="乖离率偏高。",
+            final_decision="HOLD",
+            position_action="HOLD",
+            market_snapshot={"date": "2026-05-15", "close": "4.17", "source": "yfinance"},
+        ),
+        _result(
+            code="EGH.AX",
+            name="EUR GROUP [EGH]",
+            sentiment_score=48,
+            operation_advice="观望",
+            trend_prediction="震荡",
+            analysis_summary="等待 MA20 支撑确认。",
+            buy_reason="低乖离率但无明确动作。",
+            risk_warning="基本面增长仍需复核。",
+            final_decision="HOLD",
+            position_action="HOLD",
+            market_snapshot={"date": "2026-05-15", "close": "0.57", "source": "yfinance"},
+        ),
+    ]
+
+
 def _landing_section(report: str) -> str:
     marker = "## 开盘前决策驾驶舱"
     start = report.index(marker)
@@ -448,6 +553,45 @@ def test_may14_report_fixture_keeps_alias_and_material_review_hints_separate(moc
     assert summary["actionable_items"][0]["target_weight"] == 0.1404
     assert summary["actionable_items"][1]["target_weight"] == 0.2184
     assert summary["risk_sizing_comparison"]["LAU.AX"]["would_change_target"] is True
+
+
+@patch("src.notification.get_db")
+def test_may18_no_action_report_keeps_holdings_and_watch_ai_review_before_audit(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _may18_no_action_overview()
+    service = _service()
+
+    report = service.generate_dashboard_report(_may18_no_action_results(), report_date="2026-05-18")
+    summary = service.get_last_daily_decision_summary()
+
+    assert summary["action_counts"]["total_actions"] == 0
+    assert summary["action_counts"]["hold_watch"] == 6
+    assert "## 当前持仓动作" in report
+    assert "### 持仓复盘（无调仓观察）" in report
+    assert "## 重点观察复盘（非持仓）" in report
+    assert "## 详情 / 审计附录" in report
+
+    holdings_index = report.index("### 持仓复盘（无调仓观察）")
+    watch_index = report.index("## 重点观察复盘（非持仓）")
+    audit_index = report.index("## 详情 / 审计附录")
+    matrix_index = report.index("## 个股证据矩阵")
+
+    assert holdings_index < audit_index
+    assert watch_index < audit_index
+    assert audit_index < matrix_index
+
+    holdings_section = _section_between(report, "### 持仓复盘（无调仓观察）", "## 新开仓 / 观察清单")
+    assert "| 标的 | 今日主动作（确定性/未执行） | AI补充（仅参考） |" in holdings_section
+    assert "GOOD GROUP [GMG]" in holdings_section
+    assert "NIBHOLDING [NHF]" in holdings_section
+    assert "XERO [XRO]" in holdings_section
+    assert "关键理由：趋势仍未重新转强，先复核开盘承接。" in holdings_section
+    assert "风险：外盘走弱可能拖累开盘情绪。" in holdings_section
+
+    watch_section = _section_between(report, "## 重点观察复盘（非持仓）", "## 详情 / 审计附录")
+    assert "BHP GROUP [BHP]" in watch_section
+    assert "STH X ELEC [SXE]" in watch_section
+    assert "EUR GROUP [EGH]" in watch_section
+    assert "关键理由：MA10 支撑附近可观察，但未形成今日买入动作。" in watch_section
 
 
 def test_archive_html_still_contains_compact_homepage_text(tmp_path: Path):
