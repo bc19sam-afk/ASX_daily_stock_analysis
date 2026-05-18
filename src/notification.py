@@ -1910,6 +1910,23 @@ class NotificationService:
                 "",
             ])
         return lines
+
+    def build_email_report_body(self, archive_report: str) -> str:
+        """Return the concise email projection while preserving full archive content elsewhere."""
+        content = str(archive_report or "").strip()
+        if not content:
+            return ""
+        marker = "\n## 详情 / 审计附录"
+        if marker not in content:
+            return content
+        email_body = content.split(marker, 1)[0].rstrip()
+        email_body += (
+            "\n\n---\n\n"
+            "## 完整归档\n\n"
+            "- 完整证据矩阵、历史校准、评分校准、风险仓位附录和审计细节已保存到本地 Markdown/HTML 归档。\n\n"
+            "*免责声明：仅作计划，供人工决策辅助；系统不自动下单。*"
+        )
+        return email_body
     
     def generate_dashboard_report(
         self,

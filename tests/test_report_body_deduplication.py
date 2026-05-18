@@ -65,3 +65,35 @@ def test_dashboard_body_flows_homepage_to_holdings_to_watchlist_to_details_to_ap
     assert "## 评分校准" in report
     assert "风险仓位参考（观察模式" in report
     assert "风险仓位对比（试算" in report
+
+
+def test_email_body_projection_keeps_mainline_and_points_to_full_archive():
+    service = _service()
+    archive_report = (
+        "# 2026-05-18 决策仪表盘\n\n"
+        "## 开盘前决策驾驶舱\n\n"
+        "今日人工复核重点。\n\n"
+        "## 当前持仓动作\n\n"
+        "| 标的 | 主动作 |\n"
+        "| --- | --- |\n"
+        "| AAA | 观察 |\n\n"
+        "## 详情 / 审计附录\n\n"
+        "## 个股证据矩阵\n\n"
+        "审计明细"
+    )
+
+    email_body = service.build_email_report_body(archive_report)
+
+    assert "## 开盘前决策驾驶舱" in email_body
+    assert "## 当前持仓动作" in email_body
+    assert "## 详情 / 审计附录" not in email_body
+    assert "## 个股证据矩阵" not in email_body
+    assert "## 完整归档" in email_body
+    assert "仅作计划，供人工决策辅助；系统不自动下单" in email_body
+
+
+def test_email_body_projection_leaves_reports_without_audit_marker_unchanged():
+    service = _service()
+    report = "# 2026-05-18 决策仪表盘\n\n## 开盘前决策驾驶舱\n\nmain"
+
+    assert service.build_email_report_body(report) == report
