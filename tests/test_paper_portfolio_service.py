@@ -4,9 +4,19 @@ import os
 import tempfile
 import unittest
 from datetime import date
+from unittest.mock import patch
 
+from src.analyzer import AnalysisResult
+from src.notification import NotificationService
 from src.services.paper_portfolio_service import PaperPortfolioService
-from src.storage import AccountSnapshot, DatabaseManager, PaperPortfolioHolding, PaperPortfolioSnapshot
+from src.storage import (
+    AccountSnapshot,
+    DatabaseManager,
+    PaperPortfolioHolding,
+    PaperPortfolioSnapshot,
+    PaperPortfolioState,
+    PaperPortfolioTrade,
+)
 
 
 class PaperPortfolioServiceTestCase(unittest.TestCase):
@@ -37,6 +47,15 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         self.tmp.cleanup()
 
+    def _paper_table_counts(self):
+        with self.db.get_session() as session:
+            return {
+                "state": session.query(PaperPortfolioState).count(),
+                "holdings": session.query(PaperPortfolioHolding).count(),
+                "snapshots": session.query(PaperPortfolioSnapshot).count(),
+                "trades": session.query(PaperPortfolioTrade).count(),
+            }
+
     def test_init_from_current_copies_real_without_mutating_real(self):
         real_before = self.db.get_portfolio_overview()
         paper = self.service.init_from_current()
@@ -49,6 +68,35 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         self.assertTrue(paper["initialized"])
         self.assertEqual(paper["cash"], real_before["cash"])
         self.assertEqual(paper["total_value"], real_before["total_value"])
+
+    def test_dashboard_report_reads_paper_portfolio_without_writing_state(self):
+        before = self._paper_table_counts()
+        service = NotificationService.__new__(NotificationService)
+        service._report_summary_only = True
+        service._report_timezone = "Australia/Sydney"
+        service._last_daily_decision_summary = None
+        result = AnalysisResult(
+            code="AAA",
+            name="AAA",
+            sentiment_score=50,
+            trend_prediction="震荡",
+            operation_advice="观察",
+            final_decision="HOLD",
+            position_action="HOLD",
+            current_weight=0.5,
+            target_weight=0.5,
+            delta_amount=0.0,
+            market_snapshot={"date": "2026-05-15", "close": "10.00", "source": "yfinance"},
+        )
+
+        with patch("src.notification.get_db", return_value=self.db):
+            report = service.generate_dashboard_report([result], report_date="2026-05-18")
+
+        after = self._paper_table_counts()
+        self.assertEqual(before, after)
+        self.assertIn("## 模拟盘账本（只读）", report)
+        self.assertIn("状态：未初始化/未启用", report)
+        self.assertIn("不会初始化模拟盘，也不会写入任何模拟交易", report)
 
     def test_apply_only_affects_paper_portfolio(self):
         self.service.init_from_current()
