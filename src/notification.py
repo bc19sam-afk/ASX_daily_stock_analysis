@@ -1668,6 +1668,99 @@ class NotificationService:
             to_positive_float=self._to_positive_float,
         )
 
+    def _get_paper_portfolio_overview_for_report(self) -> Dict[str, Any]:
+        try:
+            db = get_db()
+            getter = getattr(db, "get_paper_portfolio_overview", None)
+            if not callable(getter):
+                return {"available": False, "error": "模拟盘只读入口不可用。"}
+            overview = getter()
+        except Exception as exc:
+            return {"available": False, "error": str(exc)[:120]}
+        if isinstance(overview, dict):
+            overview.setdefault("available", True)
+            return overview
+        return {"available": True, "initialized": False}
+
+    def _build_paper_portfolio_readonly_lines(
+        self,
+        overview: Dict[str, Any],
+        *,
+        has_plan_actions: bool,
+    ) -> List[str]:
+        lines = [
+            "## 模拟盘账本（只读）",
+            "",
+            "> 这里展示的是持久化模拟盘账本，不是正文的计划仓位模拟，也不代表真实账户成交。",
+        ]
+        if not overview.get("available", True):
+            lines.extend(
+                [
+                    f"- 状态：读取失败（{overview.get('error') or '未知原因'}）。",
+                    "- 报告生成行为：只读展示失败，不会写入模拟盘或真实账户。",
+                    "",
+                ]
+            )
+            return lines
+
+        if not bool(overview.get("initialized")):
+            lines.extend(
+                [
+                    "- 状态：未初始化/未启用。",
+                    "- 最近模拟：暂无模拟盘交易记录。",
+                    "- 报告生成行为：只读展示，不会初始化模拟盘，也不会写入任何模拟交易。",
+                    "",
+                ]
+            )
+            return lines
+
+        holdings = overview.get("holdings") if isinstance(overview.get("holdings"), list) else []
+        trades = overview.get("latest_simulated_trades") if isinstance(overview.get("latest_simulated_trades"), list) else []
+        plan_line = (
+            "- 今日计划仓位模拟：正文目标仓位只是计划视图；模拟盘账本不会因本报告生成而更新。"
+            if has_plan_actions
+            else "- 今日计划仓位模拟：无明确调仓动作；模拟盘账本不会因本报告生成而更新。"
+        )
+        lines.extend(
+            [
+                f"- 状态：已初始化；快照日期：{overview.get('snapshot_date') or '暂无快照'}。",
+                (
+                    f"- 账本资产：现金 {self._format_report_money(overview.get('cash'))} | "
+                    f"持仓市值 {self._format_report_money(overview.get('equity_value'))} | "
+                    f"总资产 {self._format_report_money(overview.get('total_value'))}。"
+                ),
+                f"- 当前模拟持仓：{len(holdings)} 只。",
+                plan_line,
+            ]
+        )
+        if trades:
+            latest = trades[0]
+            executed_text = "已模拟成交" if latest.get("executed") else "未模拟成交"
+            reason = str(latest.get("reason") or "").strip()
+            reason_text = f"；原因：{reason}" if reason else ""
+            lines.append(
+                f"- 最近模拟：{latest.get('simulation_time') or overview.get('last_simulation_time') or '时间未知'}，"
+                f"{latest.get('code') or '未知标的'} {latest.get('action') or 'UNKNOWN'}，{executed_text}{reason_text}。"
+            )
+        else:
+            lines.append("- 最近模拟：暂无模拟盘交易记录。")
+
+        seed_source = overview.get("seed_source") if isinstance(overview.get("seed_source"), dict) else {}
+        if seed_source.get("snapshot_date"):
+            lines.append(f"- 初始化来源：真实账户快照 {seed_source.get('snapshot_date')} 的只读副本。")
+        lines.extend([""])
+        return lines
+
+    @staticmethod
+    def _format_report_money(value: Any) -> str:
+        try:
+            number = float(value or 0.0)
+        except (TypeError, ValueError):
+            return "0.00"
+        if not math.isfinite(number):
+            return "0.00"
+        return f"{number:,.2f}"
+
     def _build_dashboard_observation_item(
         self,
         result: AnalysisResult,
@@ -1754,6 +1847,7 @@ class NotificationService:
             overview=overview,
             results=results,
         )
+        paper_portfolio_overview = self._get_paper_portfolio_overview_for_report()
 
         daily_summary = self.build_daily_decision_summary(
             results=sorted_results,
@@ -1806,6 +1900,12 @@ class NotificationService:
             r for r in non_holding_results
             if not self._is_suppressed_executable_action_today(r)
         ]
+        report_lines.extend(
+            self._build_paper_portfolio_readonly_lines(
+                paper_portfolio_overview,
+                has_plan_actions=bool(effective_actionable_results),
+            )
+        )
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
         for result in results:
             basis_counts[self._classify_price_basis(result)] += 1

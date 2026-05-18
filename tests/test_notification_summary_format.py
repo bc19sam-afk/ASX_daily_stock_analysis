@@ -105,6 +105,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
     @patch("src.notification.get_db")
     def test_dashboard_section_b_copy_uses_user_facing_wording(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        mock_get_db.return_value.get_paper_portfolio_overview.return_value = {"initialized": False}
         service = self._build_service()
 
         report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
@@ -114,6 +115,56 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertNotIn("position_action", report)
         self.assertNotIn("target_weight", report)
         self.assertNotIn("delta_amount", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_report_shows_uninitialized_paper_portfolio_as_read_only(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        mock_get_db.return_value.get_paper_portfolio_overview.return_value = {
+            "initialized": False,
+            "holdings": [],
+            "latest_simulated_trades": [],
+        }
+        service = self._build_service()
+
+        report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
+
+        self.assertIn("## 模拟盘账本（只读）", report)
+        self.assertIn("状态：未初始化/未启用", report)
+        self.assertIn("不会初始化模拟盘，也不会写入任何模拟交易", report)
+        self.assertIn("不是正文的计划仓位模拟，也不代表真实账户成交", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_report_shows_initialized_paper_portfolio_separate_from_plan_simulation(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        mock_get_db.return_value.get_paper_portfolio_overview.return_value = {
+            "initialized": True,
+            "snapshot_date": "2026-05-15",
+            "cash": 1234.5,
+            "equity_value": 4000.0,
+            "total_value": 5234.5,
+            "holdings": [{"code": "AAA", "market_value": 4000.0}],
+            "latest_simulated_trades": [
+                {
+                    "code": "AAA",
+                    "action": "HOLD",
+                    "executed": False,
+                    "reason": "Skipped: HOLD action",
+                    "simulation_time": "2026-05-15T16:10:00",
+                }
+            ],
+            "seed_source": {"snapshot_date": "2026-05-14"},
+        }
+        service = self._build_service()
+
+        report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
+
+        self.assertIn("状态：已初始化；快照日期：2026-05-15", report)
+        self.assertIn("现金 1,234.50 | 持仓市值 4,000.00 | 总资产 5,234.50", report)
+        self.assertIn("当前模拟持仓：1 只", report)
+        self.assertIn("正文目标仓位只是计划视图；模拟盘账本不会因本报告生成而更新", report)
+        self.assertIn("AAA HOLD，未模拟成交；原因：Skipped: HOLD action", report)
+        self.assertIn("初始化来源：真实账户快照 2026-05-14 的只读副本", report)
+        self.assertLess(report.index("## 模拟盘账本（只读）"), report.index("## 详情 / 审计附录"))
 
     @patch("src.notification.get_db")
     def test_dashboard_summary_escapes_long_operation_advice_and_reason(self, mock_get_db) -> None:
