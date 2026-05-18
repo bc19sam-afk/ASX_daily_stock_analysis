@@ -672,15 +672,18 @@ def test_may18_no_action_report_keeps_holdings_and_watch_ai_review_before_audit(
     assert "## 当前持仓动作" in report
     assert "### 持仓复盘（无调仓观察）" in report
     assert "## 重点观察复盘（非持仓）" in report
+    assert "## 个股详细分析" in report
     assert "## 详情 / 审计附录" in report
 
     holdings_index = report.index("### 持仓复盘（无调仓观察）")
     watch_index = report.index("## 重点观察复盘（非持仓）")
+    detail_index = report.index("## 个股详细分析")
     audit_index = report.index("## 详情 / 审计附录")
     matrix_index = report.index("## 个股证据矩阵")
 
     assert holdings_index < audit_index
     assert watch_index < audit_index
+    assert detail_index < audit_index
     assert audit_index < matrix_index
 
     holdings_section = _section_between(report, "### 持仓复盘（无调仓观察）", "## 新开仓 / 观察清单")
@@ -696,6 +699,89 @@ def test_may18_no_action_report_keeps_holdings_and_watch_ai_review_before_audit(
     assert "STH X ELEC [SXE]" in watch_section
     assert "EUR GROUP [EGH]" in watch_section
     assert "关键理由：MA10 支撑附近可观察，但未形成今日买入动作。" in watch_section
+
+    detail_section = _section_between(report, "## 个股详细分析", "## 详情 / 审计附录")
+    for stock_name in [
+        "GOOD GROUP [GMG]",
+        "NIBHOLDING [NHF]",
+        "XERO [XRO]",
+        "BHP GROUP [BHP]",
+        "STH X ELEC [SXE]",
+        "EUR GROUP [EGH]",
+    ]:
+        assert stock_name in detail_section
+    assert "### 核心结论" in detail_section
+    assert "### 关键理由" in detail_section
+    assert "### 风险" in detail_section
+
+
+@patch("src.notification.get_db")
+def test_email_body_keeps_dashboard_style_per_stock_detail_before_audit(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 10000.0, "holdings": []}
+    service = _service()
+    result = _result(
+        code="BHP.AX",
+        name="BHP GROUP [BHP]",
+        final_decision="BUY",
+        position_action="OPEN",
+        target_weight=0.10,
+        delta_amount=1000.0,
+        market_snapshot={"date": "2026-05-15", "close": "60.20", "source": "yfinance"},
+        dashboard={
+            "core_conclusion": {
+                "one_sentence": "技术面转强，但仍需开盘后二次确认。",
+                "time_sensitivity": "今日开盘后",
+            },
+            "intelligence": {
+                "sentiment_summary": "新闻情绪偏正面。",
+                "earnings_outlook": "业绩预期稳定。",
+                "positive_catalysts": ["铁矿石价格企稳"],
+                "latest_news": "无重大新增利空。",
+                "risk_alerts": [{"message": "若跌破 MA10 支撑，先暂停动作。"}],
+            },
+            "data_perspective": {
+                "trend_status": {"ma_alignment": "多头排列", "is_bullish": True, "trend_score": 82},
+                "price_position": {
+                    "current_price": "60.20",
+                    "ma5": "59.80",
+                    "ma10": "58.90",
+                    "ma20": "57.40",
+                    "bias_ma5": "0.7",
+                    "bias_status": "安全",
+                    "support_level": "58.90",
+                    "resistance_level": "62.00",
+                },
+                "volume_analysis": {
+                    "volume_ratio": "1.2",
+                    "volume_status": "温和放量",
+                    "turnover_rate": "0.8",
+                    "volume_meaning": "成交配合温和。",
+                },
+            },
+            "battle_plan": {
+                "sniper_points": {
+                    "ideal_buy": "60.00",
+                    "secondary_buy": "59.20",
+                    "stop_loss": "57.80",
+                    "take_profit": "64.00",
+                },
+                "action_checklist": ["开盘后确认价格", "复核公告"],
+            },
+        },
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-05-18")
+    email_body = service.build_email_report_body(report)
+
+    assert "## 个股详细分析" in email_body
+    assert "## 🟢 BHP GROUP [BHP] (BHP.AX)" in email_body
+    assert "### 📰 重要信息速览" in email_body
+    assert "### 证据附录（技术/数据）" in email_body
+    assert "### 条件化计划点位 / 人工复核参考" in email_body
+    assert "铁矿石价格企稳" in email_body
+    assert "开盘后确认价格" in email_body
+    assert "## 详情 / 审计附录" not in email_body
+    assert "## 个股证据矩阵" not in email_body
 
 
 def test_archive_html_still_contains_compact_homepage_text(tmp_path: Path):
