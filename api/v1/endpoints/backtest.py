@@ -14,6 +14,7 @@ from api.v1.schemas.backtest import (
     BacktestRunResponse,
     BacktestResultItem,
     BacktestResultsResponse,
+    BacktestTaskResponse,
     PerformanceMetrics,
 )
 from api.v1.schemas.common import ErrorResponse
@@ -23,6 +24,38 @@ from src.storage import DatabaseManager
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.post(
+    "",
+    response_model=BacktestTaskResponse,
+    responses={
+        200: {"description": "回测任务已完成"},
+        500: {"description": "服务器错误", "model": ErrorResponse},
+    },
+    summary="触发回测任务",
+    description="触发回测并返回可查询的任务 ID；回测仍是本地人工复核辅助，不连接真实交易账户。",
+)
+def start_backtest_task(
+    request: BacktestRunRequest,
+    db_manager: DatabaseManager = Depends(get_database_manager),
+) -> BacktestTaskResponse:
+    try:
+        service = BacktestService(db_manager)
+        task = service.start_backtest_task(
+            code=request.code,
+            force=request.force,
+            eval_window_days=request.eval_window_days,
+            min_age_days=request.min_age_days,
+            limit=request.limit,
+        )
+        return BacktestTaskResponse(**task)
+    except Exception as exc:
+        logger.error(f"回测任务执行失败: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "internal_error", "message": f"回测任务执行失败: {str(exc)}"},
+        )
 
 
 @router.post(
@@ -156,5 +189,38 @@ def get_stock_performance(
         raise HTTPException(
             status_code=500,
             detail={"error": "internal_error", "message": f"查询单股表现失败: {str(exc)}"},
+        )
+
+
+@router.get(
+    "/{task_id}",
+    response_model=BacktestTaskResponse,
+    responses={
+        200: {"description": "回测任务结果"},
+        404: {"description": "任务不存在", "model": ErrorResponse},
+        500: {"description": "服务器错误", "model": ErrorResponse},
+    },
+    summary="获取回测任务结果",
+)
+def get_backtest_task(
+    task_id: str,
+    db_manager: DatabaseManager = Depends(get_database_manager),
+) -> BacktestTaskResponse:
+    try:
+        service = BacktestService(db_manager)
+        task = service.get_backtest_task(task_id)
+        if task is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"error": "not_found", "message": f"未找到回测任务 {task_id}"},
+            )
+        return BacktestTaskResponse(**task)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"查询回测任务失败: {exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "internal_error", "message": f"查询回测任务失败: {str(exc)}"},
         )
 

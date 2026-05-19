@@ -39,6 +39,7 @@ from api.v1.schemas.stocks import (
 from api.v1.schemas.backtest import (
     BacktestRunRequest,
     BacktestRunResponse,
+    BacktestTaskResponse,
     BacktestResultItem,
     BacktestResultsResponse,
     PerformanceMetrics,
@@ -87,6 +88,7 @@ __all__ = [
     # backtest
     "BacktestRunRequest",
     "BacktestRunResponse",
+    "BacktestTaskResponse",
     "BacktestResultItem",
     "BacktestResultsResponse",
     "PerformanceMetrics",

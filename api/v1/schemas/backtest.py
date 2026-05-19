@@ -24,6 +24,12 @@ class BacktestRunResponse(BaseModel):
     errors: int = Field(..., description="错误数")
 
 
+class BacktestTaskResponse(BaseModel):
+    task_id: str = Field(..., description="回测任务 ID")
+    status: str = Field("completed", description="任务状态")
+    result: Dict[str, Any] = Field(default_factory=dict, description="回测结果摘要")
+
+
 class BacktestResultItem(BaseModel):
     analysis_history_id: int
     code: str
