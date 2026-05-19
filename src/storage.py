@@ -18,7 +18,7 @@ import logging
 import math
 import re
 import threading
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple
 
 import pandas as pd
@@ -986,7 +986,7 @@ class DatabaseManager:
                         existing.snippet = snippet or existing.snippet
                         existing.source = source or existing.source
                         existing.published_date = published_date or existing.published_date
-                        existing.fetched_at = datetime.now()
+                        existing.fetched_at = datetime.now(tz=timezone.utc)
 
                         if query_context:
                             # Keep the first query_id to avoid overwriting historical links.
@@ -1027,7 +1027,7 @@ class DatabaseManager:
                                     url=url_key,
                                     source=source,
                                     published_date=published_date,
-                                    fetched_at=datetime.now(),
+                                    fetched_at=datetime.now(tz=timezone.utc),
                                     query_id=current_query_id or None,
                                     query_source=query_ctx.get("query_source"),
                                     requester_platform=query_ctx.get("requester_platform"),
@@ -1058,7 +1058,7 @@ class DatabaseManager:
         """
         获取指定股票最近 N 天的新闻情报
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = datetime.now(tz=timezone.utc) - timedelta(days=days)
 
         with self.get_session() as session:
             results = session.execute(
@@ -1151,7 +1151,7 @@ class DatabaseManager:
             secondary_buy=sniper_points.get("secondary_buy"),
             stop_loss=sniper_points.get("stop_loss"),
             take_profit=sniper_points.get("take_profit"),
-            created_at=datetime.now(),
+            created_at=datetime.now(tz=timezone.utc),
         )
 
         with self.get_session() as session:
@@ -1178,7 +1178,7 @@ class DatabaseManager:
         - If query_id is provided, perform exact lookup and ignore days window.
         - If query_id is not provided, apply days-based time filtering.
         """
-        cutoff_date = datetime.now() - timedelta(days=days)
+        cutoff_date = datetime.now(tz=timezone.utc) - timedelta(days=days)
 
         with self.get_session() as session:
             conditions = []
@@ -1352,7 +1352,7 @@ class DatabaseManager:
             try:
                 for _, row in df.iterrows():
                     row_date = _row_date(row.get('date'))
-                    now = datetime.now()
+                    now = datetime.now(tz=timezone.utc)
                     values = _row_values(row, row_date, now)
                     existing_rows = session.execute(
                         select(StockDaily).where(
@@ -1606,7 +1606,7 @@ class DatabaseManager:
         market_value: float,
     ) -> None:
         """在给定 session 中更新当前持仓（不提交事务）。quantity<=0 时标记为 CLOSED。"""
-        now = datetime.now()
+        now = datetime.now(tz=timezone.utc)
         code = canonical_stock_code(code)
         row = self.get_portfolio_position_by_alias_in_session(session, code)
         if row is None:
@@ -1654,7 +1654,7 @@ class DatabaseManager:
         """在给定 session 中保存单条交易日志（不提交事务）。"""
         if "code" in kwargs:
             kwargs["code"] = canonical_stock_code(kwargs["code"])
-        entry = TradeJournal(created_at=datetime.now(), **kwargs)
+        entry = TradeJournal(created_at=datetime.now(tz=timezone.utc), **kwargs)
         session.add(entry)
 
     def save_account_snapshot_in_session(
@@ -1681,7 +1681,7 @@ class DatabaseManager:
                 total_value=float(total_value),
                 daily_pnl=daily_pnl,
                 note=note,
-                created_at=datetime.now(),
+                created_at=datetime.now(tz=timezone.utc),
             )
             session.add(row)
             return
