@@ -64,14 +64,7 @@ from src.formatters import (
     markdown_to_html_document,
 )
 from src.stock_code import canonical_stock_code
-from src.notification_formatting import (
-    format_position_action_label as _format_position_action_label_helper,
-    format_price_basis_label as _format_price_basis_label_helper,
-    format_sizing_brief as _format_sizing_brief_helper,
-    format_stock_display_name as _format_stock_display_name_helper,
-    format_valuation_source_label as _format_valuation_source_label_helper,
-    format_yes_no_label as _format_yes_no_label_helper,
-)
+from src import notification_formatting
 from src.notification_recommended_action_builders import (
     build_recommended_actions_table,
 )
@@ -576,30 +569,6 @@ class NotificationService:
         return "close_only"
 
     @staticmethod
-    def _format_price_basis_label(basis: str) -> str:
-        return _format_price_basis_label_helper(basis)
-
-    @staticmethod
-    def _format_valuation_source_label(source: str) -> str:
-        return _format_valuation_source_label_helper(source)
-
-    @staticmethod
-    def _format_yes_no_label(flag: Any) -> str:
-        return _format_yes_no_label_helper(flag)
-
-    @staticmethod
-    def _format_position_action_label(action: str) -> str:
-        return _format_position_action_label_helper(action)
-
-    @staticmethod
-    def _format_stock_display_name(raw_name: Any, raw_code: Any) -> str:
-        return _format_stock_display_name_helper(raw_name, raw_code)
-
-    @staticmethod
-    def _format_sizing_brief(target_weight: float, action: str = "") -> str:
-        return _format_sizing_brief_helper(target_weight, action)
-
-    @staticmethod
     def _format_validation_issue_text(result: AnalysisResult) -> str:
         issues = _get_validation_issues(result)
         if not issues:
@@ -669,7 +638,7 @@ class NotificationService:
 
     def _get_price_basis_label(self, result: AnalysisResult) -> str:
         """返回单只股票的价格口径标签（仅用于展示层披露）。"""
-        return self._format_price_basis_label(self._classify_price_basis(result))
+        return notification_formatting.format_price_basis_label(self._classify_price_basis(result))
 
     def _get_price_metric_label(self, result: AnalysisResult) -> str:
         """返回价格字段在当前口径下的用户可读标签。"""
@@ -1265,11 +1234,11 @@ class NotificationService:
             get_primary_action_model=self._get_primary_action_model,
             build_final_action_display=self._build_final_action_display,
             get_signal_level=self._get_signal_level,
-            format_stock_display_name=self._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             escape_md=self._escape_md,
             to_markdown_table_cell=self._to_markdown_table_cell,
-            format_position_action_label=self._format_position_action_label,
-            format_sizing_brief=self._format_sizing_brief,
+            format_position_action_label=notification_formatting.format_position_action_label,
+            format_sizing_brief=notification_formatting.format_sizing_brief,
             get_conflict_safe_ai_commentary=self._get_conflict_safe_ai_commentary,
         )
 
@@ -1303,7 +1272,7 @@ class NotificationService:
             overview=overview,
             get_primary_action_model=self._get_primary_action_model,
             classify_price_basis=self._classify_price_basis,
-            format_stock_display_name=self._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             format_validation_issue_text=self._format_validation_issue_text,
             min_action_delta_amount=self._get_actionable_delta_amount_threshold(),
             backtest_confidence=self._build_backtest_confidence_panel(),
@@ -1395,7 +1364,7 @@ class NotificationService:
             result,
             action_model=action_model or self._get_primary_action_model(result),
             min_delta_amount=self._get_actionable_delta_amount_threshold(),
-            format_stock_display_name=self._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             format_validation_issue_text=self._format_validation_issue_text,
         )
 
@@ -1560,7 +1529,7 @@ class NotificationService:
         return build_simulated_target_allocation_table(
             results=results,
             executed_weight_by_code=executed_weight_by_code,
-            format_stock_display_name=self._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             escape_md=self._escape_md,
             to_markdown_table_cell=self._to_markdown_table_cell,
             get_signal_level=self._get_signal_level,
@@ -1603,7 +1572,7 @@ class NotificationService:
         *,
         truncate: Optional[int] = None,
     ) -> str:
-        stock_name = self._escape_md(self._format_stock_display_name(result.name, result.code))
+        stock_name = self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))
         reason = self._format_validation_issue_text(result)
         if truncate is not None:
             reason = reason[:truncate]
@@ -1615,7 +1584,7 @@ class NotificationService:
         *,
         failed: bool = False,
     ) -> List[str]:
-        stock_name = self._escape_md(self._format_stock_display_name(result.name, result.code))
+        stock_name = self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))
         reason = self._human_non_actionable_reason(result, failed=failed)
         return [
             f"### {stock_name}",
@@ -1864,9 +1833,9 @@ class NotificationService:
         ref_text = format_conditional_plan_points_inline(plan_points)
 
         return {
-            "heading": f"### {signal_emoji} {self._escape_md(self._format_stock_display_name(result.name, result.code))}",
+            "heading": f"### {signal_emoji} {self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))}",
             "summary_line": f"- 核心结论：{signal_text} | 评分 {result.sentiment_score} | {result.trend_prediction}",
-            "action_line": f"- 主动作：{self._format_position_action_label(self._get_primary_action_model(result)['position_action'])}",
+            "action_line": f"- 主动作：{notification_formatting.format_position_action_label(self._get_primary_action_model(result)['position_action'])}",
             "reason_line": f"- 关键理由：{reason_text}",
             "risk_line": f"- 风险：{risk_text}",
             "reference_line": f"- 条件化计划点位：{ref_text}",
@@ -2065,13 +2034,13 @@ class NotificationService:
                     report_lines.append("**未覆盖持仓**")
                     for item in uncovered_holdings:
                         report_lines.append(
-                            f"- {self._format_stock_display_name(item.get('name'), item.get('code'))}"
+                            f"- {notification_formatting.format_stock_display_name(item.get('name'), item.get('code'))}"
                         )
                 if failed_results:
                     report_lines.append(f"- 今日有 **{len(failed_results)}** 只分析失败，建议重跑后再决策。")
                     report_lines.append("**分析失败（建议重跑）**")
                     for result in failed_results:
-                        stock_name = self._format_stock_display_name(result.name, result.code)
+                        stock_name = notification_formatting.format_stock_display_name(result.name, result.code)
                         error_message = str(getattr(result, "error_message", "") or "未知错误")
                         report_lines.append(f"- {stock_name}：{error_message}")
                 if blocked_results:
@@ -2129,7 +2098,7 @@ class NotificationService:
                 action_model = self._get_primary_action_model(result)
                 dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
                 
-                stock_name = self._escape_md(self._format_stock_display_name(result.name, result.code))
+                stock_name = self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))
                 
                 report_lines.extend([
                     f"## {signal_emoji} {stock_name}",
@@ -2201,7 +2170,7 @@ class NotificationService:
                     f"- {one_sentence}",
                     "",
                     "### 主动作",
-                    f"- {self._format_position_action_label(action_model['position_action'])}（{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])}）",
+                    f"- {notification_formatting.format_position_action_label(action_model['position_action'])}（{notification_formatting.format_sizing_brief(action_model['target_weight'], action_model['position_action'])}）",
                     "",
                     "### 关键理由",
                     f"- {reason_text}",
@@ -2398,9 +2367,9 @@ class NotificationService:
             appendix_lines.extend(
                 build_holdings_audit_table(
                     holdings=holdings,
-                    format_stock_display_name=self._format_stock_display_name,
-                    format_valuation_source_label=self._format_valuation_source_label,
-                    format_yes_no_label=self._format_yes_no_label,
+                    format_stock_display_name=notification_formatting.format_stock_display_name,
+                    format_valuation_source_label=notification_formatting.format_valuation_source_label,
+                    format_yes_no_label=notification_formatting.format_yes_no_label,
                     to_markdown_table_cell=self._to_markdown_table_cell,
                 )
             )
@@ -2520,8 +2489,8 @@ class NotificationService:
                 action_model = self._get_primary_action_model(r)
                 lines.append(
                     f"{signal_emoji} **{stock_name}({r.code})**: "
-                    f"{self._format_position_action_label(action_model['position_action'])} · "
-                    f"{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])} "
+                    f"{notification_formatting.format_position_action_label(action_model['position_action'])} · "
+                    f"{notification_formatting.format_sizing_brief(action_model['target_weight'], action_model['position_action'])} "
                     f"(AI补充: {self._get_conflict_safe_ai_commentary(r)} / 评分{r.sentiment_score})"
                 )
             if blocked_results:
@@ -5274,7 +5243,7 @@ class NotificationBuilder:
         for r in sorted(actionable_results, key=lambda x: x.sentiment_score, reverse=True):
             decision = _get_effective_decision(r)
             emoji = _decision_to_signal_emoji(decision)
-            basis = NotificationService._format_price_basis_label(NotificationService._classify_price_basis(r))
+            basis = notification_formatting.format_price_basis_label(NotificationService._classify_price_basis(r))
             lines.append(
                 f"{emoji} {r.name}({r.code}): {_decision_to_canonical_advice(decision)} | "
                 f"评分 {r.sentiment_score} | 价格基准：{basis}"
