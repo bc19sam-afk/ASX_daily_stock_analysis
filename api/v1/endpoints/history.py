@@ -18,6 +18,7 @@ from api.deps import get_database_manager
 from api.v1.schemas.history import (
     HistoryListResponse,
     HistoryItem,
+    PortfolioSummaryResponse,
     NewsIntelItem,
     NewsIntelResponse,
     AnalysisReport,
@@ -37,18 +38,19 @@ router = APIRouter()
 
 @router.get(
     "/portfolio/summary",
+    response_model=PortfolioSummaryResponse,
     responses={200: {"description": "组合汇总与持仓快照"}},
     summary="获取组合汇总",
     description="返回账户汇总、当前持仓、最近交易动作。"
 )
 def get_portfolio_summary(
     db_manager: DatabaseManager = Depends(get_database_manager)
-) -> dict:
+) -> PortfolioSummaryResponse:
     overview = db_manager.get_portfolio_overview()
     journal = db_manager.get_trade_journal(limit=20)
-    return {
-        "portfolio": overview,
-        "today_actions": [
+    return PortfolioSummaryResponse(
+        portfolio=overview,
+        today_actions=[
             {
                 "code": item.code,
                 "action": item.action,
@@ -60,7 +62,7 @@ def get_portfolio_summary(
             }
             for item in journal
         ],
-    }
+    )
 
 
 @router.get(
