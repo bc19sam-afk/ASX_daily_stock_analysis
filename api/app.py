@@ -16,6 +16,7 @@ FastAPI 应用工厂模块
 """
 
 import os
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +31,8 @@ from api.v1 import api_v1_router
 from api.middlewares.error_handler import add_error_handlers
 from api.v1.schemas.common import RootResponse, HealthResponse
 from src.services.system_config_service import SystemConfigService
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -81,26 +84,49 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
     # CORS 配置
     # ============================================================
     
-    allowed_origins = [
+    default_allowed_origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+    allowed_origins = list(default_allowed_origins)
     
     # 从环境变量添加额外的允许来源
     extra_origins = os.environ.get("CORS_ORIGINS", "")
+    extra_origin_values = []
     if extra_origins:
-        allowed_origins.extend([o.strip() for o in extra_origins.split(",") if o.strip()])
+        extra_origin_values = [
+            o.strip()
+            for o in extra_origins.split(",")
+            if o.strip() and o.strip() != "*"
+        ]
+        allowed_origins.extend(extra_origin_values)
     
     # 允许所有来源（开发/演示用）
     if os.environ.get("CORS_ALLOW_ALL", "").lower() == "true":
         allowed_origins = ["*"]
+
+    allow_credentials = True
+    if allow_credentials and allowed_origins == ["*"]:
+        logger.warning(
+            "CORS: wildcard origin with credentials is invalid per spec, "
+            "falling back to localhost origins"
+        )
+        loopback_origins = [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://localhost:8080",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:8080",
+        ]
+        allowed_origins = list(dict.fromkeys(loopback_origins + extra_origin_values))
     
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_credentials=True,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )

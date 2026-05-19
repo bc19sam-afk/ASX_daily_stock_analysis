@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict
 
+from src.core.utils import is_failed_analysis, safe_float
 from src.core.validator import normalize_validation_status
 
 
@@ -20,10 +21,10 @@ def is_effective_executable_action(
     action = str(action_model.get("position_action") or "HOLD").upper()
     if action not in EXECUTABLE_ACTIONS:
         return False
-    threshold = max(_safe_float(min_delta_amount), 0.0)
+    threshold = max(safe_float(min_delta_amount), 0.0)
     if threshold <= 0:
         return True
-    return abs(_safe_float(action_model.get("delta_amount"))) >= threshold
+    return abs(safe_float(action_model.get("delta_amount"))) >= threshold
 
 
 def build_final_action_display(
@@ -37,10 +38,10 @@ def build_final_action_display(
     """Build a display-only action object without mutating the result."""
     code = str(getattr(result, "code", "") or "")
     name = format_stock_display_name(getattr(result, "name", ""), code)
-    current_weight = _safe_float(getattr(result, "current_weight", 0.0))
+    current_weight = safe_float(getattr(result, "current_weight", 0.0))
     validation_status = normalize_validation_status(getattr(result, "validation_status", None))
 
-    if _is_failed_analysis(result):
+    if is_failed_analysis(result):
         return _display(
             code=code,
             name=name,
@@ -84,9 +85,9 @@ def build_final_action_display(
             actionability="watch_only",
             final_decision="HOLD",
             position_action="HOLD",
-            target_weight=_safe_float(action_model.get("target_weight"), current_weight),
+            target_weight=safe_float(action_model.get("target_weight"), current_weight),
             current_weight=current_weight,
-            delta_amount=_safe_float(action_model.get("delta_amount")) if show_holding_sizing else 0.0,
+            delta_amount=safe_float(action_model.get("delta_amount")) if show_holding_sizing else 0.0,
             reason=str(getattr(result, "action_reason", "") or "未达到可执行动作阈值，仅观察。"),
             display_label="持有 / 观察",
             can_show_sizing=show_holding_sizing,
@@ -102,9 +103,9 @@ def build_final_action_display(
         actionability="actionable",
         final_decision=decision,
         position_action=action,
-        target_weight=_safe_float(action_model.get("target_weight")),
+        target_weight=safe_float(action_model.get("target_weight")),
         current_weight=current_weight,
-        delta_amount=_safe_float(action_model.get("delta_amount")),
+        delta_amount=safe_float(action_model.get("delta_amount")),
         reason=str(getattr(result, "action_reason", "") or ""),
         display_label=_action_label(action),
         can_show_sizing=True,
@@ -145,12 +146,6 @@ def _display(
     }
 
 
-def _is_failed_analysis(result: Any) -> bool:
-    if not bool(getattr(result, "success", True)):
-        return True
-    return str(getattr(result, "analysis_status", "") or "").strip().upper() == "FAILED"
-
-
 def _action_label(action: str) -> str:
     return {
         "OPEN": "买入 / 新开仓",
@@ -158,10 +153,3 @@ def _action_label(action: str) -> str:
         "REDUCE": "减仓",
         "CLOSE": "清仓",
     }.get(str(action or "").upper(), "持有 / 观察")
-
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default

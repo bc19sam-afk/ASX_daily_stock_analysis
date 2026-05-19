@@ -40,7 +40,7 @@ class ASXAnnouncementCheck:
     reason: str = ""
 
     def __post_init__(self) -> None:
-        code = _normalize_code(self.code)
+        code = canonical_stock_code(self.code)
         status = normalize_announcement_status(self.status)
         if self.has_price_sensitive_item is True and status in {ANNOUNCEMENT_CLEAR, ANNOUNCEMENT_NOT_CHECKED}:
             status = ANNOUNCEMENT_RISK_FOUND
@@ -95,7 +95,7 @@ def build_asx_announcement_check(code: str, **overrides: Any) -> ASXAnnouncement
 def coerce_asx_announcement_check(code: str, value: Any) -> ASXAnnouncementCheck:
     """Normalize optional check metadata without inventing a clear status."""
     if isinstance(value, ASXAnnouncementCheck):
-        if value.code == _normalize_code(code):
+        if value.code == canonical_stock_code(code):
             return value
         data = value.to_dict()
         data["code"] = code
@@ -120,10 +120,6 @@ def default_announcement_reason(status: str) -> str:
     if status == ANNOUNCEMENT_UNAVAILABLE:
         return "ASX 官方公告源不可用；执行前需人工检查公告。"
     return "ASX 官方公告未检查；执行前需人工检查 ASX announcements。"
-
-
-def _normalize_code(value: Any) -> str:
-    return canonical_stock_code(value)
 
 
 def _item_dict(value: Any) -> Dict[str, Any]:

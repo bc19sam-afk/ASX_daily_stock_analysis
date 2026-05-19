@@ -60,7 +60,7 @@ def append_manual_execution_note(
     payload["updated_at"] = note_timestamp
     payload.setdefault("manual_execution_notes", []).append(
         {
-            "code": _normalize_code(code),
+            "code": canonical_stock_code(code),
             "note": str(note or ""),
             "status": _manual_note_status(status),
             "timestamp": note_timestamp,
@@ -130,14 +130,14 @@ def build_weekly_review_summary(
 
     for payload in journal_payloads:
         for action in payload.get("morning_actions") or []:
-            code = _normalize_code(action.get("code"))
+            code = canonical_stock_code(action.get("code"))
             morning_action = str(action.get("morning_action") or "UNKNOWN").strip().upper()
             validation_status = str(action.get("validation_status") or "").strip().upper()
             action_counts[morning_action] += 1
             if validation_status == "BLOCK" or morning_action == "BLOCK":
                 followups[code].add("morning_block")
         for note in payload.get("manual_execution_notes") or []:
-            code = _normalize_code(note.get("code"))
+            code = canonical_stock_code(note.get("code"))
             status = _manual_note_status(str(note.get("status") or "unknown"))
             manual_note_counts[status] += 1
             if status in {"skipped", "partial", "unknown"}:
@@ -253,7 +253,7 @@ def _morning_action_item(item: Mapping[str, Any], *, default_morning_action: Opt
     validation_status = str(item.get("validation_status") or default_validation_status).strip().upper()
     morning_action = default_morning_action or item.get("morning_action") or item.get("position_action") or "HOLD"
     return {
-        "code": _normalize_code(item.get("code")),
+        "code": canonical_stock_code(item.get("code")),
         "morning_action": str(morning_action or "").strip().upper(),
         "final_decision": item.get("final_decision"),
         "position_action": item.get("position_action"),
@@ -291,10 +291,6 @@ def _manual_note_status(status: str) -> str:
 def _date_slug(value: Any) -> str:
     slug = "".join(ch for ch in str(value or "") if ch.isdigit())
     return slug or "unknown"
-
-
-def _normalize_code(value: Any) -> str:
-    return canonical_stock_code(value)
 
 
 def _now_iso() -> str:

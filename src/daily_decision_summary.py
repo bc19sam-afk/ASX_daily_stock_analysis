@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
+from src.core.utils import is_failed_analysis, safe_float
 from src.core.validator import normalize_validation_status
 from src.stock_code import canonical_stock_code
 from src.backtest_confidence import (
@@ -80,16 +81,6 @@ EXECUTION_CHECKLIST = [
 WATCH_TRIGGER_RULE = "仅在价格突破/回撤到参考位、验证状态变化、或出现重大新闻/财报事件时再打开观察名单。"
 
 
-def _normalize_stock_code(code: Any) -> str:
-    return canonical_stock_code(code)
-
-
-def _is_failed_analysis(result: Any) -> bool:
-    if not bool(getattr(result, "success", True)):
-        return True
-    return str(getattr(result, "analysis_status", "") or "").strip().upper() == "FAILED"
-
-
 def _is_blocked(result: Any) -> bool:
     return normalize_validation_status(getattr(result, "validation_status", None)) == "BLOCK"
 
@@ -106,13 +97,6 @@ def _normal_date(value: Any) -> Optional[str]:
 
 def _display_name(result: Any, formatter: Callable[[Any, Any], str]) -> str:
     return formatter(getattr(result, "name", ""), getattr(result, "code", ""))
-
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _basis_counts(results: Iterable[Any], classify_price_basis: Callable[[Any], str]) -> Dict[str, int]:
@@ -148,9 +132,9 @@ def _build_item(
         "code": str(getattr(result, "code", "") or ""),
         "name": _display_name(result, format_stock_display_name),
         "position_action": str(action_model.get("position_action") or "HOLD"),
-        "target_weight": _safe_float(action_model.get("target_weight")),
-        "current_weight": _safe_float(getattr(result, "current_weight", 0.0)),
-        "delta_amount": _safe_float(action_model.get("delta_amount")),
+        "target_weight": safe_float(action_model.get("target_weight")),
+        "current_weight": safe_float(getattr(result, "current_weight", 0.0)),
+        "delta_amount": safe_float(action_model.get("delta_amount")),
         "is_current_holding": is_current_holding,
         "price_basis": classify_price_basis(result),
         "reason": str(getattr(result, "action_reason", "") or ""),
@@ -177,7 +161,7 @@ def _attach_action_review_reasons(
         display = item.get("final_action_display")
         if not isinstance(display, dict):
             continue
-        code = _normalize_stock_code(item.get("code"))
+        code = canonical_stock_code(item.get("code"))
         result = result_by_code.get(code)
         reasons, confirmation_gap = _build_review_reasons(
             item=item,
@@ -256,7 +240,7 @@ def _risk_sizing_differs_significantly(comparison: Optional[Dict[str, Any]]) -> 
     difference = comparison.get("difference_weight")
     if difference is None:
         return True
-    return abs(_safe_float(difference)) >= RISK_SIZING_REVIEW_DIFF_WEIGHT
+    return abs(safe_float(difference)) >= RISK_SIZING_REVIEW_DIFF_WEIGHT
 
 
 def _append_evidence_review_reasons(reasons: List[str], entries: List[Dict[str, Any]]) -> bool:
@@ -351,7 +335,7 @@ def _build_triage_card(
 
     attention_codes = set()
     for item in blocked_items:
-        code = _normalize_stock_code(item.get("code"))
+        code = canonical_stock_code(item.get("code"))
         attention_codes.add(code)
         blocked_item = dict(item)
         blocked_item["position_action"] = "BLOCK"
@@ -367,7 +351,7 @@ def _build_triage_card(
         )
 
     for holding in uncovered_holdings:
-        code = _normalize_stock_code(holding.get("code"))
+        code = canonical_stock_code(holding.get("code"))
         attention_codes.add(code)
         card["data_quality_attention"].append(
             {
@@ -385,7 +369,7 @@ def _build_triage_card(
         )
 
     for result in failed_results:
-        code = _normalize_stock_code(getattr(result, "code", ""))
+        code = canonical_stock_code(getattr(result, "code", ""))
         attention_codes.add(code)
         name = str(getattr(result, "name", None) or code)
         error = str(getattr(result, "error_message", "") or "analysis failed").strip()
@@ -433,7 +417,7 @@ def _build_triage_card(
             score_bucket_calibration=score_bucket_calibration,
             risk_sizing_comparison=risk_sizing_comparison,
         )
-        if item.get("is_current_holding") and low_confidence_reasons and _normalize_stock_code(item.get("code")) not in attention_codes:
+        if item.get("is_current_holding") and low_confidence_reasons and canonical_stock_code(item.get("code")) not in attention_codes:
             card["data_quality_attention"].append(
                 _triage_item(
                     item,
@@ -444,7 +428,7 @@ def _build_triage_card(
                     source_fields=["watch_items", "evidence_matrix", "score_bucket_calibration"],
                 )
             )
-            attention_codes.add(_normalize_stock_code(item.get("code")))
+            attention_codes.add(canonical_stock_code(item.get("code")))
             continue
         card["today_can_ignore"].append(
             _triage_item(
@@ -496,7 +480,7 @@ def _must_review_reason(item: Dict[str, Any]) -> str:
         "REDUCE": "减仓当前持仓",
         "CLOSE": "清仓当前持仓",
     }.get(action, "人工复核")
-    delta = _safe_float(item.get("delta_amount"))
+    delta = safe_float(item.get("delta_amount"))
     if delta > 0:
         amount_text = f"计划投入约 {abs(delta):,.2f}"
     elif delta < 0:
@@ -520,7 +504,7 @@ def _item_low_confidence_reasons(
     score_bucket_calibration: Dict[str, Any],
     risk_sizing_comparison: Dict[str, Dict[str, Any]],
 ) -> List[str]:
-    code = _normalize_stock_code(item.get("code"))
+    code = canonical_stock_code(item.get("code"))
     reasons: List[str] = []
 
     if str(item.get("price_basis") or "close_only") != "close_only":
@@ -549,7 +533,7 @@ def _score_bucket_low_sample_reason(code: str, calibration: Dict[str, Any]) -> s
     if not isinstance(calibration, dict):
         return ""
     for current in calibration.get("current_items") or []:
-        if _normalize_stock_code(current.get("code")) != code:
+        if canonical_stock_code(current.get("code")) != code:
             continue
         bucket = str(current.get("bucket") or "")
         bucket_entry = calibration.get(bucket) if bucket else None
@@ -593,21 +577,21 @@ def build_daily_decision_summary(
     risk_sizing_settings: Optional[RiskSizingSettings] = None,
 ) -> Dict[str, Any]:
     """Build a stable summary for pre-open reporting."""
-    successful_results = [r for r in results if not _is_failed_analysis(r)]
-    failed_results = [r for r in results if _is_failed_analysis(r)]
+    successful_results = [r for r in results if not is_failed_analysis(r)]
+    failed_results = [r for r in results if is_failed_analysis(r)]
     blocked_results = [r for r in successful_results if _is_blocked(r)]
     decision_results = [r for r in successful_results if not _is_blocked(r)]
 
     holdings = overview.get("holdings") or []
     holding_codes = {
-        _normalize_stock_code(item.get("code"))
+        canonical_stock_code(item.get("code"))
         for item in holdings
-        if _normalize_stock_code(item.get("code"))
+        if canonical_stock_code(item.get("code"))
     }
     successful_codes = {
-        _normalize_stock_code(getattr(result, "code", ""))
+        canonical_stock_code(getattr(result, "code", ""))
         for result in successful_results
-        if _normalize_stock_code(getattr(result, "code", ""))
+        if canonical_stock_code(getattr(result, "code", ""))
     }
 
     action_counts = {key: 0 for key in ACTION_COUNT_KEYS}
@@ -618,8 +602,8 @@ def build_daily_decision_summary(
     for result in decision_results:
         model = get_primary_action_model(result)
         action = str(model.get("position_action") or "HOLD").upper()
-        code = _normalize_stock_code(getattr(result, "code", ""))
-        is_current_holding = code in holding_codes or _safe_float(getattr(result, "current_weight", 0.0)) > 0
+        code = canonical_stock_code(getattr(result, "code", ""))
+        is_current_holding = code in holding_codes or safe_float(getattr(result, "current_weight", 0.0)) > 0
         item = _build_item(
             result,
             action_model=model,
@@ -665,7 +649,7 @@ def build_daily_decision_summary(
 
     blocked_items = []
     for result in blocked_results:
-        current_weight = _safe_float(getattr(result, "current_weight", 0.0))
+        current_weight = safe_float(getattr(result, "current_weight", 0.0))
         model = get_primary_action_model(result)
         display = build_final_action_display(
             result,
@@ -680,7 +664,7 @@ def build_daily_decision_summary(
                 "name": _display_name(result, format_stock_display_name),
                 "reason": format_validation_issue_text(result),
                 "current_weight": current_weight,
-                "target_weight": _safe_float(model.get("target_weight"), current_weight),
+                "target_weight": safe_float(model.get("target_weight"), current_weight),
                 "price_basis": classify_price_basis(result),
                 "final_action_display": display,
             }
@@ -741,13 +725,13 @@ def build_daily_decision_summary(
 
     uncovered_holdings = []
     for item in holdings:
-        code = _normalize_stock_code(item.get("code"))
+        code = canonical_stock_code(item.get("code"))
         if code and code not in successful_codes:
             uncovered_holdings.append(
                 {
                     "code": str(item.get("code", "") or ""),
                     "name": str(item.get("name") or item.get("code") or ""),
-                    "weight": _safe_float(item.get("weight")),
+                    "weight": safe_float(item.get("weight")),
                 }
             )
     if uncovered_holdings:
@@ -837,9 +821,9 @@ def build_daily_decision_summary(
         settings=risk_sizing_settings,
     )
     result_by_code = {
-        _normalize_stock_code(getattr(result, "code", "")): result
+        canonical_stock_code(getattr(result, "code", "")): result
         for result in decision_results
-        if _normalize_stock_code(getattr(result, "code", ""))
+        if canonical_stock_code(getattr(result, "code", ""))
     }
     _attach_action_review_reasons(
         actionable_items=actionable_items,
@@ -907,8 +891,8 @@ def _action_display_fields(item: Dict[str, Any]) -> Dict[str, str]:
         "REDUCE": "减仓",
         "CLOSE": "清仓",
     }.get(action, "持有观察")
-    target_weight = _safe_float(item.get("target_weight"))
-    delta_amount = _safe_float(item.get("delta_amount"))
+    target_weight = safe_float(item.get("target_weight"))
+    delta_amount = safe_float(item.get("delta_amount"))
     if delta_amount > 0:
         amount_text = f"计划投入约 {abs(delta_amount):,.2f}"
     elif delta_amount < 0:

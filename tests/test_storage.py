@@ -1,11 +1,19 @@
 # -*- coding: utf-8 -*-
+import os
+import tempfile
+import threading
+import time
 import unittest
 import sys
-import os
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
+
+from sqlalchemy import text
 
 # Ensure src module can be imported
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from src.config import Config
 from src.storage import DatabaseManager
 
 class TestStorage(unittest.TestCase):
@@ -33,6 +41,49 @@ class TestStorage(unittest.TestCase):
         self.assertIsNone(DatabaseManager._parse_sniper_value(""))
         self.assertIsNone(DatabaseManager._parse_sniper_value("没有数字"))
         self.assertIsNone(DatabaseManager._parse_sniper_value("MA5但没有元"))
+
+    def test_get_instance_initializes_once_under_concurrent_first_call(self):
+        """首次并发获取数据库单例时，只允许一个线程执行初始化。"""
+        old_database_path = os.environ.get("DATABASE_PATH")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            os.environ["DATABASE_PATH"] = os.path.join(temp_dir, "concurrent.db")
+            Config.reset_instance()
+            DatabaseManager.reset_instance()
+            ensure_calls = []
+            original_ensure_history = DatabaseManager._ensure_analysis_history_columns
+
+            def slow_ensure_history(manager):
+                ensure_calls.append(id(manager._engine))
+                time.sleep(0.02)
+                return original_ensure_history(manager)
+
+            barrier = threading.Barrier(8)
+
+            def use_instance(_):
+                barrier.wait()
+                manager = DatabaseManager.get_instance()
+                with manager.get_session() as session:
+                    result = session.execute(text("SELECT 1")).scalar()
+                return id(manager), result
+
+            try:
+                with (
+                    patch.object(DatabaseManager, "_ensure_analysis_history_columns", slow_ensure_history),
+                    ThreadPoolExecutor(max_workers=8) as executor,
+                ):
+                    results = list(executor.map(use_instance, range(8)))
+
+                instance_ids = [item[0] for item in results]
+                self.assertEqual(len(set(instance_ids)), 1)
+                self.assertEqual([item[1] for item in results], [1] * 8)
+                self.assertEqual(len(ensure_calls), 1)
+            finally:
+                DatabaseManager.reset_instance()
+                Config.reset_instance()
+                if old_database_path is None:
+                    os.environ.pop("DATABASE_PATH", None)
+                else:
+                    os.environ["DATABASE_PATH"] = old_database_path
 
 if __name__ == '__main__':
     unittest.main()

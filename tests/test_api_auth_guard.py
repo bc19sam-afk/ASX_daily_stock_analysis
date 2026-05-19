@@ -144,6 +144,65 @@ def test_cors_preflight_allows_authorization_header_with_auth_enabled(client, mo
     assert "Authorization" in response.headers["access-control-allow-headers"]
 
 
+def test_cors_allow_all_falls_back_when_credentials_are_enabled(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("CORS_ALLOW_ALL", "true")
+    monkeypatch.setenv("CORS_ORIGINS", "*,https://demo.example.com")
+
+    with caplog.at_level("WARNING", logger="api.app"):
+        app = create_app(static_dir=Path(tmp_path) / "empty-static")
+
+    test_client = TestClient(app)
+    response = test_client.options(
+        "/api/v1/system/config",
+        headers={
+            "Origin": "http://localhost:8080",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Authorization",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:8080"
+    assert "access-control-allow-credentials" in response.headers
+
+    loopback_response = test_client.options(
+        "/api/v1/system/config",
+        headers={
+            "Origin": "http://127.0.0.1:8080",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Authorization",
+        },
+    )
+    assert loopback_response.status_code == 200
+    assert loopback_response.headers["access-control-allow-origin"] == "http://127.0.0.1:8080"
+
+    explicit_response = test_client.options(
+        "/api/v1/system/config",
+        headers={
+            "Origin": "https://demo.example.com",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Authorization",
+        },
+    )
+    assert explicit_response.status_code == 200
+    assert explicit_response.headers["access-control-allow-origin"] == "https://demo.example.com"
+
+    rejected_response = test_client.options(
+        "/api/v1/system/config",
+        headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "Authorization",
+        },
+    )
+    assert rejected_response.status_code == 400
+    assert "access-control-allow-origin" not in rejected_response.headers
+    assert (
+        "CORS: wildcard origin with credentials is invalid per spec, "
+        "falling back to localhost origins"
+    ) in caplog.text
+
+
 def _assert_system_config_auth_contract(spec: dict) -> None:
     assert spec["components"]["securitySchemes"]["ApiBearerAuth"]["type"] == "http"
     assert spec["components"]["securitySchemes"]["ApiBearerAuth"]["scheme"] == "bearer"

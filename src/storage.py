@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 import threading
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple
@@ -53,6 +54,15 @@ from src.security_logging import describe_database_url_for_log
 from src.stock_code import canonical_stock_code, stock_code_aliases
 
 logger = logging.getLogger(__name__)
+
+_SAFE_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+
+
+def _validate_identifier(name: str) -> str:
+    if not _SAFE_IDENTIFIER.match(name):
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    return name
+
 
 # SQLAlchemy ORM 基类
 Base = declarative_base()
@@ -557,14 +567,17 @@ class DatabaseManager:
     """
     
     _instance: Optional['DatabaseManager'] = None
+    _lock = threading.RLock()
     _portfolio_write_lock = threading.RLock()
     _initialized: bool = False
     
     def __new__(cls, *args, **kwargs):
         """单例模式实现"""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
     
     def __init__(self, db_url: Optional[str] = None):
@@ -576,35 +589,39 @@ class DatabaseManager:
         """
         if getattr(self, '_initialized', False):
             return
-        
-        if db_url is None:
-            config = get_config()
-            db_url = config.get_db_url()
-        
-        # 创建数据库引擎
-        self._engine = create_engine(
-            db_url,
-            echo=False,  # 设为 True 可查看 SQL 语句
-            pool_pre_ping=True,  # 连接健康检查
-        )
-        
-        # 创建 Session 工厂
-        self._SessionLocal = sessionmaker(
-            bind=self._engine,
-            autocommit=False,
-            autoflush=False,
-        )
-        
-        # 创建所有表
-        Base.metadata.create_all(self._engine)
-        self._ensure_analysis_history_columns()
-        self._ensure_backtest_columns()
 
-        self._initialized = True
-        logger.info("数据库初始化完成: %s", describe_database_url_for_log(db_url))
+        with type(self)._lock:
+            if getattr(self, '_initialized', False):
+                return
 
-        # 注册退出钩子，确保程序退出时关闭数据库连接
-        atexit.register(DatabaseManager._cleanup_engine, self._engine)
+            if db_url is None:
+                config = get_config()
+                db_url = config.get_db_url()
+
+            # 创建数据库引擎
+            self._engine = create_engine(
+                db_url,
+                echo=False,  # 设为 True 可查看 SQL 语句
+                pool_pre_ping=True,  # 连接健康检查
+            )
+
+            # 创建 Session 工厂
+            self._SessionLocal = sessionmaker(
+                bind=self._engine,
+                autocommit=False,
+                autoflush=False,
+            )
+
+            # 创建所有表
+            Base.metadata.create_all(self._engine)
+            self._ensure_analysis_history_columns()
+            self._ensure_backtest_columns()
+
+            self._initialized = True
+            logger.info("数据库初始化完成: %s", describe_database_url_for_log(db_url))
+
+            # 注册退出钩子，确保程序退出时关闭数据库连接
+            atexit.register(DatabaseManager._cleanup_engine, self._engine)
 
     def _ensure_analysis_history_columns(self) -> None:
         """
@@ -635,10 +652,11 @@ class DatabaseManager:
 
         inspector = inspect(self._engine)
         table_names = set(inspector.get_table_names())
-        if "analysis_history" not in table_names:
+        table_name = _validate_identifier("analysis_history")
+        if table_name not in table_names:
             return
 
-        existing_columns = {col["name"] for col in inspector.get_columns("analysis_history")}
+        existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
         missing = [
             (name, col_type)
             for name, col_type in required_columns.items()
@@ -649,8 +667,9 @@ class DatabaseManager:
 
         with self._engine.begin() as conn:
             for col, col_type in missing:
+                safe_col = _validate_identifier(col)
                 conn.execute(
-                    text(f"ALTER TABLE analysis_history ADD COLUMN {col} {col_type}")
+                    text(f"ALTER TABLE {table_name} ADD COLUMN {safe_col} {col_type}")
                 )
 
         logger.info(
@@ -680,17 +699,19 @@ class DatabaseManager:
         inspector = inspect(self._engine)
         table_names = set(inspector.get_table_names())
         tasks = []
-        if "backtest_results" in table_names:
-            existing = {col["name"] for col in inspector.get_columns("backtest_results")}
+        results_table = _validate_identifier("backtest_results")
+        summaries_table = _validate_identifier("backtest_summaries")
+        if results_table in table_names:
+            existing = {col["name"] for col in inspector.get_columns(results_table)}
             tasks.extend(
-                ("backtest_results", col, typ)
+                (results_table, col, typ)
                 for col, typ in required_results.items()
                 if col not in existing
             )
-        if "backtest_summaries" in table_names:
-            existing = {col["name"] for col in inspector.get_columns("backtest_summaries")}
+        if summaries_table in table_names:
+            existing = {col["name"] for col in inspector.get_columns(summaries_table)}
             tasks.extend(
-                ("backtest_summaries", col, typ)
+                (summaries_table, col, typ)
                 for col, typ in required_summaries.items()
                 if col not in existing
             )
@@ -699,7 +720,9 @@ class DatabaseManager:
 
         with self._engine.begin() as conn:
             for table, col, col_type in tasks:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"))
+                safe_table = _validate_identifier(table)
+                safe_col = _validate_identifier(col)
+                conn.execute(text(f"ALTER TABLE {safe_table} ADD COLUMN {safe_col} {col_type}"))
 
         logger.info(
             "backtest 自动迁移完成，新增列: %s",
@@ -709,18 +732,20 @@ class DatabaseManager:
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
         """获取单例实例"""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+        with cls._lock:
+            if cls._instance is None or not getattr(cls._instance, '_initialized', False):
+                cls()
+            return cls._instance
     
     @classmethod
     def reset_instance(cls) -> None:
         """重置单例（用于测试）"""
-        if cls._instance is not None:
-            if hasattr(cls._instance, '_engine') and cls._instance._engine is not None:
-                cls._instance._engine.dispose()
-            cls._instance._initialized = False
-            cls._instance = None
+        with cls._lock:
+            if cls._instance is not None:
+                if hasattr(cls._instance, '_engine') and cls._instance._engine is not None:
+                    cls._instance._engine.dispose()
+                cls._instance._initialized = False
+                cls._instance = None
 
     @classmethod
     def _cleanup_engine(cls, engine) -> None:
@@ -925,17 +950,33 @@ class DatabaseManager:
                     if not title and not url:
                         continue
 
-                    url_key = url or self._build_fallback_url_key(
-                        code=code,
-                        title=title,
-                        source=source,
-                        published_date=published_date
-                    )
+                    legacy_url_key = None
+                    if url:
+                        url_key = url
+                    else:
+                        url_key = self._build_fallback_url_key(
+                            code=code,
+                            title=title,
+                            source=source,
+                            published_date=published_date
+                        )
+                        legacy_url_key = self._build_legacy_fallback_url_key(
+                            code=code,
+                            title=title,
+                            source=source,
+                            published_date=published_date
+                        )
 
                     # 优先按 URL 或兜底键去重
                     existing = session.execute(
                         select(NewsIntel).where(NewsIntel.url == url_key)
                     ).scalar_one_or_none()
+                    if existing is None and legacy_url_key:
+                        existing = session.execute(
+                            select(NewsIntel).where(NewsIntel.url == legacy_url_key)
+                        ).scalar_one_or_none()
+                        if existing is not None:
+                            existing.url = url_key
 
                     if existing:
                         existing.name = name or existing.name
@@ -2169,11 +2210,24 @@ class DatabaseManager:
         published_date: Optional[datetime]
     ) -> str:
         """
-        生成无 URL 时的去重键（确保稳定且较短）
+        生成无 URL 时的稳定去重键
         """
         date_str = published_date.isoformat() if published_date else ""
         raw_key = f"{code}|{title}|{source}|{date_str}"
-        digest = hashlib.md5(raw_key.encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+        return f"no-url:{code}:{digest}"
+
+    @staticmethod
+    def _build_legacy_fallback_url_key(
+        code: str,
+        title: str,
+        source: str,
+        published_date: Optional[datetime]
+    ) -> str:
+        """Return the pre-SHA256 no-URL key for one-time dedupe migration."""
+        date_str = published_date.isoformat() if published_date else ""
+        raw_key = f"{code}|{title}|{source}|{date_str}"
+        digest = hashlib.new("md5", raw_key.encode("utf-8"), usedforsecurity=False).hexdigest()
         return f"no-url:{code}:{digest}"
 
 
