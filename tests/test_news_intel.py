@@ -10,6 +10,7 @@ ASX-first 自选股智能分析系统 - 新闻情报存储单元测试
 """
 
 import os
+import hashlib
 import tempfile
 import unittest
 
@@ -132,7 +133,59 @@ class NewsIntelStorageTestCase(unittest.TestCase):
             row = session.query(NewsIntel).first()
             if row is None:
                 self.fail("未找到保存的新闻记录")
-            self.assertTrue(row.url.startswith("no-url:"))
+            expected_digest = hashlib.sha256(
+                "600519|茅台业绩预告|example.com|2025-01-03T00:00:00".encode("utf-8")
+            ).hexdigest()
+            self.assertEqual(row.url, f"no-url:600519:{expected_digest}")
+
+    def test_save_news_intel_migrates_legacy_no_url_fallback_key(self) -> None:
+        """旧版本无 URL 兜底键仍参与去重，并迁移到 SHA256 键。"""
+        result = SearchResult(
+            title="茅台业绩预告",
+            snippet="业绩大幅增长...",
+            url="",
+            source="example.com",
+            published_date="2025-01-03"
+        )
+        response = self._build_response([result])
+        raw_key = "600519|茅台业绩预告|example.com|2025-01-03T00:00:00"
+        legacy_digest = hashlib.new(
+            "md5",
+            raw_key.encode("utf-8"),
+            usedforsecurity=False,
+        ).hexdigest()
+        expected_digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+        with self.db.get_session() as session:
+            session.add(
+                NewsIntel(
+                    code="600519",
+                    name="贵州茅台",
+                    dimension="earnings",
+                    query=response.query,
+                    provider=response.provider,
+                    title=result.title,
+                    snippet="old snippet",
+                    url=f"no-url:600519:{legacy_digest}",
+                    source=result.source,
+                    published_date=datetime(2025, 1, 3),
+                )
+            )
+            session.commit()
+
+        saved = self.db.save_news_intel(
+            code="600519",
+            name="贵州茅台",
+            dimension="earnings",
+            query=response.query,
+            response=response
+        )
+
+        self.assertEqual(saved, 0)
+        with self.db.get_session() as session:
+            rows = session.query(NewsIntel).all()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].url, f"no-url:600519:{expected_digest}")
 
     def test_get_recent_news(self) -> None:
         """可按时间范围查询最新新闻"""

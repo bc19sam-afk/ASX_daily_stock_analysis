@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional
 
+from src.core.utils import safe_float
+
 
 ACTION_BUCKETS = ("OPEN", "ADD", "REDUCE", "CLOSE")
 SCORE_BUCKETS = ("60_70", "70_80", "80_100")
@@ -21,13 +23,6 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _safe_float(value: Any) -> Optional[float]:
-    try:
-        return None if value is None else float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _confidence_level(sample_size: int) -> str:
@@ -64,7 +59,7 @@ def _read_attr(row: Any, key: str) -> Any:
 
 def score_bucket_for_score(value: Any) -> Optional[str]:
     """Return the configured score bucket label for a 0-100 score."""
-    score = _safe_float(value)
+    score = safe_float(value, None)
     if score is None:
         return None
     for bucket, (lower, upper) in SCORE_BUCKET_RANGES.items():
@@ -85,7 +80,7 @@ def _build_action_entry(rows: List[Any]) -> Dict[str, Any]:
     return {
         "sample_size": sample_size,
         "win_rate_pct": win_rate_pct,
-        "avg_simulated_return_pct": _average(_safe_float(_read_attr(row, "simulated_return_pct")) for row in rows),
+        "avg_simulated_return_pct": _average(safe_float(_read_attr(row, "simulated_return_pct"), None) for row in rows),
         "confidence_level": _confidence_level(sample_size),
     }
 
@@ -97,7 +92,7 @@ def _build_score_bucket_entry(rows: List[Any], *, window_days: int) -> Dict[str,
 
 
 def _format_score(value: Any) -> str:
-    score = _safe_float(value)
+    score = safe_float(value, None)
     if score is None:
         return "N/A"
     if score.is_integer():
@@ -112,7 +107,7 @@ def _build_current_score_items(
 ) -> List[Dict[str, Any]]:
     current_items: List[Dict[str, Any]] = []
     for result in current_results or []:
-        score = _safe_float(_read_attr(result, "sentiment_score"))
+        score = safe_float(_read_attr(result, "sentiment_score"), None)
         bucket = score_bucket_for_score(score)
         if bucket is None:
             continue
@@ -145,8 +140,8 @@ def build_backtest_confidence_panel(
     overall = {
         "sample_size": sample_size,
         "window_days": resolved_window,
-        "win_rate_pct": _safe_float((summary or {}).get("win_rate_pct")),
-        "avg_simulated_return_pct": _safe_float((summary or {}).get("avg_simulated_return_pct")),
+        "win_rate_pct": safe_float((summary or {}).get("win_rate_pct"), None),
+        "avg_simulated_return_pct": safe_float((summary or {}).get("avg_simulated_return_pct"), None),
         "confidence_level": _confidence_level(sample_size),
     }
 
@@ -227,7 +222,7 @@ def with_current_score_bucket_items(
 
 
 def _format_pct(value: Any, *, signed: bool = False) -> str:
-    number = _safe_float(value)
+    number = safe_float(value, None)
     if number is None:
         return "N/A"
     if signed and number > 0:

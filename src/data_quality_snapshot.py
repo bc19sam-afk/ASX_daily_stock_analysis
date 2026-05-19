@@ -27,9 +27,9 @@ def build_data_quality_snapshot(
 ) -> Dict[str, Any]:
     """Summarize free/existing data quality signals without changing actions."""
     rows = [
-        _row_from_result(result, evidence_matrix.get(_normalize_code(getattr(result, "code", ""))) or [])
+        _row_from_result(result, evidence_matrix.get(canonical_stock_code(getattr(result, "code", ""))) or [])
         for result in successful_results
-        if _normalize_code(getattr(result, "code", ""))
+        if canonical_stock_code(getattr(result, "code", ""))
     ]
     field_coverage = {
         field: sum(1 for row in rows if row["valuation_fields"].get(field))
@@ -151,7 +151,7 @@ def render_data_quality_snapshot_lines(snapshot: Dict[str, Any]) -> List[str]:
 
 
 def _row_from_result(result: Any, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
-    code = _normalize_code(getattr(result, "code", ""))
+    code = canonical_stock_code(getattr(result, "code", ""))
     snapshot = getattr(result, "market_snapshot", None) or {}
     by_category = {str(entry.get("category") or ""): entry for entry in entries}
     valuation = _valuation_snapshot_dict(snapshot.get("valuation_snapshot"))
@@ -202,7 +202,7 @@ def _report_attention(
                 }
             )
     for result in failed_results:
-        code = _normalize_code(getattr(result, "code", ""))
+        code = canonical_stock_code(getattr(result, "code", ""))
         error = str(getattr(result, "error_message", "") or "analysis failed").strip()
         attention.append({"code": code, "severity": "warning", "reason": f"{code} 分析失败：{error}"})
     for holding in uncovered_holdings:
@@ -271,7 +271,7 @@ def _reliability_label(level: Any) -> str:
 
 def _display_name(result: Any) -> str:
     name = str(getattr(result, "name", "") or "").strip()
-    code = _normalize_code(getattr(result, "code", ""))
+    code = canonical_stock_code(getattr(result, "code", ""))
     if name and code and code not in name:
         return f"{name} ({code})"
     return name or code
@@ -299,7 +299,3 @@ def _has_value(value: Any) -> bool:
     if isinstance(value, (int, float)):
         return value == value
     return str(value).strip().lower() not in {"", "none", "null", "n/a", "nan", "未知"}
-
-
-def _normalize_code(code: Any) -> str:
-    return canonical_stock_code(code)

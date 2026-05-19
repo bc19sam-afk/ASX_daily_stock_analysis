@@ -14,59 +14,103 @@ from typing import List, Callable
 import markdown2
 
 
-def markdown_to_html_document(markdown_text: str) -> str:
-    """
-    Convert Markdown to a complete HTML document (for email, md2img, etc.).
-
-    Uses markdown2 with table and code block support, wraps with inline CSS
-    for compact, readable layout. Reused by notification email and md2img.
-
-    Args:
-        markdown_text: Raw Markdown content.
-
-    Returns:
-        Full HTML document string with DOCTYPE, head, and body.
-    """
-    html_content = markdown2.markdown(
-        markdown_text,
-        extras=["tables", "fenced-code-blocks", "break-on-newline", "cuddled-lists"],
-    )
-
-    css_style = """
+_BASE_CSS = """
             body {
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-                line-height: 1.5;
-                color: #24292e;
                 font-size: 14px;
-                padding: 15px;
-                max-width: 900px;
                 margin: 0 auto;
                 background: #f7f9fc;
             }
             h1 {
-                font-size: 20px;
                 border: 1px solid #d8e1ee;
-                border-left: 5px solid #2563eb;
                 border-radius: 8px;
-                padding: 12px 14px;
-                margin-top: 1.2em;
-                margin-bottom: 0.8em;
-                color: #0f172a;
                 background: #ffffff;
             }
             h2 {
-                font-size: 18px;
                 border: 1px solid #d8e1ee;
-                border-left: 4px solid #2563eb;
                 border-radius: 8px;
-                padding: 9px 12px;
-                margin-top: 1.0em;
-                margin-bottom: 0.6em;
-                color: #0f172a;
                 background: #ffffff;
             }
             h3 {
                 font-size: 16px;
+            }
+            blockquote {
+                color: #334155;
+                border-left: 4px solid #2563eb;
+                padding: 8px 12px;
+                background: #eef6ff;
+                border-radius: 6px;
+            }
+            table {
+                border-collapse: separate;
+                border-spacing: 0;
+                width: 100%;
+                font-size: 13px;
+                table-layout: auto;
+                background: #ffffff;
+                border-radius: 8px;
+            }
+            th, td {
+                border: 0;
+                text-align: left;
+                vertical-align: top;
+            }
+            th:last-child, td:last-child {
+                border-right: 0;
+            }
+            th {
+                background: #eef2f7;
+                color: #111827;
+                border-bottom: 2px solid #cbd5e1;
+            }
+            td:first-child {
+                font-weight: 600;
+                color: #0f172a;
+            }
+            tr:last-child td {
+                border-bottom: 0;
+            }
+            code {
+                font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+                border-radius: 3px;
+            }
+            pre {
+                padding: 12px;
+                background-color: #f6f8fa;
+            }
+            ul, ol {
+                padding-left: 20px;
+            }
+            li {
+                margin: 2px 0;
+            }
+        """
+
+
+_EMAIL_CSS = """
+            body {
+                line-height: 1.5;
+                color: #24292e;
+                padding: 15px;
+                max-width: 900px;
+            }
+            h1 {
+                font-size: 20px;
+                border-left: 5px solid #2563eb;
+                padding: 12px 14px;
+                margin-top: 1.2em;
+                margin-bottom: 0.8em;
+                color: #0f172a;
+            }
+            h2 {
+                font-size: 18px;
+                border-left: 4px solid #2563eb;
+                padding: 9px 12px;
+                margin-top: 1.0em;
+                margin-bottom: 0.6em;
+                color: #0f172a;
+            }
+            h3 {
                 margin-top: 0.8em;
                 margin-bottom: 0.4em;
             }
@@ -75,69 +119,38 @@ def markdown_to_html_document(markdown_text: str) -> str:
                 margin-bottom: 8px;
             }
             table {
-                border-collapse: separate;
-                border-spacing: 0;
-                width: 100%;
                 margin: 12px 0;
                 display: block;
                 overflow-x: auto;
-                font-size: 13px;
-                table-layout: auto;
-                background: #ffffff;
                 border: 1px solid #d8e1ee;
-                border-radius: 8px;
             }
             th, td {
-                border: 0;
                 border-right: 1px solid #dfe2e5;
                 border-bottom: 1px solid #dfe2e5;
                 padding: 6px 10px;
-                text-align: left;
-                vertical-align: top;
-            }
-            th:last-child, td:last-child {
-                border-right: 0;
             }
             th {
                 background-color: #eef2f7;
                 font-weight: 600;
-                color: #111827;
-                border-bottom: 2px solid #cbd5e1;
-            }
-            td:first-child {
-                font-weight: 600;
-                color: #0f172a;
             }
             tr:nth-child(2n) {
                 background-color: #f8f8f8;
-            }
-            tr:last-child td {
-                border-bottom: 0;
             }
             tr:hover {
                 background-color: #f1f8ff;
             }
             blockquote {
-                color: #334155;
-                border-left: 4px solid #2563eb;
-                padding: 8px 12px;
                 margin: 0 0 10px 0;
-                background: #eef6ff;
-                border-radius: 6px;
             }
             code {
                 padding: 0.2em 0.4em;
                 margin: 0;
                 font-size: 85%;
                 background-color: rgba(27,31,35,0.05);
-                border-radius: 3px;
-                font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
             }
             pre {
-                padding: 12px;
                 overflow: auto;
                 line-height: 1.45;
-                background-color: #f6f8fa;
                 border-radius: 3px;
                 margin-bottom: 10px;
             }
@@ -149,11 +162,7 @@ def markdown_to_html_document(markdown_text: str) -> str:
                 border: 0;
             }
             ul, ol {
-                padding-left: 20px;
                 margin-bottom: 10px;
-            }
-            li {
-                margin: 2px 0;
             }
             @media (max-width: 640px) {
                 body {
@@ -170,35 +179,8 @@ def markdown_to_html_document(markdown_text: str) -> str:
             }
         """
 
-    return f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <style>
-                {css_style}
-            </style>
-        </head>
-        <body>
-            {html_content}
-        </body>
-        </html>
-        """
 
-
-def markdown_to_archive_html_document(markdown_text: str) -> str:
-    """
-    Convert Markdown to a standalone, print-friendly HTML archive document.
-
-    The archive stays text-based (copyable/selectable) and avoids fixed-height
-    containers so future HTML -> PDF conversion does not create blank tail pages.
-    """
-    html_content = markdown2.markdown(
-        markdown_text,
-        extras=["tables", "fenced-code-blocks", "break-on-newline", "cuddled-lists"],
-    )
-
-    css_style = """
+_ARCHIVE_CSS = """
             @page {
                 margin: 14mm;
             }
@@ -206,38 +188,27 @@ def markdown_to_archive_html_document(markdown_text: str) -> str:
                 box-sizing: border-box;
             }
             body {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
                 line-height: 1.45;
                 color: #1f2933;
-                font-size: 14px;
                 max-width: 980px;
-                margin: 0 auto;
                 padding: 20px;
-                background: #f7f9fc;
             }
             h1 {
                 font-size: 24px;
                 margin: 0 0 14px 0;
                 padding: 14px 16px;
-                border: 1px solid #d8e1ee;
                 border-left: 6px solid #2563eb;
-                border-radius: 8px;
                 color: #111827;
-                background: #ffffff;
             }
             h2 {
                 font-size: 19px;
                 margin: 24px 0 10px 0;
                 padding: 10px 12px;
-                border: 1px solid #d8e1ee;
                 border-left: 5px solid #2563eb;
-                border-radius: 8px;
                 color: #111827;
-                background: #ffffff;
                 break-after: avoid;
             }
             h3 {
-                font-size: 16px;
                 margin: 18px 0 8px 0;
                 break-after: avoid;
             }
@@ -246,51 +217,23 @@ def markdown_to_archive_html_document(markdown_text: str) -> str:
             }
             blockquote {
                 margin: 8px 0 12px 0;
-                padding: 8px 12px;
-                color: #334155;
-                background: #eef6ff;
-                border-left: 4px solid #2563eb;
-                border-radius: 6px;
             }
             table {
-                border-collapse: separate;
-                border-spacing: 0;
-                width: 100%;
                 margin: 10px 0 14px 0;
-                font-size: 13px;
-                table-layout: auto;
-                background: #ffffff;
                 border: 1px solid #d0d7de;
-                border-radius: 8px;
                 overflow: hidden;
                 break-inside: avoid;
             }
             th, td {
-                border: 0;
                 border-right: 1px solid #d0d7de;
                 border-bottom: 1px solid #d0d7de;
                 padding: 7px 9px;
-                text-align: left;
-                vertical-align: top;
-            }
-            th:last-child, td:last-child {
-                border-right: 0;
             }
             th {
-                background: #eef2f7;
                 font-weight: 700;
-                color: #111827;
-                border-bottom: 2px solid #cbd5e1;
-            }
-            td:first-child {
-                font-weight: 600;
-                color: #0f172a;
             }
             tr:nth-child(2n) {
                 background: #fafafa;
-            }
-            tr:last-child td {
-                border-bottom: 0;
             }
             ul, ol {
                 margin: 6px 0 12px 0;
@@ -306,17 +249,13 @@ def markdown_to_archive_html_document(markdown_text: str) -> str:
                 height: 0;
             }
             code {
-                font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
                 font-size: 90%;
                 background: #f3f4f6;
                 padding: 1px 4px;
-                border-radius: 3px;
             }
             pre {
                 white-space: pre-wrap;
                 word-break: break-word;
-                padding: 12px;
-                background: #f6f8fa;
                 border: 1px solid #d0d7de;
                 border-radius: 4px;
             }
@@ -352,6 +291,57 @@ def markdown_to_archive_html_document(markdown_text: str) -> str:
                 }
             }
         """
+
+
+def markdown_to_html_document(markdown_text: str) -> str:
+    """
+    Convert Markdown to a complete HTML document (for email, md2img, etc.).
+
+    Uses markdown2 with table and code block support, wraps with inline CSS
+    for compact, readable layout. Reused by notification email and md2img.
+
+    Args:
+        markdown_text: Raw Markdown content.
+
+    Returns:
+        Full HTML document string with DOCTYPE, head, and body.
+    """
+    html_content = markdown2.markdown(
+        markdown_text,
+        extras=["tables", "fenced-code-blocks", "break-on-newline", "cuddled-lists"],
+    )
+
+    css_style = _BASE_CSS + _EMAIL_CSS
+
+    return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                {css_style}
+            </style>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+
+
+def markdown_to_archive_html_document(markdown_text: str) -> str:
+    """
+    Convert Markdown to a standalone, print-friendly HTML archive document.
+
+    The archive stays text-based (copyable/selectable) and avoids fixed-height
+    containers so future HTML -> PDF conversion does not create blank tail pages.
+    """
+    html_content = markdown2.markdown(
+        markdown_text,
+        extras=["tables", "fenced-code-blocks", "break-on-newline", "cuddled-lists"],
+    )
+
+    css_style = _BASE_CSS + _ARCHIVE_CSS
 
     return f"""<!DOCTYPE html>
 <html>

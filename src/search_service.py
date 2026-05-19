@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 
 def fetch_url_content(url: str, timeout: int = 5) -> str:
     """
-    获取 URL 网页正文内容 (使用 newspaper3k)
+    获取 URL 网页正文内容 (使用 newspaper4k)
     """
     try:
-        # 配置 newspaper3k
+        # 配置 newspaper4k
         config = Config()
         config.browser_user_agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         config.request_timeout = timeout

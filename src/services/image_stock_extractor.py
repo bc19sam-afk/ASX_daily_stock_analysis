@@ -66,7 +66,7 @@ def _verify_image_magic_bytes(image_bytes: bytes, mime_type: str) -> None:
     raise ValueError(f"文件内容与声明的类型 {mime_type} 不匹配，可能被篡改")
 
 
-def _normalize_code(raw: str) -> Optional[str]:
+def _validate_extracted_code(raw: str) -> Optional[str]:
     """Normalize and validate a single stock code. ASX/US symbols and HK 5-digit codes are accepted."""
     s = raw.strip().upper()
     if not s:
@@ -100,7 +100,7 @@ def _parse_codes_from_text(text: str) -> List[str]:
         if isinstance(data, list):
             for item in data:
                 if isinstance(item, str):
-                    c = _normalize_code(item)
+                    c = _validate_extracted_code(item)
                     if c and c not in seen:
                         seen.add(c)
                         result.append(c)
@@ -110,7 +110,7 @@ def _parse_codes_from_text(text: str) -> List[str]:
 
     # 兜底：查找港股 5 位数字及 ASX/US 代码
     for m in re.finditer(r"\b([0-9]{5}|[A-Z]{1,5}(\.[A-Z]{1,2})?)\b", text, re.IGNORECASE):
-        c = _normalize_code(m.group(1))
+        c = _validate_extracted_code(m.group(1))
         if c and c not in seen:
             seen.add(c)
             result.append(c)

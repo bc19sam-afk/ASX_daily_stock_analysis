@@ -30,7 +30,7 @@ def build_evidence_matrix(
     matrix: Dict[str, List[Dict[str, Any]]] = {}
 
     for result in results:
-        code = _normalize_code(getattr(result, "code", ""))
+        code = canonical_stock_code(getattr(result, "code", ""))
         if not code:
             continue
         holding = holdings_by_code.get(code)
@@ -283,11 +283,8 @@ def _entry(
 
 
 def _holdings_by_code(holdings: Iterable[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    return {_normalize_code(item.get("code")): item for item in holdings if _normalize_code(item.get("code"))}
+    return {canonical_stock_code(item.get("code")): item for item in holdings if canonical_stock_code(item.get("code"))}
 
-
-def _normalize_code(value: Any) -> str:
-    return canonical_stock_code(value)
 
 
 def _normal_text(value: Any) -> Optional[str]:

@@ -63,6 +63,14 @@ class HistoryListResponse(BaseModel):
     limit: int = Field(..., description="每页数量")
     items: List[HistoryItem] = Field(default_factory=list, description="记录列表")
 
+
+class PortfolioSummaryResponse(BaseModel):
+    """组合汇总与最近动作响应。"""
+
+    portfolio: Dict[str, Any] = Field(default_factory=dict, description="组合快照与持仓明细")
+    today_actions: List[Dict[str, Any]] = Field(default_factory=list, description="最近交易动作")
+
+
 class NewsIntelItem(BaseModel):
     """新闻情报条目"""
 

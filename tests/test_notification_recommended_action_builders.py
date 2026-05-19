@@ -5,6 +5,7 @@ import unittest
 
 from src.analyzer import AnalysisResult
 from src.notification import NotificationService
+from src import notification_formatting
 from src.notification_recommended_action_builders import build_recommended_actions_table
 
 
@@ -42,11 +43,11 @@ class NotificationRecommendedActionBuildersTestCase(unittest.TestCase):
             results=[result],
             get_primary_action_model=service._get_primary_action_model,
             get_signal_level=service._get_signal_level,
-            format_stock_display_name=service._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             escape_md=service._escape_md,
             to_markdown_table_cell=service._to_markdown_table_cell,
-            format_position_action_label=service._format_position_action_label,
-            format_sizing_brief=service._format_sizing_brief,
+            format_position_action_label=notification_formatting.format_position_action_label,
+            format_sizing_brief=notification_formatting.format_sizing_brief,
             get_conflict_safe_ai_commentary=service._get_conflict_safe_ai_commentary,
         )
 
@@ -70,11 +71,11 @@ class NotificationRecommendedActionBuildersTestCase(unittest.TestCase):
             results=[result],
             get_primary_action_model=service._get_primary_action_model,
             get_signal_level=service._get_signal_level,
-            format_stock_display_name=service._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             escape_md=service._escape_md,
             to_markdown_table_cell=service._to_markdown_table_cell,
-            format_position_action_label=service._format_position_action_label,
-            format_sizing_brief=service._format_sizing_brief,
+            format_position_action_label=notification_formatting.format_position_action_label,
+            format_sizing_brief=notification_formatting.format_sizing_brief,
             get_conflict_safe_ai_commentary=service._get_conflict_safe_ai_commentary,
         )
 

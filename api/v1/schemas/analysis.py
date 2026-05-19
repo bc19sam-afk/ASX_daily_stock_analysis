@@ -10,7 +10,7 @@
 3. 定义异步任务队列相关模型
 """
 
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -84,7 +84,7 @@ class AnalysisResultResponse(BaseModel):
     query_id: str = Field(..., description="分析记录唯一标识")
     stock_code: str = Field(..., description="股票代码")
     stock_name: Optional[str] = Field(None, description="股票名称")
-    report: Optional[Any] = Field(None, description="分析报告")
+    report: Optional[Dict[str, Any]] = Field(None, description="分析报告")
     created_at: str = Field(..., description="创建时间")
 
 

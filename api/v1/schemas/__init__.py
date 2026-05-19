@@ -23,6 +23,7 @@ from api.v1.schemas.analysis import (
 from api.v1.schemas.history import (
     HistoryItem,
     HistoryListResponse,
+    PortfolioSummaryResponse,
     NewsIntelItem,
     NewsIntelResponse,
     AnalysisReport,
@@ -39,6 +40,7 @@ from api.v1.schemas.stocks import (
 from api.v1.schemas.backtest import (
     BacktestRunRequest,
     BacktestRunResponse,
+    BacktestTaskResponse,
     BacktestResultItem,
     BacktestResultsResponse,
     PerformanceMetrics,
@@ -73,6 +75,7 @@ __all__ = [
     # history
     "HistoryItem",
     "HistoryListResponse",
+    "PortfolioSummaryResponse",
     "NewsIntelItem",
     "NewsIntelResponse",
     "AnalysisReport",
@@ -87,6 +90,7 @@ __all__ = [
     # backtest
     "BacktestRunRequest",
     "BacktestRunResponse",
+    "BacktestTaskResponse",
     "BacktestResultItem",
     "BacktestResultsResponse",
     "PerformanceMetrics",

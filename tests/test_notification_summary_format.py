@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
 from src.formatters import format_feishu_markdown, markdown_to_html_document
+from src import notification_formatting
 from src.notification import NotificationService, NotificationBuilder
 
 
@@ -1126,13 +1127,13 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertEqual(
             item["heading"],
             f"### {service._get_signal_level(result)[1]} "
-            f"{service._escape_md(service._format_stock_display_name(result.name, result.code))}",
+            f"{service._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))}",
         )
         self.assertIn(service._get_signal_level(result)[0], item["summary_line"])
         self.assertIn(str(result.sentiment_score), item["summary_line"])
         self.assertIn(result.trend_prediction, item["summary_line"])
         self.assertIn(
-            service._format_position_action_label(
+            notification_formatting.format_position_action_label(
                 service._get_primary_action_model(result)["position_action"]
             ),
             item["action_line"],
@@ -1599,14 +1600,12 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertNotIn("目标数量 13 股", text)
 
     def test_sizing_brief_uses_high_concentration_wording_for_large_targets(self) -> None:
-        service = self._build_service()
-        self.assertIn("较高仓位", service._format_sizing_brief(0.40, "ADD"))
-        self.assertIn("高仓位", service._format_sizing_brief(0.60, "ADD"))
-        self.assertIn("极高仓位", service._format_sizing_brief(1.00, "ADD"))
+        self.assertIn("较高仓位", notification_formatting.format_sizing_brief(0.40, "ADD"))
+        self.assertIn("高仓位", notification_formatting.format_sizing_brief(0.60, "ADD"))
+        self.assertIn("极高仓位", notification_formatting.format_sizing_brief(1.00, "ADD"))
 
     def test_sizing_brief_preserves_tiny_non_zero_targets(self) -> None:
-        service = self._build_service()
-        text = service._format_sizing_brief(0.004, "OPEN")
+        text = notification_formatting.format_sizing_brief(0.004, "OPEN")
         self.assertIn("试探仓位", text)
         self.assertIn("0.4%", text)
 

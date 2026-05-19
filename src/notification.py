@@ -42,6 +42,7 @@ except ImportError:
 
 from src.config import get_config
 from src.analyzer import AnalysisResult
+from src.core.utils import is_failed_analysis
 from src.core.validator import normalize_validation_status
 from src.security_logging import redact_log_text, summarize_http_response_for_log
 from src.daily_decision_summary import (
@@ -63,14 +64,7 @@ from src.formatters import (
     markdown_to_html_document,
 )
 from src.stock_code import canonical_stock_code
-from src.notification_formatting import (
-    format_position_action_label as _format_position_action_label_helper,
-    format_price_basis_label as _format_price_basis_label_helper,
-    format_sizing_brief as _format_sizing_brief_helper,
-    format_stock_display_name as _format_stock_display_name_helper,
-    format_valuation_source_label as _format_valuation_source_label_helper,
-    format_yes_no_label as _format_yes_no_label_helper,
-)
+from src import notification_formatting
 from src.notification_recommended_action_builders import (
     build_recommended_actions_table,
 )
@@ -152,11 +146,6 @@ def _normalize_analysis_status(result: Any) -> str:
     if status in ('OK', 'DEGRADED', 'FAILED'):
         return status
     return 'OK'
-
-
-def _is_failed_analysis(result: Any) -> bool:
-    """Return whether result should be treated as failed analysis output."""
-    return _normalize_analysis_status(result) == 'FAILED'
 
 
 def _normalize_validation_status(result: Any) -> str:
@@ -580,30 +569,6 @@ class NotificationService:
         return "close_only"
 
     @staticmethod
-    def _format_price_basis_label(basis: str) -> str:
-        return _format_price_basis_label_helper(basis)
-
-    @staticmethod
-    def _format_valuation_source_label(source: str) -> str:
-        return _format_valuation_source_label_helper(source)
-
-    @staticmethod
-    def _format_yes_no_label(flag: Any) -> str:
-        return _format_yes_no_label_helper(flag)
-
-    @staticmethod
-    def _format_position_action_label(action: str) -> str:
-        return _format_position_action_label_helper(action)
-
-    @staticmethod
-    def _format_stock_display_name(raw_name: Any, raw_code: Any) -> str:
-        return _format_stock_display_name_helper(raw_name, raw_code)
-
-    @staticmethod
-    def _format_sizing_brief(target_weight: float, action: str = "") -> str:
-        return _format_sizing_brief_helper(target_weight, action)
-
-    @staticmethod
     def _format_validation_issue_text(result: AnalysisResult) -> str:
         issues = _get_validation_issues(result)
         if not issues:
@@ -634,8 +599,8 @@ class NotificationService:
             daily_anchor = "多只股票日线日期不一致（混合日期）"
 
         news_cutoff = generated_at.strftime("%Y-%m-%d %H:%M")
-        normal_results = [r for r in results if not _is_failed_analysis(r)]
-        failed_results = [r for r in results if _is_failed_analysis(r)]
+        normal_results = [r for r in results if not is_failed_analysis(r)]
+        failed_results = [r for r in results if is_failed_analysis(r)]
         blocked_results = [r for r in normal_results if _is_validation_blocked(r)]
         total_count = len(normal_results)
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
@@ -673,7 +638,7 @@ class NotificationService:
 
     def _get_price_basis_label(self, result: AnalysisResult) -> str:
         """返回单只股票的价格口径标签（仅用于展示层披露）。"""
-        return self._format_price_basis_label(self._classify_price_basis(result))
+        return notification_formatting.format_price_basis_label(self._classify_price_basis(result))
 
     def _get_price_metric_label(self, result: AnalysisResult) -> str:
         """返回价格字段在当前口径下的用户可读标签。"""
@@ -722,7 +687,7 @@ class NotificationService:
             reverse=True
         )
         normal_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
-        failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
+        failed_results = [r for r in sorted_results if is_failed_analysis(r)]
         try:
             overview_source = get_db().get_portfolio_overview()
         except Exception:
@@ -1269,11 +1234,11 @@ class NotificationService:
             get_primary_action_model=self._get_primary_action_model,
             build_final_action_display=self._build_final_action_display,
             get_signal_level=self._get_signal_level,
-            format_stock_display_name=self._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             escape_md=self._escape_md,
             to_markdown_table_cell=self._to_markdown_table_cell,
-            format_position_action_label=self._format_position_action_label,
-            format_sizing_brief=self._format_sizing_brief,
+            format_position_action_label=notification_formatting.format_position_action_label,
+            format_sizing_brief=notification_formatting.format_sizing_brief,
             get_conflict_safe_ai_commentary=self._get_conflict_safe_ai_commentary,
         )
 
@@ -1307,7 +1272,7 @@ class NotificationService:
             overview=overview,
             get_primary_action_model=self._get_primary_action_model,
             classify_price_basis=self._classify_price_basis,
-            format_stock_display_name=self._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             format_validation_issue_text=self._format_validation_issue_text,
             min_action_delta_amount=self._get_actionable_delta_amount_threshold(),
             backtest_confidence=self._build_backtest_confidence_panel(),
@@ -1399,7 +1364,7 @@ class NotificationService:
             result,
             action_model=action_model or self._get_primary_action_model(result),
             min_delta_amount=self._get_actionable_delta_amount_threshold(),
-            format_stock_display_name=self._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             format_validation_issue_text=self._format_validation_issue_text,
         )
 
@@ -1461,7 +1426,7 @@ class NotificationService:
 
     def _get_canonical_operation_advice(self, result: AnalysisResult) -> str:
         """Return unified final advice wording aligned with deterministic decision."""
-        if _is_failed_analysis(result):
+        if is_failed_analysis(result):
             return "分析失败（需重跑）"
         if _is_validation_blocked(result):
             return "不可决策/仅观察"
@@ -1564,11 +1529,11 @@ class NotificationService:
         return build_simulated_target_allocation_table(
             results=results,
             executed_weight_by_code=executed_weight_by_code,
-            format_stock_display_name=self._format_stock_display_name,
+            format_stock_display_name=notification_formatting.format_stock_display_name,
             escape_md=self._escape_md,
             to_markdown_table_cell=self._to_markdown_table_cell,
             get_signal_level=self._get_signal_level,
-            normalize_stock_code=self._normalize_stock_code,
+            normalize_stock_code=canonical_stock_code,
         )
 
     def _build_section_c_reconciliation_lines(
@@ -1580,13 +1545,13 @@ class NotificationService:
         return build_section_c_reconciliation_lines(
             results=results,
             overview_holdings=overview_holdings,
-            normalize_stock_code=self._normalize_stock_code,
+            normalize_stock_code=canonical_stock_code,
         )
 
     def _count_primary_decisions(self, results: List[AnalysisResult]) -> Dict[str, int]:
         counts = {'BUY': 0, 'HOLD': 0, 'SELL': 0}
         for result in results:
-            if _is_failed_analysis(result) or _is_validation_blocked(result):
+            if is_failed_analysis(result) or _is_validation_blocked(result):
                 continue
             decision = self._get_primary_action_model(result)['decision']
             counts[decision] = counts.get(decision, 0) + 1
@@ -1596,7 +1561,7 @@ class NotificationService:
         self,
         results: List[AnalysisResult],
     ) -> tuple[List[AnalysisResult], List[AnalysisResult], List[AnalysisResult]]:
-        successful_results = [r for r in results if not _is_failed_analysis(r)]
+        successful_results = [r for r in results if not is_failed_analysis(r)]
         blocked_results = [r for r in successful_results if _is_validation_blocked(r)]
         actionable_results = [r for r in successful_results if not _is_validation_blocked(r)]
         return successful_results, actionable_results, blocked_results
@@ -1607,7 +1572,7 @@ class NotificationService:
         *,
         truncate: Optional[int] = None,
     ) -> str:
-        stock_name = self._escape_md(self._format_stock_display_name(result.name, result.code))
+        stock_name = self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))
         reason = self._format_validation_issue_text(result)
         if truncate is not None:
             reason = reason[:truncate]
@@ -1619,7 +1584,7 @@ class NotificationService:
         *,
         failed: bool = False,
     ) -> List[str]:
-        stock_name = self._escape_md(self._format_stock_display_name(result.name, result.code))
+        stock_name = self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))
         reason = self._human_non_actionable_reason(result, failed=failed)
         return [
             f"### {stock_name}",
@@ -1701,7 +1666,7 @@ class NotificationService:
         Returns:
             (signal_text, emoji, color_tag)
         """
-        if _is_failed_analysis(result):
+        if is_failed_analysis(result):
             return ("分析失败（需重跑）", '⚠️', '失败')
         action_model = self._get_primary_action_model(result)
         decision = action_model['decision']
@@ -1722,11 +1687,6 @@ class NotificationService:
             return parsed
         return None
 
-    @staticmethod
-    def _normalize_stock_code(code: Any) -> str:
-        """Normalize stock code for cross-source matching (e.g. bhp.ax vs BHP.AX)."""
-        return canonical_stock_code(code)
-
     def _build_report_time_portfolio_overview(
         self,
         *,
@@ -1736,7 +1696,7 @@ class NotificationService:
         return build_report_time_portfolio_overview(
             overview=overview,
             results=results,
-            normalize_stock_code=self._normalize_stock_code,
+            normalize_stock_code=canonical_stock_code,
             to_positive_float=self._to_positive_float,
         )
 
@@ -1873,9 +1833,9 @@ class NotificationService:
         ref_text = format_conditional_plan_points_inline(plan_points)
 
         return {
-            "heading": f"### {signal_emoji} {self._escape_md(self._format_stock_display_name(result.name, result.code))}",
+            "heading": f"### {signal_emoji} {self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))}",
             "summary_line": f"- 核心结论：{signal_text} | 评分 {result.sentiment_score} | {result.trend_prediction}",
-            "action_line": f"- 主动作：{self._format_position_action_label(self._get_primary_action_model(result)['position_action'])}",
+            "action_line": f"- 主动作：{notification_formatting.format_position_action_label(self._get_primary_action_model(result)['position_action'])}",
             "reason_line": f"- 关键理由：{reason_text}",
             "risk_line": f"- 风险：{risk_text}",
             "reference_line": f"- 条件化计划点位：{ref_text}",
@@ -1978,7 +1938,7 @@ class NotificationService:
         self._last_daily_decision_summary = daily_summary
 
         successful_results_for_summary, _, blocked_results_for_summary = self._split_completed_results(sorted_results)
-        failed_results_for_summary = [r for r in sorted_results if _is_failed_analysis(r)]
+        failed_results_for_summary = [r for r in sorted_results if is_failed_analysis(r)]
 
         report_lines = [
             f"# 🎯 {report_date} 决策仪表盘",
@@ -1990,28 +1950,28 @@ class NotificationService:
 
         holdings = overview.get("holdings") or []
         holding_codes = {
-            self._normalize_stock_code(item.get("code", ""))
+            canonical_stock_code(item.get("code", ""))
             for item in holdings
-            if self._normalize_stock_code(item.get("code", ""))
+            if canonical_stock_code(item.get("code", ""))
         }
         successful_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
-        failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
+        failed_results = [r for r in sorted_results if is_failed_analysis(r)]
         successful_codes = {
-            self._normalize_stock_code(getattr(r, "code", ""))
+            canonical_stock_code(getattr(r, "code", ""))
             for r in successful_results
-            if self._normalize_stock_code(getattr(r, "code", ""))
+            if canonical_stock_code(getattr(r, "code", ""))
         }
         uncovered_holdings = [
             item for item in holdings
-            if self._normalize_stock_code(item.get("code", "")) not in successful_codes
+            if canonical_stock_code(item.get("code", "")) not in successful_codes
         ]
         holding_results = [
             r for r in actionable_results
-            if self._normalize_stock_code(getattr(r, "code", "")) in holding_codes
+            if canonical_stock_code(getattr(r, "code", "")) in holding_codes
         ]
         non_holding_results = [
             r for r in actionable_results
-            if self._normalize_stock_code(getattr(r, "code", "")) not in holding_codes
+            if canonical_stock_code(getattr(r, "code", "")) not in holding_codes
         ]
         actionable_holding_results = self._effective_actionable_results(holding_results)
         actionable_non_holding_results = self._effective_actionable_results(non_holding_results)
@@ -2074,13 +2034,13 @@ class NotificationService:
                     report_lines.append("**未覆盖持仓**")
                     for item in uncovered_holdings:
                         report_lines.append(
-                            f"- {self._format_stock_display_name(item.get('name'), item.get('code'))}"
+                            f"- {notification_formatting.format_stock_display_name(item.get('name'), item.get('code'))}"
                         )
                 if failed_results:
                     report_lines.append(f"- 今日有 **{len(failed_results)}** 只分析失败，建议重跑后再决策。")
                     report_lines.append("**分析失败（建议重跑）**")
                     for result in failed_results:
-                        stock_name = self._format_stock_display_name(result.name, result.code)
+                        stock_name = notification_formatting.format_stock_display_name(result.name, result.code)
                         error_message = str(getattr(result, "error_message", "") or "未知错误")
                         report_lines.append(f"- {stock_name}：{error_message}")
                 if blocked_results:
@@ -2093,9 +2053,9 @@ class NotificationService:
                 report_lines.append("")
 
         executed_weight_by_code = {
-            self._normalize_stock_code(item.get("code", "")): float(item.get("weight") or 0.0)
+            canonical_stock_code(item.get("code", "")): float(item.get("weight") or 0.0)
             for item in holdings
-            if self._normalize_stock_code(item.get("code", ""))
+            if canonical_stock_code(item.get("code", ""))
         }
 
         if display_non_holding_results:
@@ -2130,7 +2090,7 @@ class NotificationService:
                     "",
                 ])
             for result in detail_results:
-                code = self._normalize_stock_code(getattr(result, "code", ""))
+                code = canonical_stock_code(getattr(result, "code", ""))
                 if code in detail_seen_codes:
                     continue
                 detail_seen_codes.add(code)
@@ -2138,7 +2098,7 @@ class NotificationService:
                 action_model = self._get_primary_action_model(result)
                 dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
                 
-                stock_name = self._escape_md(self._format_stock_display_name(result.name, result.code))
+                stock_name = self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))
                 
                 report_lines.extend([
                     f"## {signal_emoji} {stock_name}",
@@ -2210,7 +2170,7 @@ class NotificationService:
                     f"- {one_sentence}",
                     "",
                     "### 主动作",
-                    f"- {self._format_position_action_label(action_model['position_action'])}（{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])}）",
+                    f"- {notification_formatting.format_position_action_label(action_model['position_action'])}（{notification_formatting.format_sizing_brief(action_model['target_weight'], action_model['position_action'])}）",
                     "",
                     "### 关键理由",
                     f"- {reason_text}",
@@ -2407,9 +2367,9 @@ class NotificationService:
             appendix_lines.extend(
                 build_holdings_audit_table(
                     holdings=holdings,
-                    format_stock_display_name=self._format_stock_display_name,
-                    format_valuation_source_label=self._format_valuation_source_label,
-                    format_yes_no_label=self._format_yes_no_label,
+                    format_stock_display_name=notification_formatting.format_stock_display_name,
+                    format_valuation_source_label=notification_formatting.format_valuation_source_label,
+                    format_yes_no_label=notification_formatting.format_yes_no_label,
                     to_markdown_table_cell=self._to_markdown_table_cell,
                 )
             )
@@ -2470,7 +2430,7 @@ class NotificationService:
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
         normal_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
-        failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
+        failed_results = [r for r in sorted_results if is_failed_analysis(r)]
 
         try:
             overview = get_db().get_portfolio_overview()
@@ -2529,8 +2489,8 @@ class NotificationService:
                 action_model = self._get_primary_action_model(r)
                 lines.append(
                     f"{signal_emoji} **{stock_name}({r.code})**: "
-                    f"{self._format_position_action_label(action_model['position_action'])} · "
-                    f"{self._format_sizing_brief(action_model['target_weight'], action_model['position_action'])} "
+                    f"{notification_formatting.format_position_action_label(action_model['position_action'])} · "
+                    f"{notification_formatting.format_sizing_brief(action_model['target_weight'], action_model['position_action'])} "
                     f"(AI补充: {self._get_conflict_safe_ai_commentary(r)} / 评分{r.sentiment_score})"
                 )
             if blocked_results:
@@ -2713,7 +2673,7 @@ class NotificationService:
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
         normal_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
-        failed_results = [r for r in sorted_results if _is_failed_analysis(r)]
+        failed_results = [r for r in sorted_results if is_failed_analysis(r)]
         try:
             overview_source = get_db().get_portfolio_overview()
         except Exception:
@@ -5260,10 +5220,10 @@ class NotificationBuilder:
         else:
             daily_anchor = "最新可用日线（通常为昨日收盘）"
 
-        normal_results = [r for r in results if not _is_failed_analysis(r)]
+        normal_results = [r for r in results if not is_failed_analysis(r)]
         actionable_results = [r for r in normal_results if not _is_validation_blocked(r)]
         blocked_results = [r for r in normal_results if _is_validation_blocked(r)]
-        failed_results = [r for r in results if _is_failed_analysis(r)]
+        failed_results = [r for r in results if is_failed_analysis(r)]
         total_count = len(actionable_results)
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
         for result in actionable_results:
@@ -5283,7 +5243,7 @@ class NotificationBuilder:
         for r in sorted(actionable_results, key=lambda x: x.sentiment_score, reverse=True):
             decision = _get_effective_decision(r)
             emoji = _decision_to_signal_emoji(decision)
-            basis = NotificationService._format_price_basis_label(NotificationService._classify_price_basis(r))
+            basis = notification_formatting.format_price_basis_label(NotificationService._classify_price_basis(r))
             lines.append(
                 f"{emoji} {r.name}({r.code}): {_decision_to_canonical_advice(decision)} | "
                 f"评分 {r.sentiment_score} | 价格基准：{basis}"

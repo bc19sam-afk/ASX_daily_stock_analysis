@@ -155,7 +155,7 @@ class StockAnalysisPipeline:
         self, 
         code: str,
         force_refresh: bool = False
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> Tuple[bool, Optional[str], Dict[str, Any]]:
         """
         获取并保存单只股票数据
         
@@ -169,7 +169,7 @@ class StockAnalysisPipeline:
             force_refresh: 是否强制刷新（忽略本地缓存）
             
         Returns:
-            Tuple[是否成功, 错误信息]
+            Tuple[是否成功, 错误信息, 数据属性]
         """
         code = canonical_stock_code(code)
         try:
@@ -926,11 +926,11 @@ class StockAnalysisPipeline:
                     decision=decision,
                     cash=portfolio_state["cash"],
                     total_value=portfolio_state["total_value"],
-                current_price=current_price,
-                current_value=portfolio_state["current_position_value"],
-                min_delta_amount=self._get_min_position_delta_amount(),
-                min_order_notional=self._get_min_order_notional(),
-            )
+                    current_price=current_price,
+                    current_value=portfolio_state["current_position_value"],
+                    min_delta_amount=self._get_min_position_delta_amount(),
+                    min_order_notional=self._get_min_order_notional(),
+                )
                 if calc is None:
                     result.position_action = "HOLD"
                     result.current_weight = round(portfolio_state["current_weight"], 4)
@@ -1511,8 +1511,8 @@ class StockAnalysisPipeline:
         market_overview = self._fetch_market_overview()
         if market_overview:
             # 找 ASX200 数据（key 可能是 "ASX 200 (看点位)" 或 "ASX200"）
-                asx_data = market_overview.get('ASX200') or market_overview.get('ASX 200 (看点位)') or {}
-                logger.info(f"[大盘] ASX200: {asx_data.get('close', 'N/A')} ({asx_data.get('pct_chg', 'N/A')}%)")
+            asx_data = market_overview.get('ASX200') or market_overview.get('ASX 200 (看点位)') or {}
+            logger.info(f"[大盘] ASX200: {asx_data.get('close', 'N/A')} ({asx_data.get('pct_chg', 'N/A')}%)")
 
         # === 批量预取实时行情（优化：避免每只股票都触发全量拉取）===
         # 只有股票数量 >= 5 时才进行预取，少量股票直接逐个查询更高效

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +24,8 @@ from src.repositories.stock_repo import StockRepository
 from src.storage import AnalysisHistory, BacktestResult, BacktestSummary, DatabaseManager
 
 logger = logging.getLogger(__name__)
+
+_BACKTEST_TASK_RESULTS: Dict[str, Dict[str, Any]] = {}
 
 
 class BacktestService:
@@ -61,6 +64,34 @@ class BacktestService:
                 agg[key] += int(stats.get(key, 0))
         summary.update(agg)
         return summary
+
+    def start_backtest_task(
+        self,
+        *,
+        code: Optional[str] = None,
+        force: bool = False,
+        eval_window_days: Optional[int] = None,
+        min_age_days: Optional[int] = None,
+        limit: int = 200,
+    ) -> Dict[str, Any]:
+        result = self.run_backtest(
+            code=code,
+            force=force,
+            eval_window_days=eval_window_days,
+            min_age_days=min_age_days,
+            limit=limit,
+        )
+        task_id = f"backtest_{uuid.uuid4().hex}"
+        task_result = {
+            "task_id": task_id,
+            "status": "completed",
+            "result": result,
+        }
+        _BACKTEST_TASK_RESULTS[task_id] = task_result
+        return task_result
+
+    def get_backtest_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        return _BACKTEST_TASK_RESULTS.get(task_id)
 
     def _run_backtest_single_window(
         self,

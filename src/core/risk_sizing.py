@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
+from src.core.utils import safe_float
+
 
 ALLOWED_RISK_SIZING_MODES = {"shadow", "enabled"}
 
@@ -95,8 +97,8 @@ def build_risk_sizing_cap_candidate(
     """Calculate a deterministic risk cap candidate without mutating actions."""
     settings = settings or DEFAULT_RISK_SIZING_SETTINGS
     mode = _normalize_risk_sizing_mode(settings.mode)
-    current_weight = _safe_float(getattr(result, "current_weight", 0.0), 0.0)
-    current_target_weight = _safe_float(action_model.get("target_weight"), current_weight)
+    current_weight = safe_float(getattr(result, "current_weight", 0.0), 0.0)
+    current_target_weight = safe_float(action_model.get("target_weight"), current_weight)
     total_value = _safe_positive_float((overview or {}).get("total_value"), 0.0)
     risk_budget_amount = round(total_value * max(settings.max_trade_risk_pct, 0.0), 2) if total_value > 0 else None
     warnings: List[str] = []
@@ -203,7 +205,7 @@ def build_risk_sizing_cap_candidate(
             constraints.append("max_daily_turnover_pct")
 
     if isinstance(overview, dict) and "cash" in overview and total_value > 0:
-        cash = max(_safe_float(overview.get("cash"), 0.0), 0.0)
+        cash = max(safe_float(overview.get("cash"), 0.0), 0.0)
         cash_cap = current_weight + cash / total_value
         if capped_weight > cash_cap:
             capped_weight = cash_cap
@@ -237,9 +239,9 @@ def build_risk_sizing_preview(
 ) -> Dict[str, Any]:
     settings = settings or DEFAULT_RISK_SIZING_SETTINGS
     mode = _normalize_risk_sizing_mode(settings.mode)
-    current_weight = _safe_float(getattr(result, "current_weight", 0.0), 0.0)
-    current_target_weight = _safe_float(action_model.get("target_weight"), current_weight)
-    current_delta_amount = _safe_float(action_model.get("delta_amount"), 0.0)
+    current_weight = safe_float(getattr(result, "current_weight", 0.0), 0.0)
+    current_target_weight = safe_float(action_model.get("target_weight"), current_weight)
+    current_delta_amount = safe_float(action_model.get("delta_amount"), 0.0)
     total_value = _safe_positive_float((overview or {}).get("total_value"), 0.0)
     risk_budget_amount = round(total_value * max(settings.max_trade_risk_pct, 0.0), 2) if total_value > 0 else None
 
@@ -383,12 +385,12 @@ def build_risk_sizing_comparisons(
             is_blocked=blocked,
             is_actionable_context=(False if blocked else is_actionable_context(result, model)),
         )
-        current_target = _safe_float(candidate.get("current_target_weight"), 0.0)
+        current_target = safe_float(candidate.get("current_target_weight"), 0.0)
         capped_target = candidate.get("capped_target_weight")
         if capped_target is None:
             difference_weight = None
         else:
-            difference_weight = round(_safe_float(capped_target, current_target) - current_target, 4)
+            difference_weight = round(safe_float(capped_target, current_target) - current_target, 4)
 
         warning_flags = list(candidate.get("warning_flags") or [])
         if "dry_run_no_action_change" not in warning_flags:
@@ -459,8 +461,8 @@ def render_risk_sizing_comparison_lines(comparisons: Dict[str, Dict[str, Any]]) 
 
         constraints = " / ".join(str(item) for item in (comparison.get("constraints_applied") or []))
         constraints = constraints or "无额外约束"
-        current_target = _safe_float(comparison.get("current_target_weight"), 0.0)
-        difference = _safe_float(comparison.get("difference_weight"), 0.0)
+        current_target = safe_float(comparison.get("current_target_weight"), 0.0)
+        difference = safe_float(comparison.get("difference_weight"), 0.0)
         lines.append(
             f"- {code}：当前系统目标仓位 {current_target:.2%}；"
             f"风险上限候选仓位 {float(candidate_weight):.2%}；差异 {difference:+.2%}；"
@@ -536,18 +538,8 @@ def _extract_atr(result: Any) -> Optional[float]:
     return None
 
 
-def _safe_float(value: Any, default: float) -> float:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return default
-    if parsed != parsed or parsed in (float("inf"), float("-inf")):
-        return default
-    return parsed
-
-
 def _safe_positive_float(value: Any, default: float) -> float:
-    parsed = _safe_float(value, default)
+    parsed = safe_float(value, default)
     return parsed if parsed > 0 else default
 
 
