@@ -151,8 +151,8 @@ GitHub Actions default schedule: every weekday at **08:00 Australia/Sydney** for
 | Variable | Description | Default | Required |
 |--------|------|--------|:----:|
 | `GEMINI_API_KEY` | Google Gemini API Key | - | ✅* |
-| `GEMINI_MODEL` | Primary model name | `gemini-3-flash-preview` | No |
-| `GEMINI_MODEL_FALLBACK` | Fallback model | `gemini-2.5-flash` | No |
+| `GEMINI_MODEL` | Primary model name | `gemini-3.5-flash` | No |
+| `GEMINI_MODEL_FALLBACK` | Fallback model | `gemini-3-flash-preview` | No |
 | `OPENAI_API_KEY` | OpenAI-compatible API Key | - | Optional |
 | `OPENAI_BASE_URL` | OpenAI-compatible API endpoint | - | Optional |
 | `OPENAI_MODEL` | OpenAI model name | `gpt-4o` | Optional |
@@ -492,7 +492,8 @@ Configure multiple models, system auto-switches:
 ```bash
 # Gemini (primary)
 GEMINI_API_KEY=xxx
-GEMINI_MODEL=gemini-3-flash-preview
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_MODEL_FALLBACK=gemini-3-flash-preview
 
 # OpenAI compatible (backup)
 OPENAI_API_KEY=xxx

@@ -156,8 +156,8 @@ GitHub Actions 默认每个工作日 **08:00（Australia/Sydney）** 自动执�
 | 变量名 | 说明 | 默认值 | 必填 |
 |--------|------|--------|:----:|
 | `GEMINI_API_KEY` | Google Gemini API Key | - | ✅* |
-| `GEMINI_MODEL` | 主模型名称 | `gemini-3-flash-preview` | 否 |
-| `GEMINI_MODEL_FALLBACK` | 备选模型 | `gemini-2.5-flash` | 否 |
+| `GEMINI_MODEL` | 主模型名称 | `gemini-3.5-flash` | 否 |
+| `GEMINI_MODEL_FALLBACK` | 备选模型 | `gemini-3-flash-preview` | 否 |
 | `OPENAI_API_KEY` | OpenAI 兼容 API Key | - | 可选 |
 | `OPENAI_BASE_URL` | OpenAI 兼容 API 地址 | - | 可选 |
 | `OPENAI_MODEL` | OpenAI 模型名称 | `gpt-4o` | 可选 |
@@ -561,7 +561,8 @@ STOCK_LIST=BHP.AX,hk00700,hk01810
 ```bash
 # Gemini（主力）
 GEMINI_API_KEY=xxx
-GEMINI_MODEL=gemini-3-flash-preview
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_MODEL_FALLBACK=gemini-3-flash-preview
 
 # OpenAI 兼容（备选）
 OPENAI_API_KEY=xxx

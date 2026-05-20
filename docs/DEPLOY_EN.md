@@ -361,7 +361,7 @@ Add these Secrets:
 | `STOCK_LIST` | Watchlist, e.g., `BHP.AX,CBA.AX,CSL.AX` | ✅ |
 | `TAVILY_API_KEYS` | Tavily Search API Key | Recommended |
 | `SERPAPI_API_KEYS` | SerpAPI Key | Optional |
-| `GEMINI_MODEL` | Model name (default gemini-2.0-flash) | Optional |
+| `GEMINI_MODEL` | Model name (default gemini-3.5-flash) | Optional |
 
 > *Note: Configure at least one notification channel, multiple channels supported for simultaneous push
 
