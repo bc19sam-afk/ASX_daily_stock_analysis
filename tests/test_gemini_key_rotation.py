@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from src.analyzer import GeminiAnalyzer
 from src.config import Config
+from src.core.config_registry import build_schema_response, get_field_definition
 from src.gemini_key_manager import GeminiKeyManager
 
 
@@ -30,7 +31,7 @@ def _make_test_analyzer(keys: list[str]) -> GeminiAnalyzer:
     analyzer._anthropic_client = None
     analyzer._openai_client = None
     analyzer._using_fallback = False
-    analyzer._current_model_name = "gemini-3-flash-preview"
+    analyzer._current_model_name = "gemini-3.5-flash"
     analyzer._gemini_key_manager = GeminiKeyManager(keys)
     analyzer._api_key = analyzer._gemini_key_manager.current_key
     analyzer._model = {"api_key": analyzer._api_key}
@@ -48,6 +49,23 @@ def test_config_uses_legacy_single_gemini_key_when_multi_key_is_missing(tmp_path
 
     assert config.gemini_api_key == "legacy-key-1234567890"
     assert config.gemini_api_keys == ["legacy-key-1234567890"]
+    assert config.gemini_model == "gemini-3.5-flash"
+    assert config.gemini_model_fallback == "gemini-3-flash-preview"
+
+
+def test_config_registry_exposes_gemini_fallback_model_default():
+    field = get_field_definition("GEMINI_MODEL_FALLBACK")
+    schema = build_schema_response()
+    schema_keys = {
+        item["key"]
+        for category in schema["categories"]
+        for item in category["fields"]
+    }
+
+    assert field["category"] == "ai_model"
+    assert field["default_value"] == "gemini-3-flash-preview"
+    assert field["ui_control"] == "text"
+    assert "GEMINI_MODEL_FALLBACK" in schema_keys
 
 
 def test_config_prefers_multi_gemini_keys_over_legacy_single_key(tmp_path, monkeypatch):

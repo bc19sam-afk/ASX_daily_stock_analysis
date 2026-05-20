@@ -137,42 +137,63 @@ def _select_vision_provider() -> str:
 
 def _call_gemini(image_b64: str, mime_type: str) -> str:
     """调用 Gemini Vision API。"""
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types as genai_types
 
     cfg = get_config()
     key_manager = GeminiKeyManager.from_config(cfg)
     if not key_manager.has_keys():
         raise ValueError("Gemini Vision API key not configured")
-    # 使用支持图像的模型（gemini-1.5-flash / gemini-2.0-flash）
-    # Ensure non-empty model name (cfg.gemini_model can be "")
-    model_name = (getattr(cfg, "gemini_model", "gemini-2.0-flash") or "gemini-2.0-flash")
-    if "gemini-3" in (model_name or ""):
-        model_name = "gemini-2.0-flash"
+    # Ensure non-empty model names (cfg values can be "")
+    primary_model = (getattr(cfg, "gemini_model", "gemini-3.5-flash") or "gemini-3.5-flash")
+    fallback_model = getattr(cfg, "gemini_model_fallback", "gemini-3-flash-preview") or ""
+    model_names = list(dict.fromkeys(model for model in (primary_model, fallback_model) if model))
     last_error: Optional[Exception] = None
-    # Gemini API 要求的 inline_data 格式
-    part = {"inline_data": {"mime_type": mime_type, "data": image_b64}}
+    image_part = genai_types.Part.from_bytes(data=base64.b64decode(image_b64), mime_type=mime_type)
     while key_manager.current_key:
-        try:
-            genai.configure(api_key=key_manager.current_key)
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(
-                [part, EXTRACT_PROMPT],
-                request_options={"timeout": VISION_API_TIMEOUT},
+        client = genai.Client(
+            api_key=key_manager.current_key,
+            http_options=genai_types.HttpOptions(timeout=VISION_API_TIMEOUT * 1000),
+        )
+        for model_name in model_names:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[image_part, EXTRACT_PROMPT],
+                )
+                if response and response.text:
+                    return response.text
+                raise ValueError("Gemini returned empty response")
+            except Exception as e:
+                last_error = e
+                if is_key_specific_gemini_error(e):
+                    break
+                if model_name != model_names[-1]:
+                    logger.warning(
+                        "[ImageExtractor] Gemini model %s failed, trying fallback model %s: %s",
+                        model_name,
+                        model_names[-1],
+                        str(e)[:100],
+                    )
+                    continue
+                break
+
+        if (
+            last_error
+            and (
+                is_transient_gemini_error(last_error)
+                or is_key_specific_gemini_error(last_error)
             )
-            if response and response.text:
-                return response.text
-            raise ValueError("Gemini returned empty response")
-        except Exception as e:
-            last_error = e
-            if (
-                not is_transient_gemini_error(e)
-                and not is_key_specific_gemini_error(e)
-            ) or not key_manager.rotate_to_next_key():
-                raise
+            and key_manager.rotate_to_next_key()
+        ):
             logger.warning(
                 "[ImageExtractor] Gemini rotatable error, switching API key: %s",
                 key_manager.current_key_label(),
             )
+            continue
+
+        if last_error:
+            raise last_error
 
     raise last_error or ValueError("Gemini returned empty response")
 
