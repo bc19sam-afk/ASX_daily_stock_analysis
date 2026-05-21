@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.analyzer import AnalysisResult
+from src.daily_decision_summary import render_preopen_decision_dashboard
 from src.notification import NotificationService
 
 
@@ -394,6 +395,98 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "Dry Run" not in report
     assert "deterministic action" not in report
     assert "| 项目 | 今天状态 |" in landing
+
+
+@patch("src.notification.get_db")
+def test_dashboard_homepage_does_not_repeat_when_all_actions_are_current_holdings(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    results = [
+        _result(
+            code="BHP.AX",
+            name="BHP",
+            final_decision="BUY",
+            position_action="ADD",
+            current_weight=0.20,
+            target_weight=0.24,
+            delta_amount=4000.0,
+        ),
+        _result(
+            code="CSL.AX",
+            name="CSL",
+            final_decision="SELL",
+            position_action="REDUCE",
+            current_weight=0.18,
+            target_weight=0.12,
+            delta_amount=-6000.0,
+        ),
+        _result(
+            code="TLS.AX",
+            name="TLS",
+            final_decision="SELL",
+            position_action="CLOSE",
+            current_weight=0.12,
+            target_weight=0.0,
+            delta_amount=-12000.0,
+        ),
+    ]
+
+    report = service.generate_dashboard_report(results, report_date="2026-04-29")
+    landing = _landing_section(report)
+
+    holdings_section = _section_between(landing, "**当前持仓需要处理什么**", "**今日重点股票**")
+    assert "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 | 复核提示 |" in holdings_section
+    assert "| BHP (BHP.AX) | 加仓 |" in holdings_section
+    assert "| CSL (CSL.AX) | 减仓 |" in holdings_section
+    assert "| TLS (TLS.AX) | 清仓 |" in holdings_section
+
+    focus_section = _section_between(landing, "**今日重点股票**", "**主要风险 / 暂停动作**")
+    assert "今日重点股票已在当前持仓表列出；无新增非持仓动作。" in focus_section
+    assert "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 | 复核提示 |" not in focus_section
+
+
+def test_dashboard_focus_table_keeps_distinct_same_code_action_rows():
+    summary = {
+        "price_policy": "close_only",
+        "action_counts": {"buy": 1, "add": 1, "reduce": 0, "close": 0, "hold_watch": 0, "blocked": 0},
+        "actionable_items": [
+            {
+                "code": "BHP.AX",
+                "name": "BHP (BHP.AX)",
+                "position_action": "ADD",
+                "target_weight": 0.24,
+                "delta_amount": 4000.0,
+                "is_current_holding": True,
+                "final_action_display": {"review_label": "无明显复核缺口"},
+            },
+            {
+                "code": "BHP.AX",
+                "name": "BHP alt (BHP.AX)",
+                "position_action": "OPEN",
+                "target_weight": 0.10,
+                "delta_amount": 1000.0,
+                "is_current_holding": False,
+                "final_action_display": {"review_label": "无明显复核缺口"},
+            },
+        ],
+        "watch_items": [],
+        "blocked_items": [],
+        "uncovered_holdings": [],
+        "data_quality_flags": [],
+        "triage_card": {},
+        "report_reliability": {"score": 100, "level": "high_preopen_plan", "flags": []},
+        "risk_sizing_comparison": {},
+        "evidence_summary": {},
+        "technical_basis_date": "2026-04-28",
+        "data_quality_snapshot": {},
+    }
+
+    landing = "\n".join(render_preopen_decision_dashboard(summary))
+
+    focus_section = _section_between(landing, "**今日重点股票**", "**主要风险 / 暂停动作**")
+    assert "今日重点股票已在当前持仓表列出" not in focus_section
+    assert "| BHP (BHP.AX) | 加仓 |" in focus_section
+    assert "| BHP alt (BHP.AX) | 买入/新开仓 |" in focus_section
 
 
 @patch("src.notification.get_db")

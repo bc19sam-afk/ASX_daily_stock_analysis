@@ -141,7 +141,7 @@ def render_data_quality_snapshot_lines(snapshot: Dict[str, Any]) -> List[str]:
         "| 项目 | 今天状态 |",
         "| --- | --- |",
         f"| 行情 | {int(market.get('available_count') or 0)}/{stock_count} 可用；基准日 {date_text} |",
-        f"| 估值 | {int(valuation.get('available_count') or 0)}/{stock_count} 核心估值可用；{valuation_text} |",
+        f"| 估值 | {int(valuation.get('available_count') or 0)}/{stock_count} 估值/基本面证据可用；{valuation_text} |",
         f"| 新闻 | {int(news.get('available_count') or 0)}/{stock_count} 有证据 |",
         (
             f"| 可信度 | {_score_text(reliability.get('score'))} "

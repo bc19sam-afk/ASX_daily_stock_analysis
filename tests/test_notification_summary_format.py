@@ -215,6 +215,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
     def test_dashboard_report_suppresses_actionable_ai_commentary_when_conflict(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {}
         service = self._build_service()
+        service._report_summary_only = False
 
         result = self._build_result(
             operation_advice="建议卖出并减仓",
@@ -224,6 +225,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
 
         self.assertIn("AI解读与确定性主动作存在方向冲突，已转为中性说明", report)
+        self.assertIn("请以确定性主动作作为准", report)
+        self.assertNotIn("主动作为准", report)
         self.assertNotIn("建议卖出并减仓", report)
 
     @patch("src.notification.get_db")
@@ -291,6 +294,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             "holdings": [],
         }
         service = self._build_service()
+        service._report_summary_only = False
         result = self._build_result(
             operation_advice="建议卖出并减仓",
             position_action="ADD",
@@ -298,6 +302,28 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
 
         wechat = service.generate_wechat_dashboard([result])
+        self.assertIn("AI解读与确定性主动作存在方向冲突，已转为中性说明", wechat)
+        self.assertIn("请以确定性主动作作为准", wechat)
+        self.assertNotIn("主动作为准", wechat)
+        self.assertNotIn("建议卖出并减仓", wechat)
+
+    @patch("src.notification.get_db")
+    def test_wechat_summary_only_keeps_conflict_commentary_suppressed(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 120000.0,
+            "equity_value": 180000.0,
+            "total_value": 300000.0,
+            "holdings": [],
+        }
+        service = self._build_service()
+        result = self._build_result(
+            operation_advice="建议卖出并减仓",
+            position_action="ADD",
+            final_decision="BUY",
+        )
+
+        wechat = service.generate_wechat_dashboard([result])
+
         self.assertIn("AI解读与确定性主动作存在方向冲突，已转为中性说明", wechat)
         self.assertNotIn("建议卖出并减仓", wechat)
 

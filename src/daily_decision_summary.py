@@ -8,6 +8,7 @@ to reinterpret or change any action.
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
@@ -939,6 +940,23 @@ def _render_action_table_lines(items: List[Dict[str, Any]]) -> List[str]:
     return lines
 
 
+def _same_action_items(left: List[Dict[str, Any]], right: List[Dict[str, Any]]) -> bool:
+    if not left or len(left) != len(right):
+        return False
+    return Counter(_action_item_identity(item) for item in left) == Counter(
+        _action_item_identity(item) for item in right
+    )
+
+
+def _action_item_identity(item: Dict[str, Any]) -> Tuple[str, str, float, float]:
+    return (
+        canonical_stock_code(item.get("code")),
+        str(item.get("position_action") or "").upper(),
+        round(safe_float(item.get("target_weight")), 8),
+        round(safe_float(item.get("delta_amount")), 4),
+    )
+
+
 def _table_cell(value: Any) -> str:
     return str(value or "").replace("|", "\\|").replace("\n", " ").strip()
 
@@ -1167,7 +1185,10 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
     lines.extend(["", "**今日重点股票**"])
     actionable_items = summary.get("actionable_items") or []
     if actionable_items:
-        lines.extend(_render_action_table_lines(actionable_items))
+        if current_holding_actions and _same_action_items(actionable_items, current_holding_actions):
+            lines.append("- 今日重点股票已在当前持仓表列出；无新增非持仓动作。")
+        else:
+            lines.extend(_render_action_table_lines(actionable_items))
     else:
         if watch_items:
             names = "、".join(str(item.get("name")) for item in watch_items[:HOMEPAGE_ACTIONABLE_LIMIT])
