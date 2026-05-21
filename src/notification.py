@@ -2198,7 +2198,7 @@ class NotificationService:
                 report_lines.append("")
                 if action_model['ai_conflict']:
                     report_lines.extend([
-                        "- ⚠️ AI解读与确定性动作不一致，请以主动作为准。",
+                        "- ⚠️ AI解读与确定性动作不一致，请以确定性主动作作为准。",
                         "",
                     ])
                 # 持仓分类建议（仅在确有差异时双分支展示）
@@ -2533,7 +2533,7 @@ class NotificationService:
                 lines.append(f"📌 一句话: {self._get_conflict_safe_core_conclusion(result, core.get('one_sentence', result.analysis_summary) if core else result.analysis_summary)[:80]}")
                 lines.append(f"💬 AI补充(非执行): {self._get_conflict_safe_ai_commentary(result)[:60]}")
                 if action_model['ai_conflict']:
-                    lines.append("⚠️ AI解读与主动作不一致，请以主动作为准")
+                    lines.append("⚠️ AI解读与主动作不一致，请以确定性主动作作为准")
                 lines.append("")
                 
                 # 重要信息区（舆情+基本面）
