@@ -1719,6 +1719,7 @@ class NotificationService:
         overview: Dict[str, Any],
         *,
         has_plan_actions: bool,
+        report_date: Optional[str] = None,
     ) -> List[str]:
         lines = [
             "## 模拟盘账本（只读）",
@@ -1748,11 +1749,18 @@ class NotificationService:
 
         holdings = overview.get("holdings") if isinstance(overview.get("holdings"), list) else []
         trades = overview.get("latest_simulated_trades") if isinstance(overview.get("latest_simulated_trades"), list) else []
-        plan_line = (
-            "- 今日计划仓位模拟：正文目标仓位只是计划视图；模拟盘账本不会因本报告生成而更新。"
-            if has_plan_actions
-            else "- 今日计划仓位模拟：无明确调仓动作；模拟盘账本不会因本报告生成而更新。"
-        )
+        last_simulation_time = overview.get("last_simulation_time")
+        is_current_report_simulation = self._is_same_report_date(last_simulation_time, report_date)
+        if is_current_report_simulation:
+            plan_line = "- 模拟盘更新：本次分析已先写入模拟盘；报告只读展示写入后的账本。"
+        elif last_simulation_time:
+            plan_line = f"- 模拟盘更新：最近模拟时间 {last_simulation_time}；本报告只读展示既有账本。"
+        else:
+            plan_line = (
+                "- 今日计划仓位模拟：正文目标仓位只是计划视图；当前尚无模拟盘执行记录。"
+                if has_plan_actions
+                else "- 今日计划仓位模拟：无明确调仓动作；当前尚无模拟盘执行记录。"
+            )
         lines.extend(
             [
                 f"- 状态：已初始化；快照日期：{overview.get('snapshot_date') or '暂无快照'}。",
@@ -1761,19 +1769,63 @@ class NotificationService:
                     f"持仓市值 {self._format_report_money(overview.get('equity_value'))} | "
                     f"总资产 {self._format_report_money(overview.get('total_value'))}。"
                 ),
+                (
+                    f"- 账本盈亏：累计 {self._format_report_signed_money(overview.get('total_pnl'))} "
+                    f"({self._format_report_signed_percent(overview.get('total_pnl_pct'))}) | "
+                    f"浮动 {self._format_report_signed_money(overview.get('unrealized_pnl'))} | "
+                    f"已实现/现金化 {self._format_report_signed_money(overview.get('realized_pnl'))}。"
+                ),
                 f"- 当前模拟持仓：{len(holdings)} 只。",
                 plan_line,
             ]
         )
-        if trades:
-            latest = trades[0]
-            executed_text = "已模拟成交" if latest.get("executed") else "未模拟成交"
-            reason = str(latest.get("reason") or "").strip()
-            reason_text = f"；原因：{reason}" if reason else ""
-            lines.append(
-                f"- 最近模拟：{latest.get('simulation_time') or overview.get('last_simulation_time') or '时间未知'}，"
-                f"{latest.get('code') or '未知标的'} {latest.get('action') or 'UNKNOWN'}，{executed_text}{reason_text}。"
+        if holdings:
+            lines.extend(
+                [
+                    "",
+                    "### 当前模拟持仓盈亏",
+                    "",
+                    "| 标的 | 数量 | 成本 | 现价 | 市值 | 浮盈亏 |",
+                    "| --- | ---: | ---: | ---: | ---: | ---: |",
+                ]
             )
+            for item in holdings[:8]:
+                lines.append(
+                    "| "
+                    f"{self._to_markdown_table_cell(item.get('code'))} | "
+                    f"{self._format_report_number(item.get('quantity'))} | "
+                    f"{self._format_report_money(item.get('avg_cost'))} | "
+                    f"{self._format_report_money(item.get('current_price'))} | "
+                    f"{self._format_report_money(item.get('market_value'))} | "
+                    f"{self._format_report_signed_money(item.get('unrealized_pnl'))} "
+                    f"({self._format_report_signed_percent(item.get('unrealized_pnl_pct'))}) |"
+                )
+        if trades:
+            lines.extend(
+                [
+                    "",
+                    "### 最近模拟操作",
+                    "",
+                    "| 时间 | 标的 | 动作 | 结果 | 数量变化 | 价格 | 现金变化 | 说明 |",
+                    "| --- | --- | --- | --- | ---: | ---: | ---: | --- |",
+                ]
+            )
+            for trade in trades[:8]:
+                executed_text = "已模拟成交" if trade.get("executed") else "跳过"
+                reason = str(trade.get("reason") or "").strip()
+                if len(reason) > 80:
+                    reason = reason[:77] + "..."
+                lines.append(
+                    "| "
+                    f"{self._to_markdown_table_cell(trade.get('simulation_time') or overview.get('last_simulation_time') or '时间未知')} | "
+                    f"{self._to_markdown_table_cell(trade.get('code') or '未知标的')} | "
+                    f"{self._to_markdown_table_cell(trade.get('action') or 'UNKNOWN')} | "
+                    f"{executed_text} | "
+                    f"{self._format_report_signed_number(trade.get('quantity_delta'))} | "
+                    f"{self._format_report_money(trade.get('price'))} | "
+                    f"{self._format_report_signed_money(trade.get('cash_delta'))} | "
+                    f"{self._to_markdown_table_cell(reason)} |"
+                )
         else:
             lines.append("- 最近模拟：暂无模拟盘交易记录。")
 
@@ -1784,6 +1836,17 @@ class NotificationService:
         return lines
 
     @staticmethod
+    def _is_same_report_date(timestamp_value: Any, report_date: Optional[str]) -> bool:
+        if not timestamp_value or not report_date:
+            return False
+        try:
+            timestamp_date = datetime.fromisoformat(str(timestamp_value).replace("Z", "+00:00")).date()
+            expected_date = datetime.fromisoformat(str(report_date)).date()
+        except Exception:
+            return False
+        return timestamp_date == expected_date
+
+    @staticmethod
     def _format_report_money(value: Any) -> str:
         try:
             number = float(value or 0.0)
@@ -1792,6 +1855,48 @@ class NotificationService:
         if not math.isfinite(number):
             return "0.00"
         return f"{number:,.2f}"
+
+    @staticmethod
+    def _format_report_number(value: Any) -> str:
+        try:
+            number = float(value or 0.0)
+        except (TypeError, ValueError):
+            return "0.00"
+        if not math.isfinite(number):
+            return "0.00"
+        return f"{number:,.2f}"
+
+    @staticmethod
+    def _format_report_signed_number(value: Any) -> str:
+        try:
+            number = float(value or 0.0)
+        except (TypeError, ValueError):
+            return "+0.00"
+        if not math.isfinite(number):
+            return "+0.00"
+        return f"{number:+,.2f}"
+
+    @staticmethod
+    def _format_report_signed_money(value: Any) -> str:
+        try:
+            number = float(value or 0.0)
+        except (TypeError, ValueError):
+            return "+0.00"
+        if not math.isfinite(number):
+            return "+0.00"
+        return f"{number:+,.2f}"
+
+    @staticmethod
+    def _format_report_signed_percent(value: Any) -> str:
+        if value is None:
+            return "N/A"
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "N/A"
+        if not math.isfinite(number):
+            return "N/A"
+        return f"{number:+.2f}%"
 
     def _build_dashboard_observation_item(
         self,
@@ -1988,6 +2093,7 @@ class NotificationService:
             self._build_paper_portfolio_readonly_lines(
                 paper_portfolio_overview,
                 has_plan_actions=bool(effective_actionable_results),
+                report_date=report_date,
             )
         )
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}

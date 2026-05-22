@@ -156,29 +156,72 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             "cash": 1234.5,
             "equity_value": 4000.0,
             "total_value": 5234.5,
-            "holdings": [{"code": "AAA", "market_value": 4000.0}],
+            "initial_total_value": 5000.0,
+            "total_pnl": 234.5,
+            "total_pnl_pct": 4.69,
+            "unrealized_pnl": 200.0,
+            "realized_pnl": 34.5,
+            "holdings": [
+                {
+                    "code": "AAA",
+                    "quantity": 10,
+                    "avg_cost": 380.0,
+                    "current_price": 400.0,
+                    "market_value": 4000.0,
+                    "unrealized_pnl": 200.0,
+                    "unrealized_pnl_pct": 5.26,
+                }
+            ],
             "latest_simulated_trades": [
                 {
                     "code": "AAA",
-                    "action": "HOLD",
-                    "executed": False,
-                    "reason": "Skipped: HOLD action",
+                    "action": "REDUCE",
+                    "executed": True,
+                    "reason": "Applied",
+                    "quantity_delta": -2.0,
+                    "price": 400.0,
+                    "cash_delta": 800.0,
                     "simulation_time": "2026-05-15T16:10:00",
                 }
             ],
+            "last_simulation_time": "2026-05-15T16:10:00",
             "seed_source": {"snapshot_date": "2026-05-14"},
         }
         service = self._build_service()
 
-        report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
+        report = service.generate_dashboard_report([self._build_result()], report_date="2026-05-15")
 
         self.assertIn("状态：已初始化；快照日期：2026-05-15", report)
         self.assertIn("现金 1,234.50 | 持仓市值 4,000.00 | 总资产 5,234.50", report)
+        self.assertIn("账本盈亏：累计 +234.50 (+4.69%) | 浮动 +200.00 | 已实现/现金化 +34.50", report)
         self.assertIn("当前模拟持仓：1 只", report)
-        self.assertIn("正文目标仓位只是计划视图；模拟盘账本不会因本报告生成而更新", report)
-        self.assertIn("AAA HOLD，未模拟成交；原因：Skipped: HOLD action", report)
+        self.assertIn("| 标的 | 数量 | 成本 | 现价 | 市值 | 浮盈亏 |", report)
+        self.assertIn("| AAA | 10.00 | 380.00 | 400.00 | 4,000.00 | +200.00 (+5.26%) |", report)
+        self.assertIn("| 时间 | 标的 | 动作 | 结果 | 数量变化 | 价格 | 现金变化 | 说明 |", report)
+        self.assertIn("| 2026-05-15T16:10:00 | AAA | REDUCE | 已模拟成交 | -2.00 | 400.00 | +800.00 | Applied |", report)
+        self.assertIn("本次分析已先写入模拟盘；报告只读展示写入后的账本", report)
         self.assertIn("初始化来源：真实账户快照 2026-05-14 的只读副本", report)
         self.assertLess(report.index("## 模拟盘账本（只读）"), report.index("## 详情 / 审计附录"))
+
+    @patch("src.notification.get_db")
+    def test_dashboard_report_does_not_describe_stale_paper_simulation_as_current(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        mock_get_db.return_value.get_paper_portfolio_overview.return_value = {
+            "initialized": True,
+            "snapshot_date": "2026-05-14",
+            "cash": 100.0,
+            "equity_value": 0.0,
+            "total_value": 100.0,
+            "holdings": [],
+            "latest_simulated_trades": [],
+            "last_simulation_time": "2026-05-14T16:10:00",
+        }
+        service = self._build_service()
+
+        report = service.generate_dashboard_report([self._build_result()], report_date="2026-05-15")
+
+        self.assertIn("最近模拟时间 2026-05-14T16:10:00；本报告只读展示既有账本", report)
+        self.assertNotIn("本次分析已先写入模拟盘", report)
 
     @patch("src.notification.get_db")
     def test_dashboard_summary_escapes_long_operation_advice_and_reason(self, mock_get_db) -> None:

@@ -1582,6 +1582,9 @@ class StockAnalysisPipeline:
         
         logger.info("===== 分析完成 =====")
         logger.info(f"成功: {success_count}, 失败: {fail_count}, 耗时: {elapsed_time:.2f} 秒")
+
+        if results and not dry_run:
+            self._apply_paper_portfolio_simulation(results)
         
         # 发送通知（单股推送模式下跳过汇总推送，避免重复）
         if results and send_notification and not dry_run:
@@ -1597,6 +1600,53 @@ class StockAnalysisPipeline:
                 self._send_notifications(results)
         
         return results
+
+    def _apply_paper_portfolio_simulation(
+        self,
+        results: List[AnalysisResult],
+        *,
+        simulation_time: Optional[datetime] = None,
+    ) -> bool:
+        """Persist today's recommendations into the independent paper ledger before reporting."""
+        if not getattr(self.config, "paper_portfolio_auto_apply", True):
+            logger.info("模拟盘自动执行已关闭，跳过写入 paper_portfolio 账本")
+            return False
+        if not results:
+            return False
+
+        sim_time = simulation_time
+        if sim_time is None:
+            sim_time = _now_in_timezone_safe(getattr(self.config, "market_timezone", DEFAULT_MARKET_TIMEZONE))
+
+        try:
+            overview = self.db.get_paper_portfolio_overview()
+        except Exception as exc:
+            logger.warning("读取模拟盘状态失败，跳过模拟执行: %s", exc)
+            return False
+
+        if not bool(overview.get("initialized")):
+            logger.warning("模拟盘尚未初始化，跳过模拟执行")
+            return False
+
+        last_simulation_time = overview.get("last_simulation_time")
+        if last_simulation_time:
+            try:
+                last_dt = datetime.fromisoformat(str(last_simulation_time).replace("Z", "+00:00"))
+                if last_dt.date() == sim_time.date():
+                    logger.info("模拟盘今日已执行过（%s），跳过重复写入", last_simulation_time)
+                    return False
+            except Exception:
+                logger.debug("无法解析模拟盘 last_simulation_time=%s，继续执行本次模拟", last_simulation_time)
+
+        try:
+            from src.services.paper_portfolio_service import PaperPortfolioService
+
+            PaperPortfolioService(self.db).apply_analysis_results(results, simulation_time=sim_time)
+            logger.info("模拟盘已按本次分析结果写入账本（%s 条结果）", len(results))
+            return True
+        except Exception as exc:
+            logger.warning("模拟盘写入失败，报告将继续生成但不更新模拟账本: %s", exc)
+            return False
     
     def _send_notifications(self, results: List[AnalysisResult], skip_push: bool = False) -> None:
         """
