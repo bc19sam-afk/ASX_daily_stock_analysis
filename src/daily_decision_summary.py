@@ -1107,13 +1107,18 @@ def _render_triage_card_lines(card: Dict[str, Any]) -> List[str]:
         ("high_value_low_confidence", "有机会但证据不足"),
         ("data_quality_attention", "先补数据再判断"),
     ]
-    lines = ["", "**今日人工复核卡片**"]
+    lines = [
+        "",
+        "**今日人工复核卡片**",
+        "| 阅读顺序 | 摘要 |",
+        "| --- | --- |",
+    ]
     for key, label in sections:
         items = card.get(key) or []
         if not items:
-            lines.append(f"- **{label}**：无。")
+            lines.append(f"| **{_table_cell(label)}** | 无。 |")
             continue
-        lines.append(f"- **{label}**：{_format_triage_preview(items)}")
+        lines.append(f"| **{_table_cell(label)}** | {_table_cell(_format_triage_preview(items))} |")
     return lines
 
 
@@ -1175,8 +1180,9 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         "",
         _homepage_banner(str(summary.get("price_policy") or "close_only")),
         "",
-        f"**今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
-        f"**今日动作数量**：{_format_action_counts_inline(counts)}",
+        "**开盘前快照**",
+        f"- **今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
+        f"- **今日动作数量**：{_format_action_counts_inline(counts)}",
     ]
     lines.extend(_render_triage_card_lines(summary.get("triage_card") or {}))
     lines.extend([
@@ -1228,12 +1234,19 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
             lines.append(f"- {risk_line}")
     else:
         lines.append("- 未发现阻断（BLOCK）或数据质量风险。")
-    lines.extend([
-        "",
+    execution_lines = [
         f"**报告可信度**：{_report_reliability_sentence(summary.get('report_reliability') or {})}",
         f"**价格来源**：{_price_policy_label(summary.get('price_policy', 'close_only'))}；技术基准日 {_display_date_or_placeholder(summary.get('technical_basis_date'))}",
         f"**执行前检查**：{_execution_checklist_inline(summary.get('execution_checklist', EXECUTION_CHECKLIST))}",
+    ]
+    lines.extend([
+        "",
+        "**执行口径**",
+        "| 复核项 |",
+        "| --- |",
     ])
+    for execution_line in execution_lines:
+        lines.append(f"| {_table_cell(execution_line)} |")
     lines.extend(render_data_quality_snapshot_lines(summary.get("data_quality_snapshot") or {}))
     lines.extend(["", "---", ""])
     return lines

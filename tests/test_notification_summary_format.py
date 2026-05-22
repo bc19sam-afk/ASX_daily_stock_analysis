@@ -130,6 +130,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
 
         self.assertIn("## 模拟盘账本（只读）", report)
+        self.assertIn("**账本总览**", report)
+        self.assertIn("| 项目 | 内容 |", report)
         self.assertIn("状态：未初始化/未启用", report)
         self.assertIn("不会初始化模拟盘，也不会写入任何模拟交易", report)
         self.assertIn("不是正文的计划仓位模拟，也不代表真实账户成交", report)
@@ -143,6 +145,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
 
         self.assertIn("## 模拟盘账本（只读）", report)
+        self.assertIn("**账本总览**", report)
         self.assertIn("状态：读取失败（paper db timeout）", report)
         self.assertIn("只读展示失败，不会写入模拟盘或真实账户", report)
         self.assertIn("不是正文的计划仓位模拟，也不代表真实账户成交", report)
@@ -201,15 +204,17 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([self._build_result()], report_date="2026-05-15")
 
+        self.assertIn("**账本总览**", report)
+        self.assertIn("| 项目 | 内容 |", report)
         self.assertIn("状态：已初始化；快照日期：2026-05-15", report)
-        self.assertIn("现金 1,234.50 | 持仓市值 4,000.00 | 总资产 5,234.50", report)
-        self.assertIn("账本盈亏：累计 +234.50 (+4.69%) | 浮动 +200.00 | 已实现/现金化 +34.50", report)
+        self.assertIn("账本资产：现金 1,234.50；持仓市值 4,000.00；总资产 5,234.50", report)
+        self.assertIn("账本盈亏：累计 +234.50 (+4.69%)；浮动 +200.00；已实现/现金化 +34.50", report)
         self.assertIn("当前模拟持仓：1 只", report)
         self.assertIn("| 标的 | 数量 | 成本 | 现价 | 市值 | 浮盈亏 |", report)
         self.assertIn("| AAA | 10.00 | 380.00 | 400.00 | 4,000.00 | +200.00 (+5.26%) |", report)
         self.assertIn("| 时间 | 标的 | 动作 | 结果 | 数量变化 | 价格 | 现金变化 | 说明 |", report)
-        self.assertIn("| 2026-05-15T16:10:00 | AAA | REDUCE | 已模拟成交 | -2.00 | 400.00 | +800.00 | Applied |", report)
-        self.assertLess(report.index("| 2026-05-15T16:10:00 | AAA | REDUCE"), report.index("| 2026-05-15T16:10:01 | ZZZ | HOLD"))
+        self.assertIn("| 2026-05-15T16:10:00 | AAA | 减仓 | 已模拟成交 | -2.00 | 400.00 | +800.00 | 已按计划写入模拟盘 |", report)
+        self.assertLess(report.index("| 2026-05-15T16:10:00 | AAA | 减仓"), report.index("| 2026-05-15T16:10:01 | ZZZ | 持有/跳过"))
         self.assertIn("本次分析已先写入模拟盘；报告只读展示写入后的账本", report)
         self.assertIn("初始化来源：真实账户快照 2026-05-14 的只读副本", report)
         self.assertLess(report.index("## 模拟盘账本（只读）"), report.index("## 详情 / 审计附录"))

@@ -20,6 +20,8 @@ def test_email_html_keeps_tables_and_adds_scannable_table_styles():
     assert "<td>BHP (BHP.AX)</td>" in html
     assert "border-right: 1px solid #dfe2e5" in html
     assert "td:first-child" in html
+    assert "box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06)" in html
+    assert "line-height: 1.45" in html
     assert "@media (max-width: 640px)" in html
 
 
@@ -31,4 +33,5 @@ def test_archive_html_keeps_tables_and_adds_print_safe_table_styles():
     assert "<td>评分 75</td>" in html
     assert "border-right: 1px solid #d0d7de" in html
     assert "break-inside: avoid" in html
+    assert "box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06)" in html
     assert "@media screen and (max-width: 640px)" in html

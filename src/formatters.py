@@ -20,16 +20,19 @@ _BASE_CSS = """
                 font-size: 14px;
                 margin: 0 auto;
                 background: #f7f9fc;
+                color: #1f2937;
             }
             h1 {
                 border: 1px solid #d8e1ee;
                 border-radius: 8px;
                 background: #ffffff;
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
             }
             h2 {
                 border: 1px solid #d8e1ee;
                 border-radius: 8px;
                 background: #ffffff;
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
             }
             h3 {
                 font-size: 16px;
@@ -49,11 +52,13 @@ _BASE_CSS = """
                 table-layout: auto;
                 background: #ffffff;
                 border-radius: 8px;
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
             }
             th, td {
                 border: 0;
                 text-align: left;
                 vertical-align: top;
+                line-height: 1.45;
             }
             th:last-child, td:last-child {
                 border-right: 0;
@@ -62,6 +67,9 @@ _BASE_CSS = """
                 background: #eef2f7;
                 color: #111827;
                 border-bottom: 2px solid #cbd5e1;
+            }
+            strong {
+                color: #0f172a;
             }
             td:first-child {
                 font-weight: 600;
@@ -138,6 +146,9 @@ _EMAIL_CSS = """
             }
             tr:hover {
                 background-color: #f1f8ff;
+            }
+            strong {
+                color: #111827;
             }
             blockquote {
                 margin: 0 0 10px 0;

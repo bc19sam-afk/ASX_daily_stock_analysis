@@ -1725,12 +1725,16 @@ class NotificationService:
             "## 模拟盘账本（只读）",
             "",
             "> 这里展示的是持久化模拟盘账本，不是正文的计划仓位模拟，也不代表真实账户成交。",
+            "",
         ]
         if not overview.get("available", True):
             lines.extend(
                 [
-                    f"- 状态：读取失败（{overview.get('error') or '未知原因'}）。",
-                    "- 报告生成行为：只读展示失败，不会写入模拟盘或真实账户。",
+                    "**账本总览**",
+                    "| 项目 | 内容 |",
+                    "| --- | --- |",
+                    f"| 状态 | 状态：读取失败（{self._to_markdown_table_cell(overview.get('error') or '未知原因')}）。 |",
+                    "| 报告生成行为 | 只读展示失败，不会写入模拟盘或真实账户。 |",
                     "",
                 ]
             )
@@ -1739,9 +1743,12 @@ class NotificationService:
         if not bool(overview.get("initialized")):
             lines.extend(
                 [
-                    "- 状态：未初始化/未启用。",
-                    "- 最近模拟：暂无模拟盘交易记录。",
-                    "- 报告生成行为：只读展示，不会初始化模拟盘，也不会写入任何模拟交易。",
+                    "**账本总览**",
+                    "| 项目 | 内容 |",
+                    "| --- | --- |",
+                    "| 状态 | 状态：未初始化/未启用。 |",
+                    "| 最近模拟 | 最近模拟：暂无模拟盘交易记录。 |",
+                    "| 报告生成行为 | 只读展示，不会初始化模拟盘，也不会写入任何模拟交易。 |",
                     "",
                 ]
             )
@@ -1752,31 +1759,36 @@ class NotificationService:
         last_simulation_time = overview.get("last_simulation_time")
         is_current_report_simulation = self._is_same_report_date(last_simulation_time, report_date)
         if is_current_report_simulation:
-            plan_line = "- 模拟盘更新：本次分析已先写入模拟盘；报告只读展示写入后的账本。"
+            plan_line = "模拟盘更新：本次分析已先写入模拟盘；报告只读展示写入后的账本。"
         elif last_simulation_time:
-            plan_line = f"- 模拟盘更新：最近模拟时间 {last_simulation_time}；本报告只读展示既有账本。"
+            plan_line = f"模拟盘更新：最近模拟时间 {last_simulation_time}；本报告只读展示既有账本。"
         else:
             plan_line = (
-                "- 今日计划仓位模拟：正文目标仓位只是计划视图；当前尚无模拟盘执行记录。"
+                "今日计划仓位模拟：正文目标仓位只是计划视图；当前尚无模拟盘执行记录。"
                 if has_plan_actions
-                else "- 今日计划仓位模拟：无明确调仓动作；当前尚无模拟盘执行记录。"
+                else "今日计划仓位模拟：无明确调仓动作；当前尚无模拟盘执行记录。"
             )
         lines.extend(
             [
-                f"- 状态：已初始化；快照日期：{overview.get('snapshot_date') or '暂无快照'}。",
+                "**账本总览**",
+                "| 项目 | 内容 |",
+                "| --- | --- |",
+                f"| 状态 | 状态：已初始化；快照日期：{self._to_markdown_table_cell(overview.get('snapshot_date') or '暂无快照')}。 |",
                 (
-                    f"- 账本资产：现金 {self._format_report_money(overview.get('cash'))} | "
-                    f"持仓市值 {self._format_report_money(overview.get('equity_value'))} | "
-                    f"总资产 {self._format_report_money(overview.get('total_value'))}。"
+                    "| 资产 | "
+                    f"账本资产：现金 {self._format_report_money(overview.get('cash'))}；"
+                    f"持仓市值 {self._format_report_money(overview.get('equity_value'))}；"
+                    f"总资产 {self._format_report_money(overview.get('total_value'))}。 |"
                 ),
                 (
-                    f"- 账本盈亏：累计 {self._format_report_signed_money(overview.get('total_pnl'))} "
-                    f"({self._format_report_signed_percent(overview.get('total_pnl_pct'))}) | "
-                    f"浮动 {self._format_report_signed_money(overview.get('unrealized_pnl'))} | "
-                    f"已实现/现金化 {self._format_report_signed_money(overview.get('realized_pnl'))}。"
+                    "| 盈亏 | "
+                    f"账本盈亏：累计 {self._format_report_signed_money(overview.get('total_pnl'))} "
+                    f"({self._format_report_signed_percent(overview.get('total_pnl_pct'))})；"
+                    f"浮动 {self._format_report_signed_money(overview.get('unrealized_pnl'))}；"
+                    f"已实现/现金化 {self._format_report_signed_money(overview.get('realized_pnl'))}。 |"
                 ),
-                f"- 当前模拟持仓：{len(holdings)} 只。",
-                plan_line,
+                f"| 持仓 | 当前模拟持仓：{len(holdings)} 只。 |",
+                f"| 更新 | {self._to_markdown_table_cell(plan_line)} |",
             ]
         )
         if holdings:
@@ -1820,18 +1832,19 @@ class NotificationService:
                     "| "
                     f"{self._to_markdown_table_cell(trade.get('simulation_time') or overview.get('last_simulation_time') or '时间未知')} | "
                     f"{self._to_markdown_table_cell(trade.get('code') or '未知标的')} | "
-                    f"{self._to_markdown_table_cell(trade.get('action') or 'UNKNOWN')} | "
+                    f"{self._to_markdown_table_cell(self._format_paper_trade_action(trade.get('action')))} | "
                     f"{executed_text} | "
                     f"{self._format_report_signed_number(trade.get('quantity_delta'))} | "
                     f"{self._format_report_money(trade.get('price'))} | "
                     f"{self._format_report_signed_money(trade.get('cash_delta'))} | "
-                    f"{self._to_markdown_table_cell(reason)} |"
+                    f"{self._to_markdown_table_cell(self._format_paper_trade_reason(reason))} |"
                 )
         else:
             lines.append("- 最近模拟：暂无模拟盘交易记录。")
 
         seed_source = overview.get("seed_source") if isinstance(overview.get("seed_source"), dict) else {}
         if seed_source.get("snapshot_date"):
+            lines.append("")
             lines.append(f"- 初始化来源：真实账户快照 {seed_source.get('snapshot_date')} 的只读副本。")
         lines.extend([""])
         return lines
@@ -1846,6 +1859,40 @@ class NotificationService:
         if action and action != "HOLD":
             return 1
         return 2
+
+    @staticmethod
+    def _format_paper_trade_action(action: Any) -> str:
+        normalized = str(action or "").strip().upper()
+        return {
+            "OPEN": "新开仓",
+            "ADD": "加仓",
+            "HOLD": "持有/跳过",
+            "REDUCE": "减仓",
+            "CLOSE": "清仓",
+        }.get(normalized, normalized or "未知动作")
+
+    @staticmethod
+    def _format_paper_trade_reason(reason: Any) -> str:
+        text = str(reason or "").strip()
+        lower_text = text.lower()
+        if lower_text == "applied":
+            return "已按计划写入模拟盘"
+        if lower_text == "skipped: hold action":
+            return "HOLD 观察，未产生模拟交易"
+        if lower_text.startswith("skipped: analysis_status="):
+            status = text.split("=", 1)[-1].strip() or "未知"
+            return f"分析状态未通过（{status}），跳过"
+        if lower_text == "skipped: invalid current price":
+            return "缺少有效价格，跳过"
+        if lower_text == "skipped: missing/invalid target info":
+            return "缺少有效目标仓位或数量，跳过"
+        if lower_text.startswith("skipped: no-op"):
+            return "已接近目标仓位，未产生模拟交易"
+        if lower_text.startswith("skipped: insufficient cash"):
+            return "现金不足，跳过"
+        if lower_text.startswith("skipped: "):
+            return text[len("Skipped: "):]
+        return text
 
     @staticmethod
     def _is_same_report_date(timestamp_value: Any, report_date: Optional[str]) -> bool:
@@ -2149,23 +2196,29 @@ class NotificationService:
                 ])
                 if uncovered_holdings:
                     report_lines.append(f"- 当前持仓有 **{len(uncovered_holdings)}** 只未覆盖分析，请优先补齐。")
+                    report_lines.append("")
                     report_lines.append("**未覆盖持仓**")
                     for item in uncovered_holdings:
                         report_lines.append(
                             f"- {notification_formatting.format_stock_display_name(item.get('name'), item.get('code'))}"
                         )
+                    report_lines.append("")
                 if failed_results:
                     report_lines.append(f"- 今日有 **{len(failed_results)}** 只分析失败，建议重跑后再决策。")
+                    report_lines.append("")
                     report_lines.append("**分析失败（建议重跑）**")
                     for result in failed_results:
                         stock_name = notification_formatting.format_stock_display_name(result.name, result.code)
                         error_message = str(getattr(result, "error_message", "") or "未知错误")
                         report_lines.append(f"- {stock_name}：{error_message}")
+                    report_lines.append("")
                 if blocked_results:
                     report_lines.append(f"- 今日有 **{len(blocked_results)}** 只触发验证阻断。")
+                    report_lines.append("")
                     report_lines.append("**不可决策（仅观察）**")
                     for result in blocked_results:
                         report_lines.append(self._format_blocked_result_line(result))
+                    report_lines.append("")
                 if has_mixed_price_basis:
                     report_lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
                 report_lines.append("")

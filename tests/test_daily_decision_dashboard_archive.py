@@ -119,14 +119,18 @@ def test_preopen_dashboard_close_only_wording_and_action_counts(mock_get_db):
     report = service.generate_dashboard_report(_mixed_action_results(), report_date="2026-04-29")
 
     assert report.startswith("# 🎯 2026-04-29 决策仪表盘\n\n## 开盘前决策驾驶舱")
+    assert "**开盘前快照**" in report
     assert "**今日结论**" in report
     assert "**今日动作数量**" in report
     assert "**今日人工复核卡片**" in report
-    assert "- **先看这几只**：" in report
-    assert "- **低优先级**：" in report
-    assert "- **有机会但证据不足**：" in report
-    assert "- **先补数据再判断**：" in report
+    assert "| 阅读顺序 | 摘要 |" in report
+    assert "| **先看这几只** |" in report
+    assert "| **低优先级** |" in report
+    assert "| **有机会但证据不足** |" in report
+    assert "| **先补数据再判断** |" in report
     assert "买入 1 / 加仓 1 / 减仓 1 / 清仓 1 / 观察 1 / 阻断（BLOCK）1" in report
+    assert "**执行口径**" in report
+    assert "| 复核项 |" in report
     assert "**报告可信度**" in report
     assert "**价格来源**：全部使用昨收数据" in report
     assert "技术基准日 2026-04-28" in report
