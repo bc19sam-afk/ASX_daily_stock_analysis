@@ -73,6 +73,18 @@ def test_config_registry_stock_list_default_is_asx_first():
     assert stock_list["default_value"] == Config.default_stock_list_csv()
 
 
+def test_daily_workflow_gemini_defaults_match_runtime_config():
+    daily_workflow = _read(".github/workflows/daily_analysis.yml")
+
+    assert "GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-3.5-flash' }}" in daily_workflow
+    assert (
+        "GEMINI_MODEL_FALLBACK: "
+        "${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-3-flash-preview' }}"
+    ) in daily_workflow
+    assert "GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}" not in daily_workflow
+    assert "GEMINI_MODEL_FALLBACK: ${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-2.5-flash' }}" not in daily_workflow
+
+
 def test_workflow_and_docker_defaults_are_asx_sydney():
     daily_workflow = _read(".github/workflows/daily_analysis.yml")
     ci_workflow = _read(".github/workflows/ci.yml")
