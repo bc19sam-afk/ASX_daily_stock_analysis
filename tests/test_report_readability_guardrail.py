@@ -350,16 +350,20 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     report = service.generate_dashboard_report(_readability_results(), report_date="2026-04-29")
     landing = _landing_section(report)
 
+    assert "**开盘前快照**" in landing
     assert "**今日结论**" in landing
     assert "**今日动作数量**" in landing
     assert "**今日人工复核卡片**" in landing
-    assert "- **先看这几只**：" in landing
-    assert "- **低优先级**：" in landing
-    assert "- **有机会但证据不足**：" in landing
-    assert "- **先补数据再判断**：" in landing
+    assert "| 阅读顺序 | 摘要 |" in landing
+    assert "| **先看这几只** |" in landing
+    assert "| **低优先级** |" in landing
+    assert "| **有机会但证据不足** |" in landing
+    assert "| **先补数据再判断** |" in landing
     assert "**当前持仓需要处理什么**" in landing
     assert "**今日重点股票**" in landing
     assert "**主要风险 / 暂停动作**" in landing
+    assert "**执行口径**" in landing
+    assert "| 复核项 |" in landing
     assert "**报告可信度**" in landing
     assert "**价格来源**：全部使用昨收数据" in landing
     assert "**执行前检查**：" in landing
