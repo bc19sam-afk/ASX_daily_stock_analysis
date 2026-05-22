@@ -1810,7 +1810,8 @@ class NotificationService:
                     "| --- | --- | --- | --- | ---: | ---: | ---: | --- |",
                 ]
             )
-            for trade in trades[:8]:
+            display_trades = sorted(trades, key=self._paper_trade_display_priority)
+            for trade in display_trades[:8]:
                 executed_text = "已模拟成交" if trade.get("executed") else "跳过"
                 reason = str(trade.get("reason") or "").strip()
                 if len(reason) > 80:
@@ -1834,6 +1835,17 @@ class NotificationService:
             lines.append(f"- 初始化来源：真实账户快照 {seed_source.get('snapshot_date')} 的只读副本。")
         lines.extend([""])
         return lines
+
+    @staticmethod
+    def _paper_trade_display_priority(trade: Any) -> int:
+        if not isinstance(trade, dict):
+            return 3
+        action = str(trade.get("action") or "").upper()
+        if trade.get("executed"):
+            return 0
+        if action and action != "HOLD":
+            return 1
+        return 2
 
     @staticmethod
     def _is_same_report_date(timestamp_value: Any, report_date: Optional[str]) -> bool:
