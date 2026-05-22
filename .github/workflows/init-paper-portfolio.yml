@@ -1,0 +1,56 @@
+name: Init Paper Portfolio
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Overwrite existing paper portfolio'
+        required: false
+        default: 'false'
+
+concurrency:
+  group: stock-analysis
+  cancel-in-progress: false
+
+jobs:
+  init-paper-portfolio:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore database cache
+        uses: actions/cache@v4
+        with:
+          path: data/stock_analysis.db
+          key: stock-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            stock-db-${{ runner.os }}-${{ github.ref_name }}-
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Init paper portfolio from current real portfolio
+        run: |
+          mkdir -p data
+          FORCE_ARG=""
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            FORCE_ARG="--force"
+          fi
+          python -m scripts.manual_portfolio_workflows init-paper-portfolio ${FORCE_ARG} --fail-if-no-real
+
+      - name: Save database cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data/stock_analysis.db
+          key: stock-db-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}

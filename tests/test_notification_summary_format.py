@@ -135,6 +135,19 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("不是正文的计划仓位模拟，也不代表真实账户成交", report)
 
     @patch("src.notification.get_db")
+    def test_dashboard_report_keeps_paper_portfolio_read_failure_visible(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        mock_get_db.return_value.get_paper_portfolio_overview.side_effect = RuntimeError("paper db timeout")
+        service = self._build_service()
+
+        report = service.generate_dashboard_report([self._build_result()], report_date="2026-03-30")
+
+        self.assertIn("## 模拟盘账本（只读）", report)
+        self.assertIn("状态：读取失败（paper db timeout）", report)
+        self.assertIn("只读展示失败，不会写入模拟盘或真实账户", report)
+        self.assertIn("不是正文的计划仓位模拟，也不代表真实账户成交", report)
+
+    @patch("src.notification.get_db")
     def test_dashboard_report_shows_initialized_paper_portfolio_separate_from_plan_simulation(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
         mock_get_db.return_value.get_paper_portfolio_overview.return_value = {
@@ -1089,7 +1102,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
         self.assertIn("## 重点观察复盘（非持仓）", report)
-        self.assertIn("非持仓且今日无明确动作的标的进入重点观察复盘", report)
+        self.assertIn("非持仓标的进入复盘", report)
         self.assertIn("### ⚪ 贵州茅台 (600519)", report)
         self.assertIn("- 核心结论：持有/观望 | 评分 75 | 震荡上行", report)
         self.assertIn("- 关键理由：N/A", report)
@@ -1223,7 +1236,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertEqual(kwargs["section_title"], "## 重点观察复盘（非持仓）")
         self.assertEqual(
             kwargs["section_intro"],
-            "> 非持仓且今日无明确动作的标的进入重点观察复盘；保留结论、理由、风险和参考位，供人工开盘前筛选。",
+            "> 非持仓标的进入复盘；保留结论、理由、风险和参考位，供人工开盘前筛选。",
         )
         self.assertEqual(kwargs["observation_items"], [mock_item_helper.return_value])
 

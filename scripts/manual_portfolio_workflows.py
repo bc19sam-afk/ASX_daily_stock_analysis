@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Helpers for GitHub Actions manual portfolio workflows.
 
-This module supports two simple commands:
+This module supports these simple commands:
 1) init-portfolio
 2) record-trade
+3) init-paper-portfolio
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import Iterable, List
 
 from sqlalchemy import func, select
 
+from src.services.paper_portfolio_service import PaperPortfolioService
 from src.storage import AccountSnapshot, DatabaseManager, PortfolioPosition, TradeJournal
 from src.stock_code import canonical_stock_code, stock_code_aliases
 
@@ -495,6 +497,38 @@ def record_trade(
             session.commit()
 
 
+def init_paper_portfolio_from_current(
+    db: DatabaseManager,
+    *,
+    force: bool = False,
+    skip_if_no_real: bool = True,
+) -> dict:
+    """Seed the independent paper portfolio from the current real portfolio snapshot."""
+    paper_overview = db.get_paper_portfolio_overview()
+    if paper_overview.get("initialized") and not force:
+        return {
+            **paper_overview,
+            "skipped": True,
+            "reason": "paper_portfolio_already_initialized",
+        }
+
+    real_overview = db.get_portfolio_overview()
+    holdings = real_overview.get("holdings") if isinstance(real_overview.get("holdings"), list) else []
+    has_real_state = (
+        float(real_overview.get("cash") or 0.0) > 0
+        or float(real_overview.get("total_value") or 0.0) > 0
+        or len(holdings) > 0
+    )
+    if not has_real_state and skip_if_no_real:
+        return {
+            **paper_overview,
+            "skipped": True,
+            "reason": "real_portfolio_not_initialized",
+        }
+
+    return PaperPortfolioService(db).init_from_current(force=force)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Manual portfolio workflows")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -517,6 +551,14 @@ def _build_parser() -> argparse.ArgumentParser:
     cash_cmd.add_argument("--amount", required=True)
     cash_cmd.add_argument("--reason", required=True)
     cash_cmd.add_argument("--code", default="CASH", help="Optional source code for the cash movement")
+
+    paper_cmd = sub.add_parser("init-paper-portfolio", help="Seed paper portfolio from current real portfolio")
+    paper_cmd.add_argument("--force", action="store_true", help="Overwrite existing paper portfolio state")
+    paper_cmd.add_argument(
+        "--fail-if-no-real",
+        action="store_true",
+        help="Fail instead of skipping when the real portfolio has no snapshot/holdings",
+    )
 
     return parser
 
@@ -553,6 +595,21 @@ def main() -> int:
             code=args.code,
         )
         print(f"Recorded cash adjustment of {float(args.amount):.2f}.")
+        return 0
+
+    if args.command == "init-paper-portfolio":
+        overview = init_paper_portfolio_from_current(
+            db,
+            force=bool(args.force),
+            skip_if_no_real=not bool(args.fail_if_no_real),
+        )
+        if overview.get("skipped"):
+            print(f"Skipped paper portfolio init: {overview.get('reason')}.")
+        else:
+            print(
+                "Initialized paper portfolio from current real portfolio "
+                f"with {len(overview.get('holdings') or [])} holding(s)."
+            )
         return 0
 
     raise ValueError(f"Unsupported command: {args.command}")
