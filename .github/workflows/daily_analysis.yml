@@ -201,6 +201,8 @@ jobs:
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '30' }}
           # 日报/手动重跑统一按昨收口径，避免开盘后把昨日日线结论与实时价混用
           EXECUTION_PRICE_POLICY: close_only
+          # 只写入模拟盘账本，不触碰真实账户；用于在日报中展示模拟操作与盈亏
+          PAPER_PORTFOLIO_AUTO_APPLY: ${{ vars.PAPER_PORTFOLIO_AUTO_APPLY || secrets.PAPER_PORTFOLIO_AUTO_APPLY || 'true' }}
 
           # ==========================================
           # 系统配置

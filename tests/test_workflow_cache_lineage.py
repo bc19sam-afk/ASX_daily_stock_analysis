@@ -83,5 +83,6 @@ def test_daily_analysis_seeds_paper_portfolio_before_report_when_enabled():
 
     assert "启用模拟盘账本（如未初始化）" in daily
     assert "PAPER_PORTFOLIO_AUTO_INIT" in daily
+    assert "PAPER_PORTFOLIO_AUTO_APPLY" in daily
     assert "python -m scripts.manual_portfolio_workflows init-paper-portfolio" in daily
     assert daily.index("init-paper-portfolio") < daily.index("执行股票分析")

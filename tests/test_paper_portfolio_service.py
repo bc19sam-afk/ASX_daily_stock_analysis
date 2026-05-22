@@ -3,10 +3,12 @@
 import os
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from src.analyzer import AnalysisResult
+from src.core.pipeline import StockAnalysisPipeline
 from src.notification import NotificationService
 from src.services.paper_portfolio_service import PaperPortfolioService
 from src.storage import (
@@ -143,6 +145,73 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         self.assertEqual(overview["cash"], 130.0)
         executed = [t for t in overview["latest_simulated_trades"] if t["executed"]]
         self.assertGreaterEqual(len(executed), 4)
+
+    def test_overview_includes_operation_deltas_and_pnl(self):
+        self.service.init_from_current()
+        self.service.apply_analysis_results(
+            [
+                {"code": "AAA", "position_action": "HOLD", "analysis_status": "OK", "current_price": 12.0},
+            ],
+            simulation_time=datetime(2099, 5, 21, 8, 0, 0),
+        )
+        overview = self.service.apply_analysis_results(
+            [
+                {"code": "AAA", "position_action": "REDUCE", "analysis_status": "OK", "current_price": 12.0, "target_quantity": 5},
+            ],
+            simulation_time=datetime(2099, 5, 22, 8, 0, 0),
+        )
+
+        holding = next(x for x in overview["holdings"] if x["code"] == "AAA")
+        self.assertEqual(overview["initial_total_value"], 200.0)
+        self.assertEqual(overview["total_pnl"], 20.0)
+        self.assertEqual(overview["unrealized_pnl"], 10.0)
+        self.assertEqual(overview["realized_pnl"], 10.0)
+        self.assertEqual(holding["unrealized_pnl"], 10.0)
+        self.assertEqual(holding["unrealized_pnl_pct"], 20.0)
+
+        latest_trade = overview["latest_simulated_trades"][0]
+        self.assertTrue(latest_trade["executed"])
+        self.assertEqual(latest_trade["quantity_delta"], -5.0)
+        self.assertEqual(latest_trade["cash_delta"], 60.0)
+        self.assertEqual(latest_trade["notional"], 60.0)
+
+    def test_pipeline_auto_applies_paper_portfolio_once_before_report(self):
+        self.service.init_from_current()
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.db = self.db
+        pipeline.config = SimpleNamespace(
+            paper_portfolio_auto_apply=True,
+            market_timezone="Australia/Sydney",
+        )
+        result = AnalysisResult(
+            code="AAA",
+            name="AAA",
+            sentiment_score=50,
+            trend_prediction="震荡",
+            operation_advice="减仓",
+            final_decision="SELL",
+            position_action="REDUCE",
+            current_weight=0.5,
+            target_weight=0.25,
+            delta_amount=-50.0,
+            current_price=12.0,
+            market_snapshot={"date": "2026-05-22", "close": "12.00", "source": "fixture"},
+        )
+
+        first = pipeline._apply_paper_portfolio_simulation(
+            [result],
+            simulation_time=datetime(2026, 5, 22, 8, 0, 0),
+        )
+        second = pipeline._apply_paper_portfolio_simulation(
+            [result],
+            simulation_time=datetime(2026, 5, 22, 9, 0, 0),
+        )
+
+        self.assertTrue(first)
+        self.assertFalse(second)
+        overview = self.db.get_paper_portfolio_overview()
+        self.assertEqual(len(overview["latest_simulated_trades"]), 1)
+        self.assertEqual(overview["latest_simulated_trades"][0]["action"], "REDUCE")
 
     def test_missing_price_is_skipped_with_reason(self):
         self.service.init_from_current()

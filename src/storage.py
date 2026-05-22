@@ -1934,6 +1934,11 @@ class DatabaseManager:
                 select(PaperPortfolioState).order_by(desc(PaperPortfolioState.id)).limit(1)
             ).scalar_one_or_none()
             latest = self.get_latest_paper_snapshot_in_session(session)
+            initial = session.execute(
+                select(PaperPortfolioSnapshot)
+                .order_by(PaperPortfolioSnapshot.snapshot_date, PaperPortfolioSnapshot.created_at)
+                .limit(1)
+            ).scalar_one_or_none()
             positions = session.execute(
                 select(PaperPortfolioHolding)
                 .where(PaperPortfolioHolding.status == "OPEN")
@@ -1948,27 +1953,57 @@ class DatabaseManager:
         cash = round(float(latest.cash or 0.0), 2) if latest else 0.0
         equity_value = round(sum(float(p.market_value or 0.0) for p in positions), 2)
         total_value = round(cash + equity_value, 2)
+        initial_total_value = round(float(initial.total_value or 0.0), 2) if initial else None
         holdings: List[Dict[str, Any]] = []
+        unrealized_pnl = 0.0
         for p in positions:
             market_value = float(p.market_value or 0.0)
+            quantity = float(p.quantity or 0.0)
+            avg_cost = float(p.avg_cost or 0.0)
+            cost_basis = round(quantity * avg_cost, 2)
+            holding_unrealized = round(market_value - cost_basis, 2)
+            unrealized_pnl = round(unrealized_pnl + holding_unrealized, 2)
             holdings.append(
                 {
                     "code": p.code,
                     "name": p.name,
-                    "quantity": float(p.quantity or 0.0),
-                    "avg_cost": float(p.avg_cost or 0.0),
+                    "quantity": quantity,
+                    "avg_cost": avg_cost,
                     "current_price": p.current_price,
                     "market_value": market_value,
                     "weight": round(market_value / total_value, 6) if total_value > 0 else 0.0,
+                    "cost_basis": cost_basis,
+                    "unrealized_pnl": holding_unrealized,
+                    "unrealized_pnl_pct": round(holding_unrealized / cost_basis * 100, 2)
+                    if cost_basis > 0
+                    else None,
                 }
             )
+
+        total_pnl = (
+            round(total_value - initial_total_value, 2)
+            if initial_total_value is not None and initial_total_value > 0
+            else None
+        )
+        total_pnl_pct = (
+            round(total_pnl / initial_total_value * 100, 2)
+            if total_pnl is not None and initial_total_value and initial_total_value > 0
+            else None
+        )
+        realized_pnl = round(total_pnl - unrealized_pnl, 2) if total_pnl is not None else None
 
         return {
             "initialized": bool(state.initialized) if state else False,
             "snapshot_date": latest.snapshot_date.isoformat() if latest else None,
+            "initial_snapshot_date": initial.snapshot_date.isoformat() if initial else None,
+            "initial_total_value": initial_total_value,
             "cash": cash,
             "equity_value": equity_value,
             "total_value": total_value,
+            "total_pnl": total_pnl,
+            "total_pnl_pct": total_pnl_pct,
+            "unrealized_pnl": unrealized_pnl,
+            "realized_pnl": realized_pnl,
             "holdings": holdings,
             "latest_simulated_trades": [
                 {
@@ -1980,7 +2015,18 @@ class DatabaseManager:
                     "target_quantity": t.target_quantity,
                     "before_quantity": t.before_quantity,
                     "after_quantity": t.after_quantity,
+                    "quantity_delta": round(float(t.after_quantity or 0.0) - float(t.before_quantity or 0.0), 6),
                     "price": t.price,
+                    "notional": round(
+                        abs(float(t.after_quantity or 0.0) - float(t.before_quantity or 0.0))
+                        * float(t.price or 0.0),
+                        2,
+                    )
+                    if t.price is not None
+                    else 0.0,
+                    "cash_before": t.cash_before,
+                    "cash_after": t.cash_after,
+                    "cash_delta": round(float(t.cash_after or 0.0) - float(t.cash_before or 0.0), 2),
                     "reason": t.reason,
                     "simulation_time": t.simulation_time.isoformat() if t.simulation_time else None,
                 }
