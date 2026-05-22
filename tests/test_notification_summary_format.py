@@ -174,6 +174,16 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             ],
             "latest_simulated_trades": [
                 {
+                    "code": "ZZZ",
+                    "action": "HOLD",
+                    "executed": False,
+                    "reason": "Skipped: HOLD action",
+                    "quantity_delta": 0.0,
+                    "price": 10.0,
+                    "cash_delta": 0.0,
+                    "simulation_time": "2026-05-15T16:10:01",
+                },
+                {
                     "code": "AAA",
                     "action": "REDUCE",
                     "executed": True,
@@ -199,6 +209,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("| AAA | 10.00 | 380.00 | 400.00 | 4,000.00 | +200.00 (+5.26%) |", report)
         self.assertIn("| 时间 | 标的 | 动作 | 结果 | 数量变化 | 价格 | 现金变化 | 说明 |", report)
         self.assertIn("| 2026-05-15T16:10:00 | AAA | REDUCE | 已模拟成交 | -2.00 | 400.00 | +800.00 | Applied |", report)
+        self.assertLess(report.index("| 2026-05-15T16:10:00 | AAA | REDUCE"), report.index("| 2026-05-15T16:10:01 | ZZZ | HOLD"))
         self.assertIn("本次分析已先写入模拟盘；报告只读展示写入后的账本", report)
         self.assertIn("初始化来源：真实账户快照 2026-05-14 的只读副本", report)
         self.assertLess(report.index("## 模拟盘账本（只读）"), report.index("## 详情 / 审计附录"))
