@@ -94,6 +94,20 @@ jobs:
         if: steps.schedule_gate.outputs.should_run == 'true'
         run: |
           python scripts/migrate_analysis_history_decision_columns.py --db ./data/stock_analysis.db
+
+      - name: 启用模拟盘账本（如未初始化）
+        if: steps.schedule_gate.outputs.should_run == 'true'
+        env:
+          PAPER_PORTFOLIO_AUTO_INIT: ${{ vars.PAPER_PORTFOLIO_AUTO_INIT || secrets.PAPER_PORTFOLIO_AUTO_INIT || 'true' }}
+        run: |
+          case "${PAPER_PORTFOLIO_AUTO_INIT}" in
+            true|TRUE|True|1|yes|YES|on|ON)
+              python -m scripts.manual_portfolio_workflows init-paper-portfolio
+              ;;
+            *)
+              echo "Paper portfolio auto-init disabled."
+              ;;
+          esac
       
       - name: 执行股票分析
         if: steps.schedule_gate.outputs.should_run == 'true'

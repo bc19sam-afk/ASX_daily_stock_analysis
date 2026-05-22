@@ -13,6 +13,7 @@ from datetime import date, datetime
 from scripts.manual_portfolio_workflows import (
     HoldingInput,
     _parse_holding_rows,
+    init_paper_portfolio_from_current,
     init_portfolio,
     record_cash_adjustment,
     record_trade,
@@ -48,6 +49,28 @@ class ManualPortfolioWorkflowTestCase(unittest.TestCase):
 
         positions = self.db.get_portfolio_positions(only_open=True)
         self.assertEqual(len(positions), 2)
+
+    def test_init_paper_portfolio_from_current_seeds_independent_readonly_ledger(self):
+        init_portfolio(
+            self.db,
+            cash=1000,
+            holdings=[HoldingInput(code="AAA", quantity=10, avg_cost=20)],
+        )
+
+        overview = init_paper_portfolio_from_current(self.db)
+
+        self.assertTrue(overview["initialized"])
+        self.assertEqual(overview["cash"], 1000.0)
+        self.assertEqual(overview["total_value"], 1200.0)
+        self.assertEqual(len(overview["holdings"]), 1)
+        self.assertEqual(self.db.get_portfolio_overview()["total_value"], 1200.0)
+
+    def test_init_paper_portfolio_from_current_skips_without_real_portfolio(self):
+        overview = init_paper_portfolio_from_current(self.db)
+
+        self.assertFalse(overview["initialized"])
+        self.assertTrue(overview["skipped"])
+        self.assertEqual(overview["reason"], "real_portfolio_not_initialized")
 
     def test_init_portfolio_normalizes_common_asx_suffix_alias(self):
         init_portfolio(

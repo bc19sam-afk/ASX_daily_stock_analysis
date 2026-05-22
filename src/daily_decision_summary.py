@@ -940,20 +940,25 @@ def _render_action_table_lines(items: List[Dict[str, Any]]) -> List[str]:
     return lines
 
 
-def _same_action_items(left: List[Dict[str, Any]], right: List[Dict[str, Any]]) -> bool:
-    if not left or len(left) != len(right):
-        return False
-    return Counter(_action_item_identity(item) for item in left) == Counter(
-        _action_item_identity(item) for item in right
-    )
+def _remaining_action_items(items: List[Dict[str, Any]], already_listed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    listed_counts = Counter(_action_item_identity(item) for item in already_listed)
+    remaining: List[Dict[str, Any]] = []
+    for item in items:
+        identity = _action_item_identity(item)
+        if listed_counts[identity] > 0:
+            listed_counts[identity] -= 1
+            continue
+        remaining.append(item)
+    return remaining
 
 
-def _action_item_identity(item: Dict[str, Any]) -> Tuple[str, str, float, float]:
+def _action_item_identity(item: Dict[str, Any]) -> Tuple[str, str, float, float, bool]:
     return (
         canonical_stock_code(item.get("code")),
         str(item.get("position_action") or "").upper(),
         round(safe_float(item.get("target_weight")), 8),
         round(safe_float(item.get("delta_amount")), 4),
+        bool(item.get("is_current_holding")),
     )
 
 
@@ -968,6 +973,12 @@ def _today_conclusion(
     blocked_items: List[Dict[str, Any]],
 ) -> str:
     if current_holding_actions:
+        other_actions = _remaining_action_items(actionable_items, current_holding_actions)
+        if other_actions:
+            return (
+                f"优先处理 {len(current_holding_actions)} 只当前持仓，"
+                f"并复核 {len(other_actions)} 个非持仓计划动作；其余按昨收计划准备。"
+            )
         return f"优先处理 {len(current_holding_actions)} 只当前持仓；其余按昨收计划准备。"
     if actionable_items:
         return f"今日有 {len(actionable_items)} 个明确计划动作，开盘后确认价格再决定是否执行。"
@@ -1185,10 +1196,17 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
     lines.extend(["", "**今日重点股票**"])
     actionable_items = summary.get("actionable_items") or []
     if actionable_items:
-        if current_holding_actions and _same_action_items(actionable_items, current_holding_actions):
+        focus_items = (
+            _remaining_action_items(actionable_items, current_holding_actions)
+            if current_holding_actions
+            else actionable_items
+        )
+        if not focus_items:
             lines.append("- 今日重点股票已在当前持仓表列出；无新增非持仓动作。")
         else:
-            lines.extend(_render_action_table_lines(actionable_items))
+            if current_holding_actions:
+                lines.append("- 当前持仓动作已在上表列出；下表只列新增/非持仓动作。")
+            lines.extend(_render_action_table_lines(focus_items))
     else:
         if watch_items:
             names = "、".join(str(item.get("name")) for item in watch_items[:HOMEPAGE_ACTIONABLE_LIMIT])

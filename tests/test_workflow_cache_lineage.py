@@ -10,6 +10,7 @@ def _read(path: str) -> str:
 def test_cache_key_lineage_is_aligned_across_manual_and_daily_workflows():
     daily = _read(".github/workflows/daily_analysis.yml")
     init_workflow = _read(".github/workflows/init-portfolio.yml")
+    paper_workflow = _read(".github/workflows/init-paper-portfolio.yml")
     record_workflow = _read(".github/workflows/record-trade.yml")
     cash_workflow = _read(".github/workflows/record-cash.yml")
 
@@ -18,11 +19,13 @@ def test_cache_key_lineage_is_aligned_across_manual_and_daily_workflows():
 
     assert f"key: {expected_key}" in daily
     assert f"key: {expected_key}" in init_workflow
+    assert f"key: {expected_key}" in paper_workflow
     assert f"key: {expected_key}" in record_workflow
     assert f"key: {expected_key}" in cash_workflow
 
     assert expected_restore_prefix in daily
     assert expected_restore_prefix in init_workflow
+    assert expected_restore_prefix in paper_workflow
     assert expected_restore_prefix in record_workflow
     assert expected_restore_prefix in cash_workflow
 
@@ -30,6 +33,7 @@ def test_cache_key_lineage_is_aligned_across_manual_and_daily_workflows():
 def test_cache_path_is_consistent_for_portfolio_db():
     daily = _read(".github/workflows/daily_analysis.yml")
     init_workflow = _read(".github/workflows/init-portfolio.yml")
+    paper_workflow = _read(".github/workflows/init-paper-portfolio.yml")
     record_workflow = _read(".github/workflows/record-trade.yml")
     cash_workflow = _read(".github/workflows/record-cash.yml")
 
@@ -37,6 +41,7 @@ def test_cache_path_is_consistent_for_portfolio_db():
 
     assert expected_path_line in daily
     assert expected_path_line in init_workflow
+    assert expected_path_line in paper_workflow
     assert expected_path_line in record_workflow
     assert expected_path_line in cash_workflow
 
@@ -45,6 +50,7 @@ def test_db_cache_writing_workflows_share_concurrency_group():
     workflows = [
         _read(".github/workflows/daily_analysis.yml"),
         _read(".github/workflows/init-portfolio.yml"),
+        _read(".github/workflows/init-paper-portfolio.yml"),
         _read(".github/workflows/record-trade.yml"),
         _read(".github/workflows/record-cash.yml"),
     ]
@@ -70,3 +76,12 @@ def test_daily_analysis_gate_no_longer_requires_exact_time_match():
     assert 'local_time=$(TZ=\'Australia/Melbourne\' date \'+%H:%M\')' not in daily
     assert '[ "$local_time" =' not in daily
     assert "matched timezone-aware Australia/Sydney weekday schedule" in daily
+
+
+def test_daily_analysis_seeds_paper_portfolio_before_report_when_enabled():
+    daily = _read(".github/workflows/daily_analysis.yml")
+
+    assert "启用模拟盘账本（如未初始化）" in daily
+    assert "PAPER_PORTFOLIO_AUTO_INIT" in daily
+    assert "python -m scripts.manual_portfolio_workflows init-paper-portfolio" in daily
+    assert daily.index("init-paper-portfolio") < daily.index("执行股票分析")

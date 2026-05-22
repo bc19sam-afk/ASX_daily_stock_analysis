@@ -1846,7 +1846,7 @@ class NotificationService:
         *,
         observation_items: List[Dict[str, str]],
         section_title: str = "## 重点观察复盘（非持仓）",
-        section_intro: str = "> 非持仓且今日无明确动作的标的进入重点观察复盘；保留结论、理由、风险和参考位，供人工开盘前筛选。",
+        section_intro: str = "> 非持仓标的进入复盘；保留结论、理由、风险和参考位，供人工开盘前筛选。",
     ) -> List[str]:
         return build_dashboard_observation_appendix_lines(
             observation_items=observation_items,

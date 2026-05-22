@@ -373,12 +373,16 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "validation BLOCK，仅观察" not in landing
 
     actionable_section = _section_between(landing, "**今日重点股票**", "**主要风险 / 暂停动作**")
+    assert "当前持仓动作已在上表列出；下表只列新增/非持仓动作。" in actionable_section
     assert "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 | 复核提示 |" in actionable_section
     actionable_lines = [
         line for line in actionable_section.splitlines()
         if line.startswith("| ") and not line.startswith("| ---") and "标的" not in line
     ]
-    assert len(actionable_lines) == 5
+    assert len(actionable_lines) == 3
+    assert "BHP (BHP.AX)" not in actionable_section
+    assert "CSL (CSL.AX)" not in actionable_section
+    assert "TLS (TLS.AX)" not in actionable_section
 
     risk_section = _section_between(landing, "**主要风险 / 暂停动作**", "**报告可信度**")
     risk_lines = [line for line in risk_section.splitlines() if line.startswith("- ")]
@@ -445,7 +449,7 @@ def test_dashboard_homepage_does_not_repeat_when_all_actions_are_current_holding
     assert "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 | 复核提示 |" not in focus_section
 
 
-def test_dashboard_focus_table_keeps_distinct_same_code_action_rows():
+def test_dashboard_focus_table_keeps_distinct_same_code_non_holding_action_rows():
     summary = {
         "price_policy": "close_only",
         "action_counts": {"buy": 1, "add": 1, "reduce": 0, "close": 0, "hold_watch": 0, "blocked": 0},
@@ -485,8 +489,39 @@ def test_dashboard_focus_table_keeps_distinct_same_code_action_rows():
 
     focus_section = _section_between(landing, "**今日重点股票**", "**主要风险 / 暂停动作**")
     assert "今日重点股票已在当前持仓表列出" not in focus_section
-    assert "| BHP (BHP.AX) | 加仓 |" in focus_section
+    assert "当前持仓动作已在上表列出；下表只列新增/非持仓动作。" in focus_section
+    assert "| BHP (BHP.AX) | 加仓 |" not in focus_section
     assert "| BHP alt (BHP.AX) | 买入/新开仓 |" in focus_section
+
+
+@patch("src.notification.get_db")
+def test_dashboard_homepage_conclusion_mentions_current_and_non_holding_actions(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    results = [
+        _result(
+            code="BHP.AX",
+            name="BHP",
+            final_decision="BUY",
+            position_action="ADD",
+            current_weight=0.20,
+            target_weight=0.24,
+            delta_amount=4000.0,
+        ),
+        _result(
+            code="CBA.AX",
+            name="CBA",
+            final_decision="BUY",
+            position_action="OPEN",
+            target_weight=0.10,
+            delta_amount=10000.0,
+        ),
+    ]
+
+    report = service.generate_dashboard_report(results, report_date="2026-04-29")
+    landing = _landing_section(report)
+
+    assert "**今日结论**：优先处理 1 只当前持仓，并复核 1 个非持仓计划动作；其余按昨收计划准备。" in landing
 
 
 @patch("src.notification.get_db")
