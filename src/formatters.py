@@ -15,27 +15,31 @@ import markdown2
 
 
 _BASE_CSS = """
+            * {
+                box-sizing: border-box;
+            }
             body {
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-                font-size: 14px;
+                font-size: 15px;
+                line-height: 1.58;
                 margin: 0 auto;
                 background: #f7f9fc;
                 color: #1f2937;
+                -webkit-text-size-adjust: 100%;
+                text-rendering: optimizeLegibility;
             }
             h1 {
-                border: 1px solid #d8e1ee;
+                border: 1px solid #d6dee8;
                 border-radius: 8px;
                 background: #ffffff;
-                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
             }
             h2 {
-                border: 1px solid #d8e1ee;
-                border-radius: 8px;
-                background: #ffffff;
-                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+                letter-spacing: 0;
             }
             h3 {
                 font-size: 16px;
+                letter-spacing: 0;
             }
             blockquote {
                 color: #334155;
@@ -52,13 +56,16 @@ _BASE_CSS = """
                 table-layout: auto;
                 background: #ffffff;
                 border-radius: 8px;
-                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+                color: #1f2937;
             }
             th, td {
                 border: 0;
                 text-align: left;
                 vertical-align: top;
-                line-height: 1.45;
+                line-height: 1.5;
+                overflow-wrap: anywhere;
+                word-break: break-word;
             }
             th:last-child, td:last-child {
                 border-right: 0;
@@ -74,6 +81,12 @@ _BASE_CSS = """
             td:first-child {
                 font-weight: 600;
                 color: #0f172a;
+            }
+            td {
+                max-width: 360px;
+            }
+            td:nth-child(n+2) {
+                font-variant-numeric: tabular-nums;
             }
             tr:last-child td {
                 border-bottom: 0;
@@ -97,61 +110,72 @@ _BASE_CSS = """
 
 _EMAIL_CSS = """
             body {
-                line-height: 1.5;
-                color: #24292e;
-                padding: 15px;
-                max-width: 900px;
+                color: #1f2937;
+                padding: 18px;
+                max-width: 920px;
             }
             h1 {
-                font-size: 20px;
-                border-left: 5px solid #2563eb;
-                padding: 12px 14px;
-                margin-top: 1.2em;
-                margin-bottom: 0.8em;
+                font-size: 22px;
+                line-height: 1.25;
+                border-left: 6px solid #2563eb;
+                padding: 14px 16px;
+                margin: 0 0 18px 0;
                 color: #0f172a;
             }
             h2 {
                 font-size: 18px;
+                line-height: 1.3;
+                border: 0;
                 border-left: 4px solid #2563eb;
-                padding: 9px 12px;
-                margin-top: 1.0em;
-                margin-bottom: 0.6em;
+                border-bottom: 1px solid #d8e1ee;
+                border-radius: 0;
+                background: transparent;
+                box-shadow: none;
+                padding: 3px 0 7px 10px;
+                margin: 26px 0 12px 0;
                 color: #0f172a;
             }
             h3 {
-                margin-top: 0.8em;
-                margin-bottom: 0.4em;
+                font-size: 15px;
+                line-height: 1.35;
+                margin: 18px 0 7px 0;
+                color: #111827;
             }
             p {
                 margin-top: 0;
-                margin-bottom: 8px;
+                margin-bottom: 9px;
             }
             table {
-                margin: 12px 0;
+                margin: 12px 0 18px 0;
                 display: block;
+                width: 100%;
+                max-width: 100%;
                 overflow-x: auto;
-                border: 1px solid #d8e1ee;
+                border: 1px solid #d6dee8;
+                border-radius: 8px;
+                -webkit-overflow-scrolling: touch;
             }
             th, td {
-                border-right: 1px solid #dfe2e5;
-                border-bottom: 1px solid #dfe2e5;
-                padding: 6px 10px;
+                border-right: 1px solid #e2e8f0;
+                border-bottom: 1px solid #e2e8f0;
+                padding: 8px 10px;
             }
             th {
-                background-color: #eef2f7;
-                font-weight: 600;
+                background-color: #edf2f7;
+                font-weight: 700;
+                white-space: nowrap;
             }
             tr:nth-child(2n) {
-                background-color: #f8f8f8;
+                background-color: #f8fafc;
             }
             tr:hover {
-                background-color: #f1f8ff;
+                background-color: #f1f7ff;
             }
             strong {
                 color: #111827;
             }
             blockquote {
-                margin: 0 0 10px 0;
+                margin: 0 0 12px 0;
             }
             code {
                 padding: 0.2em 0.4em;
@@ -164,21 +188,34 @@ _EMAIL_CSS = """
                 line-height: 1.45;
                 border-radius: 3px;
                 margin-bottom: 10px;
+                white-space: pre-wrap;
+                word-break: break-word;
             }
             hr {
-                height: 0.25em;
+                height: 1px;
                 padding: 0;
-                margin: 16px 0;
-                background-color: #e1e4e8;
+                margin: 22px 0;
+                background-color: #d8e1ee;
                 border: 0;
             }
             ul, ol {
-                margin-bottom: 10px;
+                margin: 6px 0 12px 0;
+            }
+            li {
+                margin: 3px 0;
             }
             @media (max-width: 640px) {
                 body {
-                    padding: 10px;
-                    font-size: 13px;
+                    padding: 12px;
+                    font-size: 14px;
+                }
+                h1 {
+                    font-size: 20px;
+                    padding: 12px 14px;
+                }
+                h2 {
+                    font-size: 17px;
+                    margin-top: 22px;
                 }
                 table {
                     font-size: 12px;
@@ -186,6 +223,9 @@ _EMAIL_CSS = """
                 }
                 th, td {
                     padding: 6px 8px;
+                }
+                td {
+                    max-width: 260px;
                 }
             }
         """
@@ -199,28 +239,35 @@ _ARCHIVE_CSS = """
                 box-sizing: border-box;
             }
             body {
-                line-height: 1.45;
-                color: #1f2933;
-                max-width: 980px;
-                padding: 20px;
+                color: #1f2937;
+                max-width: 1040px;
+                padding: 24px;
             }
             h1 {
-                font-size: 24px;
-                margin: 0 0 14px 0;
-                padding: 14px 16px;
+                font-size: 25px;
+                line-height: 1.25;
+                margin: 0 0 18px 0;
+                padding: 16px 18px;
                 border-left: 6px solid #2563eb;
                 color: #111827;
             }
             h2 {
                 font-size: 19px;
-                margin: 24px 0 10px 0;
-                padding: 10px 12px;
+                line-height: 1.3;
+                margin: 28px 0 12px 0;
+                padding: 4px 0 8px 12px;
+                border: 0;
                 border-left: 5px solid #2563eb;
+                border-bottom: 1px solid #d8e1ee;
+                border-radius: 0;
+                background: transparent;
+                box-shadow: none;
                 color: #111827;
                 break-after: avoid;
             }
             h3 {
-                margin: 18px 0 8px 0;
+                font-size: 16px;
+                margin: 20px 0 8px 0;
                 break-after: avoid;
             }
             p {
@@ -230,21 +277,28 @@ _ARCHIVE_CSS = """
                 margin: 8px 0 12px 0;
             }
             table {
-                margin: 10px 0 14px 0;
+                margin: 12px 0 18px 0;
+                display: block;
+                width: 100%;
+                max-width: 100%;
+                overflow-x: auto;
                 border: 1px solid #d0d7de;
-                overflow: hidden;
+                border-radius: 8px;
                 break-inside: avoid;
+                -webkit-overflow-scrolling: touch;
             }
             th, td {
                 border-right: 1px solid #d0d7de;
                 border-bottom: 1px solid #d0d7de;
-                padding: 7px 9px;
+                padding: 8px 10px;
             }
             th {
                 font-weight: 700;
+                white-space: nowrap;
+                background: #edf2f7;
             }
             tr:nth-child(2n) {
-                background: #fafafa;
+                background: #f8fafc;
             }
             ul, ol {
                 margin: 6px 0 12px 0;
@@ -286,11 +340,22 @@ _ARCHIVE_CSS = """
                 table, blockquote, pre {
                     break-inside: avoid;
                 }
+                table {
+                    display: table;
+                    overflow: visible;
+                }
             }
             @media screen and (max-width: 640px) {
                 body {
                     padding: 12px;
-                    font-size: 13px;
+                    font-size: 14px;
+                }
+                h1 {
+                    font-size: 21px;
+                }
+                h2 {
+                    font-size: 17px;
+                    margin-top: 22px;
                 }
                 table {
                     display: block;
@@ -299,6 +364,9 @@ _ARCHIVE_CSS = """
                 }
                 th, td {
                     padding: 6px 8px;
+                }
+                td {
+                    max-width: 260px;
                 }
             }
         """
