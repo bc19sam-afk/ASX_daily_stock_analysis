@@ -1957,6 +1957,7 @@ class DatabaseManager:
         holdings: List[Dict[str, Any]] = []
         unrealized_pnl = 0.0
         for p in positions:
+            code = canonical_stock_code(p.code)
             market_value = float(p.market_value or 0.0)
             quantity = float(p.quantity or 0.0)
             avg_cost = float(p.avg_cost or 0.0)
@@ -1965,7 +1966,7 @@ class DatabaseManager:
             unrealized_pnl = round(unrealized_pnl + holding_unrealized, 2)
             holdings.append(
                 {
-                    "code": p.code,
+                    "code": code,
                     "name": p.name,
                     "quantity": quantity,
                     "avg_cost": avg_cost,
@@ -1991,23 +1992,12 @@ class DatabaseManager:
             else None
         )
         realized_pnl = round(total_pnl - unrealized_pnl, 2) if total_pnl is not None else None
-
-        return {
-            "initialized": bool(state.initialized) if state else False,
-            "snapshot_date": latest.snapshot_date.isoformat() if latest else None,
-            "initial_snapshot_date": initial.snapshot_date.isoformat() if initial else None,
-            "initial_total_value": initial_total_value,
-            "cash": cash,
-            "equity_value": equity_value,
-            "total_value": total_value,
-            "total_pnl": total_pnl,
-            "total_pnl_pct": total_pnl_pct,
-            "unrealized_pnl": unrealized_pnl,
-            "realized_pnl": realized_pnl,
-            "holdings": holdings,
-            "latest_simulated_trades": [
+        latest_simulated_trades: List[Dict[str, Any]] = []
+        for t in trades:
+            required_cash, available_cash = self._paper_trade_cash_diagnostics(t.reason)
+            latest_simulated_trades.append(
                 {
-                    "code": t.code,
+                    "code": canonical_stock_code(t.code),
                     "action": t.action,
                     "analysis_status": t.analysis_status,
                     "executed": bool(t.executed),
@@ -2027,11 +2017,27 @@ class DatabaseManager:
                     "cash_before": t.cash_before,
                     "cash_after": t.cash_after,
                     "cash_delta": round(float(t.cash_after or 0.0) - float(t.cash_before or 0.0), 2),
+                    "required_cash": required_cash,
+                    "available_cash": available_cash,
                     "reason": t.reason,
                     "simulation_time": t.simulation_time.isoformat() if t.simulation_time else None,
                 }
-                for t in trades
-            ],
+            )
+
+        return {
+            "initialized": bool(state.initialized) if state else False,
+            "snapshot_date": latest.snapshot_date.isoformat() if latest else None,
+            "initial_snapshot_date": initial.snapshot_date.isoformat() if initial else None,
+            "initial_total_value": initial_total_value,
+            "cash": cash,
+            "equity_value": equity_value,
+            "total_value": total_value,
+            "total_pnl": total_pnl,
+            "total_pnl_pct": total_pnl_pct,
+            "unrealized_pnl": unrealized_pnl,
+            "realized_pnl": realized_pnl,
+            "holdings": holdings,
+            "latest_simulated_trades": latest_simulated_trades,
             "last_simulation_time": state.last_simulation_time.isoformat()
             if state and state.last_simulation_time
             else None,
@@ -2043,6 +2049,32 @@ class DatabaseManager:
                 "note": state.seeded_from_note if state else None,
             },
         }
+
+    @staticmethod
+    def _paper_trade_cash_diagnostics(reason: Any) -> Tuple[Optional[float], Optional[float]]:
+        match = re.search(
+            r"required=([0-9.,+-]+),\s*available=([0-9.,+-]+)",
+            str(reason or ""),
+            re.IGNORECASE,
+        )
+        if not match:
+            return None, None
+        return (
+            DatabaseManager._safe_optional_float(match.group(1)),
+            DatabaseManager._safe_optional_float(match.group(2)),
+        )
+
+    @staticmethod
+    def _safe_optional_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            parsed = float(str(value).replace(",", ""))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(parsed):
+            return None
+        return parsed
 
     def get_analysis_context(
         self, 

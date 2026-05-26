@@ -60,8 +60,8 @@ class NotificationValidationGateTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([result], report_date="2026-04-14")
 
-        self.assertIn("BLOCK **1**", report)
-        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/阻塞：0/0/0/0/0/1", report)
+        self.assertIn("验证阻断 **1**", report)
+        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/验证阻断：0/0/0/0/0/1", report)
         self.assertNotIn("当前/保持仓位", report)
         self.assertNotIn("### 计划仓位模拟（附录）", report)
 
@@ -82,8 +82,8 @@ class NotificationValidationGateTestCase(unittest.TestCase):
 
         wechat = service.generate_wechat_dashboard([result])
 
-        self.assertIn("BLOCK 1 只", wechat)
-        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/阻塞：0/0/0/0/0/1", wechat)
+        self.assertIn("验证阻断 1 只", wechat)
+        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/验证阻断：0/0/0/0/0/1", wechat)
         self.assertIn("**B2) 不可决策（仅观察）**", wechat)
         section_c = wechat.split("**C) 目标仓位（模拟，不代表已成交）**", 1)[1]
         self.assertNotIn("BHP.AX", section_c)
@@ -93,8 +93,8 @@ class NotificationValidationGateTestCase(unittest.TestCase):
 
         summary = service.generate_wechat_summary([self._build_blocked_result()])
 
-        self.assertIn("BLOCK **1**", summary)
-        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/阻塞：0/0/0/0/0/1", summary)
+        self.assertIn("验证阻断 **1**", summary)
+        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/验证阻断：0/0/0/0/0/1", summary)
         self.assertIn("**⚠️ 不可决策（仅观察）**", summary)
         self.assertIn("- BHP (BHP.AX)：价格口径混用", summary)
 
@@ -123,8 +123,8 @@ class NotificationValidationGateTestCase(unittest.TestCase):
 
         report = service.generate_single_stock_report(result)
 
-        self.assertIn("### ⚠️ 验证闸门", report)
-        self.assertIn("BLOCK / 不可决策 / 仅观察", report)
+        self.assertIn("### ⚠️ 验证阻断", report)
+        self.assertIn("验证未通过 / 不可决策 / 仅观察", report)
         self.assertIn("价格口径混用", report)
         self.assertIn("当前不可决策，仅观察", report)
         self.assertIn("保留当前持仓，不执行调仓", report)

@@ -219,7 +219,7 @@ def _score_validation_health(
             {
                 "code": "validation_block",
                 "severity": "block",
-                "message": f"{block_count}/{stock_count} 只股票触发 validation BLOCK；BLOCK 仍硬阻断可执行语义。",
+                "message": f"{block_count}/{stock_count} 只股票触发验证阻断；验证阻断仍硬阻断可执行语义。",
             }
         )
     for flag in data_quality_flags:

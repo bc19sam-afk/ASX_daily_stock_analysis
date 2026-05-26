@@ -406,6 +406,44 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
 
 
 @patch("src.notification.get_db")
+def test_dashboard_homepage_sanitizes_internal_validation_status_tokens(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 10000.0, "holdings": []}
+    service = _service()
+    result = _result(
+        code="XRO.AX",
+        name="XERO",
+        final_decision="BUY",
+        position_action="OPEN",
+        target_weight=0.10,
+        delta_amount=1000.0,
+        analysis_status="DEGRADED",
+        validation_status="BLOCK",
+        validation_issues=[
+            "analysisstatus=DEGRADED",
+            "analysis_status=DEGRADED: text_fallback",
+            "validation_status=BLOCK",
+        ],
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-05-26")
+    landing = _landing_section(report)
+
+    for raw_term in [
+        "analysisstatus=DEGRADED",
+        "analysis_status=DEGRADED",
+        "validation_status=BLOCK",
+        "validation BLOCK",
+        "阻断（BLOCK）",
+        "DEGRADED",
+    ]:
+        assert raw_term not in landing
+        assert raw_term not in report
+
+    assert "分析结果不完整" in landing
+    assert "暂停动作" in landing or "仅观察" in landing
+
+
+@patch("src.notification.get_db")
 def test_dashboard_homepage_does_not_repeat_when_all_actions_are_current_holdings(mock_get_db):
     mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
     service = _service()
@@ -496,6 +534,47 @@ def test_dashboard_focus_table_keeps_distinct_same_code_non_holding_action_rows(
     assert "当前持仓动作已在上表列出；下表只列新增/非持仓动作。" in focus_section
     assert "| BHP (BHP.AX) | 加仓 |" not in focus_section
     assert "| BHP alt (BHP.AX) | 买入/新开仓 |" in focus_section
+
+
+@patch("src.notification.get_db")
+def test_non_holding_action_mentions_when_paper_ledger_already_holds_symbol(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = {
+        "cash": 10000.0,
+        "equity_value": 0.0,
+        "total_value": 10000.0,
+        "holdings": [],
+    }
+    mock_get_db.return_value.get_paper_portfolio_overview.return_value = {
+        "available": True,
+        "initialized": True,
+        "snapshot_date": "2026-05-26",
+        "cash": 1565.18,
+        "equity_value": 35.07,
+        "total_value": 1600.25,
+        "total_pnl": 0.0,
+        "total_pnl_pct": 0.0,
+        "unrealized_pnl": 0.0,
+        "realized_pnl": 0.0,
+        "holdings": [{"code": "EGH.AX", "name": "EUR GROUP", "quantity": 60.46, "market_value": 35.07}],
+        "latest_simulated_trades": [],
+        "last_simulation_time": "2026-05-26T09:34:42",
+    }
+    service = _service()
+    result = _result(
+        code="EGH.AX",
+        name="EUR GROUP [EGH]",
+        final_decision="BUY",
+        position_action="OPEN",
+        target_weight=0.0033,
+        delta_amount=35.96,
+        operation_advice="观望",
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-05-26")
+    landing = _landing_section(report)
+
+    assert "真实账户新开仓计划" in landing
+    assert "模拟盘已有持仓" in landing
 
 
 @patch("src.notification.get_db")
@@ -601,7 +680,7 @@ def test_triage_card_reuses_existing_artifacts_without_changing_actions(mock_get
 
     blocked = [item for item in card["data_quality_attention"] if item["code"] == "NAB.AX"][0]
     assert blocked["position_action"] == "BLOCK"
-    assert blocked["confidence_note"] == "BLOCK 仍是硬阻断。"
+    assert blocked["confidence_note"] == "验证阻断仍是硬阻断。"
     assert "blocked_items" in blocked["source_fields"]
 
     high_value = card["high_value_low_confidence"][0]
@@ -718,7 +797,7 @@ def test_dashboard_homepage_surfaces_holdings_counts_and_single_line_checklist(m
     report = service.generate_dashboard_report(_readability_results(), report_date="2026-04-29")
     landing = _landing_section(report)
 
-    assert "**今日动作数量**：买入 2 / 加仓 2 / 减仓 1 / 清仓 1 / 观察 1 / 阻断（BLOCK）1" in landing
+    assert "**今日动作数量**：买入 2 / 加仓 2 / 减仓 1 / 清仓 1 / 观察 1 / 阻断 1" in landing
     assert "| BHP (BHP.AX) | 加仓 | 24.00% | 计划投入约 4,000.00 | 需二次确认：" in landing
     assert "| CSL (CSL.AX) | 减仓 | 12.00% | 计划调出约 6,000.00 |" in landing
     assert "| TLS (TLS.AX) | 清仓 | 0.00% | 计划调出约 12,000.00 |" in landing

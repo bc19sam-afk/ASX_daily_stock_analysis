@@ -804,7 +804,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         report = service.generate_dashboard_report([success_buy, failed_hold], report_date="2026-03-30")
 
-        self.assertIn("成功分析 **1** 只 | 失败 **1** 只 | BLOCK **0** 只 | 执行动作 买入/加仓/减仓/清仓/观察/阻塞：0/1/0/0/0/0", report)
+        self.assertIn("成功分析 **1** 只 | 失败 **1** 只 | 验证阻断 **0** 只 | 执行动作 买入/加仓/减仓/清仓/观察/验证阻断：0/1/0/0/0/0", report)
         self.assertNotIn("买入:1", report)
 
     @patch("src.notification.get_db")
@@ -1100,7 +1100,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         ]
 
         report = service.generate_dashboard_report(results, report_date="2026-03-30")
-        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/阻塞：0/1/0/1/0/0", report)
+        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/验证阻断：0/1/0/1/0/0", report)
         self.assertNotIn("买入:1", report)
         self.assertNotIn("卖出:1", report)
         self.assertIn("| 🔴 **贵州茅台 (600519)** | 清仓 · 目标仓位 0%（清空） |", report)
@@ -1116,7 +1116,7 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             delta_amount=-2000.0,
         )
         report = service.generate_dashboard_report([result], report_date="2026-03-30")
-        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/阻塞：0/0/1/0/0/0", report)
+        self.assertIn("执行动作 买入/加仓/减仓/清仓/观察/验证阻断：0/0/1/0/0/0", report)
         self.assertNotIn("卖出:1", report)
         self.assertIn("减仓 · 中低仓位（约 5%）", report)
 

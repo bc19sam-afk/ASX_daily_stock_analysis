@@ -128,8 +128,8 @@ def test_evidence_gaps_feed_review_reasons_without_changing_summary_actions():
     assert evidence["backtest"]["status"] == "not_checked"
 
     dashboard = "\n".join(render_preopen_decision_dashboard(summary))
-    assert "无 validation BLOCK；但仍可能存在回测 / 估值覆盖缺口。" in dashboard
-    assert "未发现阻断（BLOCK）或数据质量风险" not in dashboard
+    assert "当前没有验证阻断；但仍可能存在回测 / 估值覆盖缺口。" in dashboard
+    assert "未发现阻断或数据质量风险" not in dashboard
 
 
 def test_partial_valuation_snapshot_feeds_low_confidence_reason_without_changing_action():
@@ -190,9 +190,9 @@ def test_blocked_report_with_evidence_gaps_does_not_claim_no_validation_block():
 
     assert summary["action_counts"]["add"] == 1
     assert summary["action_counts"]["blocked"] == 1
-    assert "1 只股票被阻断（BLOCK），已从可执行动作中排除。" in dashboard
-    assert "存在回测 / 估值覆盖缺口，BLOCK 标的解除前仍只观察。" in dashboard
-    assert "无 validation BLOCK；但仍可能存在公告 / 回测 / 估值覆盖缺口。" not in dashboard
+    assert "1 只股票被验证阻断，已从可执行动作中排除。" in dashboard
+    assert "存在回测 / 估值覆盖缺口，验证阻断标的解除前仍只观察。" in dashboard
+    assert "当前没有验证阻断；但仍可能存在公告 / 回测 / 估值覆盖缺口。" not in dashboard
 
 
 def test_ai_observe_and_technical_weakness_feed_review_reasons_without_changing_counts():
@@ -353,7 +353,7 @@ def test_dashboard_report_renders_evidence_summary_and_detail_table(monkeypatch)
     assert "行情数据完整" in report
     assert "新闻证据缺失" in report
     assert "ASX 官方公告：未检查" not in report
-    assert "validation block" in report
+    assert "验证阻断" in report
     assert "## 个股证据矩阵" in report
     assert "| 标的 | 类别 | 来源 | 时间 | 状态 | 说明 |" in report
     assert "not_checked" in report
