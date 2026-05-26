@@ -114,7 +114,7 @@ def render_evidence_summary_lines(summary: Dict[str, Any]) -> List[str]:
         )
     lines.extend([
         f"- {summary.get('backtest_not_checked', 0)}/{stock_count} 只股票回测证据未检查。",
-        f"- {summary.get('validation_block', 0)} 只股票触发 validation block。",
+        f"- {summary.get('validation_block', 0)} 只股票触发验证阻断。",
         "",
     ])
     return lines
@@ -259,9 +259,9 @@ def _portfolio_evidence(result: Any, holding: Optional[Dict[str, Any]]) -> Dict[
 def _validation_evidence(result: Any, format_validation_issue_text: Callable[[Any], str]) -> Dict[str, Any]:
     status = normalize_validation_status(getattr(result, "validation_status", None))
     if status == "BLOCK":
-        details = format_validation_issue_text(result) or "validation_status=BLOCK。"
+        details = format_validation_issue_text(result) or "验证未通过，已暂停动作，仅观察。"
         return _entry("validation", "validation_gate", None, "available", details, "block")
-    return _entry("validation", "validation_gate", None, "available", "validation_status=PASS。", "info")
+    return _entry("validation", "validation_gate", None, "available", "验证通过。", "info")
 
 
 def _entry(

@@ -256,6 +256,119 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         self.assertIn("insufficient cash", overview["latest_simulated_trades"][0]["reason"])
         self.assertFalse(overview["latest_simulated_trades"][0]["executed"])
 
+    def test_legacy_asx_alias_add_uses_existing_paper_holding_not_new_symbol(self):
+        self.service.init_from_current()
+        with self.db.get_session() as session:
+            row = session.query(PaperPortfolioHolding).filter(PaperPortfolioHolding.code == "AAA").first()
+            row.code = "NHF.ASX"
+            row.name = "NHF"
+            row.quantity = 308.0
+            row.avg_cost = 6.59
+            row.current_price = 6.58
+            row.market_value = 2026.64
+            row.status = "OPEN"
+            latest = session.query(PaperPortfolioSnapshot).order_by(
+                PaperPortfolioSnapshot.snapshot_date.desc(),
+                PaperPortfolioSnapshot.created_at.desc(),
+            ).first()
+            latest.cash = 1565.18
+            latest.equity_value = 2026.64
+            latest.total_value = 3591.82
+            session.commit()
+
+        overview = self.service.apply_analysis_results([
+            {
+                "code": "NHF.AX",
+                "position_action": "ADD",
+                "analysis_status": "OK",
+                "current_price": 6.85,
+                "target_quantity": 313,
+                "target_weight": 0.1955,
+                "delta_amount": 34.25,
+            }
+        ])
+
+        holdings = {item["code"]: item for item in overview["holdings"]}
+        self.assertIn("NHF.AX", holdings)
+        self.assertNotIn("NHF.ASX", holdings)
+        self.assertEqual(float(holdings["NHF.AX"]["quantity"]), 313.0)
+        self.assertEqual(float(overview["latest_simulated_trades"][0]["quantity_delta"]), 5.0)
+        self.assertTrue(overview["latest_simulated_trades"][0]["executed"])
+
+    def test_paper_trade_reason_keeps_cash_diagnostics_for_report(self):
+        self.service.init_from_current()
+        overview = self.service.apply_analysis_results([
+            {
+                "code": "BBB",
+                "position_action": "OPEN",
+                "analysis_status": "OK",
+                "current_price": 10.0,
+                "target_quantity": 50,
+                "delta_amount": 25.0,
+            }
+        ])
+
+        trade = overview["latest_simulated_trades"][0]
+        self.assertFalse(trade["executed"])
+        self.assertEqual(trade["required_cash"], 500.0)
+        self.assertEqual(trade["available_cash"], 100.0)
+
+    def test_paper_report_normalizes_alias_and_explains_cash_skip(self):
+        service = NotificationService.__new__(NotificationService)
+        service._report_summary_only = False
+        service._report_timezone = "Australia/Sydney"
+        service._last_daily_decision_summary = None
+        overview = {
+            "available": True,
+            "initialized": True,
+            "snapshot_date": "2026-05-26",
+            "cash": 1565.18,
+            "equity_value": 2026.64,
+            "total_value": 3591.82,
+            "total_pnl": -1088.16,
+            "total_pnl_pct": -9.92,
+            "unrealized_pnl": -724.41,
+            "realized_pnl": -363.75,
+            "holdings": [
+                {
+                    "code": "NHF.ASX",
+                    "quantity": 308.0,
+                    "avg_cost": 6.59,
+                    "current_price": 6.58,
+                    "market_value": 2026.64,
+                    "unrealized_pnl": -3.0,
+                    "unrealized_pnl_pct": -0.15,
+                }
+            ],
+            "latest_simulated_trades": [
+                {
+                    "simulation_time": "2026-05-26T09:34:42",
+                    "code": "NHF.ASX",
+                    "action": "ADD",
+                    "executed": False,
+                    "quantity_delta": 0.0,
+                    "price": 6.85,
+                    "cash_delta": 0.0,
+                    "reason": "Skipped: insufficient cash for target quantity (required=2109.80, available=1565.18)",
+                    "required_cash": 2109.8,
+                    "available_cash": 1565.18,
+                }
+            ],
+            "last_simulation_time": "2026-05-26T09:34:42",
+        }
+
+        report = "\n".join(
+            service._build_paper_portfolio_readonly_lines(
+                overview,
+                has_plan_actions=True,
+                report_date="2026-05-26",
+            )
+        )
+
+        assert "NHF.AX" in report
+        assert "NHF.ASX" not in report
+        assert "现金不足：目标数量需要 2,109.80，可用现金 1,565.18，跳过" in report
+
     def test_malformed_target_payload_is_skipped_without_crash(self):
         self.service.init_from_current()
         overview = self.service.apply_analysis_results([

@@ -572,8 +572,29 @@ class NotificationService:
     def _format_validation_issue_text(result: AnalysisResult) -> str:
         issues = _get_validation_issues(result)
         if not issues:
-            return "验证闸门阻断，但未提供具体原因。"
-        return "；".join(issues)
+            return "验证未通过，但未提供具体原因。"
+        readable: List[str] = []
+        for issue in issues:
+            text = NotificationService._human_validation_issue_text(issue)
+            if text and text not in readable:
+                readable.append(text)
+        return "；".join(readable) if readable else "验证未通过，需人工复核。"
+
+    @staticmethod
+    def _human_validation_issue_text(issue: Any) -> str:
+        text = str(issue or "").strip()
+        if not text:
+            return ""
+        compact = re.sub(r"\s+", "", text.lower())
+        if "analysis_status=failed" in compact or "analysisstatus=failed" in compact:
+            return "分析失败，建议重跑后再判断。"
+        if "analysis_status=degraded" in compact or "analysisstatus=degraded" in compact:
+            return "分析结果不完整，需补数据后复核。"
+        if "validation_status=block" in compact or "validationstatus=block" in compact or "validationblock" in compact:
+            return "验证未通过，已暂停动作，仅观察。"
+        if any(token in compact for token in ("text_fallback", "schema", "json")):
+            return "AI 输出格式异常，需补数据后复核。"
+        return text
 
     def _build_data_baseline_lines(
         self,
@@ -719,7 +740,7 @@ class NotificationService:
             f"| 执行动作 减仓 | **{counts['reduce']}** 只 |",
             f"| 执行动作 清仓 | **{counts['close']}** 只 |",
             f"| 持有观察 | **{counts['hold_watch']}** 只 |",
-            f"| 阻塞 | **{counts['blocked']}** 只 |",
+            f"| 验证阻断 | **{counts['blocked']}** 只 |",
             f"| 📈 平均看多评分 | **{avg_score:.1f}** 分 |",
             "",
             "---",
@@ -1285,6 +1306,38 @@ class NotificationService:
         return self._last_daily_decision_summary
 
     @staticmethod
+    def _annotate_paper_ledger_scope_notes(
+        summary: Dict[str, Any],
+        paper_portfolio_overview: Optional[Dict[str, Any]],
+    ) -> None:
+        """Add display-only notes when real-account plans differ from paper ledger state."""
+        if not isinstance(summary, dict) or not isinstance(paper_portfolio_overview, dict):
+            return
+        holdings = paper_portfolio_overview.get("holdings")
+        if not isinstance(holdings, list):
+            return
+        paper_holding_codes = {
+            canonical_stock_code(item.get("code"))
+            for item in holdings
+            if isinstance(item, dict) and canonical_stock_code(item.get("code"))
+        }
+        if not paper_holding_codes:
+            return
+        for item in summary.get("actionable_items") or []:
+            if not isinstance(item, dict):
+                continue
+            action = str(item.get("position_action") or "").upper()
+            code = canonical_stock_code(item.get("code"))
+            if (
+                action == "OPEN"
+                and code in paper_holding_codes
+                and not bool(item.get("is_current_holding"))
+            ):
+                item["account_scope_note"] = (
+                    "真实账户新开仓计划；模拟盘已有持仓，模拟结果可能为跳过/调仓"
+                )
+
+    @staticmethod
     def _build_backtest_confidence_panel() -> Dict[str, Any]:
         """Return report-only backtest confidence metadata from existing summaries."""
         try:
@@ -1332,7 +1385,7 @@ class NotificationService:
     def _format_execution_action_counts_text(cls, summary: Dict[str, Any]) -> str:
         counts = cls._execution_action_counts(summary)
         return (
-            "执行动作 买入/加仓/减仓/清仓/观察/阻塞："
+            "执行动作 买入/加仓/减仓/清仓/观察/验证阻断："
             f"{counts['buy']}/{counts['add']}/{counts['reduce']}/{counts['close']}/"
             f"{counts['hold_watch']}/{counts['blocked']}"
         )
@@ -1505,7 +1558,7 @@ class NotificationService:
     def _get_conflict_safe_ai_commentary(self, result: AnalysisResult) -> str:
         """Return AI commentary text safe for conflict-state presentation."""
         if _is_validation_blocked(result):
-            return "验证闸门为 BLOCK，当前只保留观察，不输出可执行动作解释。"
+            return "验证未通过，当前只保留观察，不输出可执行动作解释。"
         action_model = self._get_primary_action_model(result)
         if action_model['ai_conflict']:
             return "AI解读与确定性主动作存在方向冲突，已转为中性说明"
@@ -1515,7 +1568,7 @@ class NotificationService:
     def _get_conflict_safe_core_conclusion(self, result: AnalysisResult, text: Any) -> str:
         """Return core conclusion text safe for conflict-state presentation."""
         if _is_validation_blocked(result):
-            return "验证闸门为 BLOCK：当前不可决策，仅可观察。"
+            return "验证未通过：当前不可决策，仅可观察。"
         if self._get_primary_action_model(result)['ai_conflict']:
             return "AI总结与确定性主动作存在方向冲突，请仅按确定性主动作执行"
         normalized = str(text or '').strip()
@@ -1804,7 +1857,7 @@ class NotificationService:
             for item in holdings[:8]:
                 lines.append(
                     "| "
-                    f"{self._to_markdown_table_cell(item.get('code'))} | "
+                    f"{self._to_markdown_table_cell(canonical_stock_code(item.get('code')))} | "
                     f"{self._format_report_number(item.get('quantity'))} | "
                     f"{self._format_report_money(item.get('avg_cost'))} | "
                     f"{self._format_report_money(item.get('current_price'))} | "
@@ -1831,13 +1884,13 @@ class NotificationService:
                 lines.append(
                     "| "
                     f"{self._to_markdown_table_cell(trade.get('simulation_time') or overview.get('last_simulation_time') or '时间未知')} | "
-                    f"{self._to_markdown_table_cell(trade.get('code') or '未知标的')} | "
+                    f"{self._to_markdown_table_cell(canonical_stock_code(trade.get('code')) or '未知标的')} | "
                     f"{self._to_markdown_table_cell(self._format_paper_trade_action(trade.get('action')))} | "
                     f"{executed_text} | "
                     f"{self._format_report_signed_number(trade.get('quantity_delta'))} | "
                     f"{self._format_report_money(trade.get('price'))} | "
                     f"{self._format_report_signed_money(trade.get('cash_delta'))} | "
-                    f"{self._to_markdown_table_cell(self._format_paper_trade_reason(reason))} |"
+                    f"{self._to_markdown_table_cell(self._format_paper_trade_reason(reason, trade))} |"
                 )
         else:
             lines.append("- 最近模拟：暂无模拟盘交易记录。")
@@ -1872,7 +1925,7 @@ class NotificationService:
         }.get(normalized, normalized or "未知动作")
 
     @staticmethod
-    def _format_paper_trade_reason(reason: Any) -> str:
+    def _format_paper_trade_reason(reason: Any, trade: Optional[Dict[str, Any]] = None) -> str:
         text = str(reason or "").strip()
         lower_text = text.lower()
         if lower_text == "applied":
@@ -1881,7 +1934,12 @@ class NotificationService:
             return "HOLD 观察，未产生模拟交易"
         if lower_text.startswith("skipped: analysis_status="):
             status = text.split("=", 1)[-1].strip() or "未知"
-            return f"分析状态未通过（{status}），跳过"
+            normalized = status.upper()
+            if normalized == "DEGRADED":
+                return "分析结果不完整，跳过"
+            if normalized == "FAILED":
+                return "分析失败，跳过"
+            return "分析状态未通过，跳过"
         if lower_text == "skipped: invalid current price":
             return "缺少有效价格，跳过"
         if lower_text == "skipped: missing/invalid target info":
@@ -1889,10 +1947,46 @@ class NotificationService:
         if lower_text.startswith("skipped: no-op"):
             return "已接近目标仓位，未产生模拟交易"
         if lower_text.startswith("skipped: insufficient cash"):
+            required, available = NotificationService._paper_trade_cash_shortfall_values(text, trade)
+            if required is not None and available is not None:
+                return (
+                    "现金不足：目标数量需要 "
+                    f"{NotificationService._format_report_money(required)}，"
+                    f"可用现金 {NotificationService._format_report_money(available)}，跳过"
+                )
             return "现金不足，跳过"
         if lower_text.startswith("skipped: "):
             return text[len("Skipped: "):]
         return text
+
+    @staticmethod
+    def _paper_trade_cash_shortfall_values(
+        reason: str,
+        trade: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Optional[float], Optional[float]]:
+        required = (trade or {}).get("required_cash") if isinstance(trade, dict) else None
+        available = (trade or {}).get("available_cash") if isinstance(trade, dict) else None
+        if required is None or available is None:
+            match = re.search(r"required=([0-9.,+-]+),\s*available=([0-9.,+-]+)", str(reason or ""), re.IGNORECASE)
+            if match:
+                required = required if required is not None else match.group(1)
+                available = available if available is not None else match.group(2)
+        return (
+            NotificationService._safe_optional_float(required),
+            NotificationService._safe_optional_float(available),
+        )
+
+    @staticmethod
+    def _safe_optional_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            number = float(str(value).replace(",", ""))
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number):
+            return None
+        return number
 
     @staticmethod
     def _is_same_report_date(timestamp_value: Any, report_date: Optional[str]) -> bool:
@@ -2099,6 +2193,7 @@ class NotificationService:
             generated_at=generated_at,
             overview=overview,
         )
+        self._annotate_paper_ledger_scope_notes(daily_summary, paper_portfolio_overview)
         self._last_daily_decision_summary = daily_summary
 
         successful_results_for_summary, _, blocked_results_for_summary = self._split_completed_results(sorted_results)
@@ -2522,7 +2617,7 @@ class NotificationService:
             (
                 f"> 审计范围：成功分析 **{len(successful_results_for_summary)}** 只 | "
                 f"失败 **{len(failed_results_for_summary)}** 只 | "
-                f"BLOCK **{len(blocked_results_for_summary)}** 只 | "
+                f"验证阻断 **{len(blocked_results_for_summary)}** 只 | "
                 f"{self._format_execution_action_counts_text(daily_summary)}"
             ),
             "",
@@ -2626,7 +2721,7 @@ class NotificationService:
         lines = [
             f"## 🎯 {report_date} 决策仪表盘",
             "",
-            f"> 成功 {len(normal_results)} 只 | 失败 {len(failed_results)} 只 | BLOCK {len(blocked_results)} 只 | {self._format_execution_action_counts_text(daily_summary)}",
+            f"> 成功 {len(normal_results)} 只 | 失败 {len(failed_results)} 只 | 验证阻断 {len(blocked_results)} 只 | {self._format_execution_action_counts_text(daily_summary)}",
             "",
         ]
         lines.extend(render_preopen_decision_dashboard(daily_summary))
@@ -2867,7 +2962,7 @@ class NotificationService:
         lines = [
             f"## 📅 {report_date} 股票分析报告",
             "",
-            f"> 成功 **{len(normal_results)}** 只 | 失败 **{len(failed_results)}** 只 | BLOCK **{len(blocked_results)}** 只 | {self._format_execution_action_counts_text(daily_summary)} | 均分:{avg_score:.0f}",
+            f"> 成功 **{len(normal_results)}** 只 | 失败 **{len(failed_results)}** 只 | 验证阻断 **{len(blocked_results)}** 只 | {self._format_execution_action_counts_text(daily_summary)} | 均分:{avg_score:.0f}",
             "",
         ]
         lines.extend(self._build_data_baseline_lines(results, generated_at, title="**🕒 数据时间基准**"))
@@ -2958,9 +3053,9 @@ class NotificationService:
         lines.extend(self._build_data_baseline_lines([result], generated_at, title="### 🕒 数据时间基准"))
         if _is_validation_blocked(result):
             lines.extend([
-                "### ⚠️ 验证闸门",
+                "### ⚠️ 验证阻断",
                 "",
-                "- 当前状态：**BLOCK / 不可决策 / 仅观察**",
+                "- 当前状态：**验证未通过 / 不可决策 / 仅观察**",
                 f"- 原因：{self._format_validation_issue_text(result)}",
                 "",
             ])

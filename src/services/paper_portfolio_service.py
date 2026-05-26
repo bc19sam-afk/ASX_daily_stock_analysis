@@ -18,6 +18,7 @@ from src.storage import (
     PaperPortfolioTrade,
     PortfolioPosition,
 )
+from src.stock_code import canonical_stock_code, stock_code_aliases
 
 
 class PaperPortfolioService:
@@ -122,7 +123,7 @@ class PaperPortfolioService:
 
                 for raw in results:
                     payload = raw if isinstance(raw, Mapping) else raw.to_dict()
-                    code = str(payload.get("code") or "").upper().strip()
+                    code = canonical_stock_code(payload.get("code"))
                     if not code:
                         continue
 
@@ -433,8 +434,9 @@ class PaperPortfolioService:
         rows = session.execute(select(PaperPortfolioHolding)).scalars().all()
         data: Dict[str, Dict[str, Any]] = {}
         for row in rows:
-            data[row.code] = {
-                "code": row.code,
+            code = canonical_stock_code(row.code)
+            data[code] = {
+                "code": code,
                 "name": row.name or row.code,
                 "quantity": float(row.quantity or 0.0),
                 "avg_cost": float(row.avg_cost or 0.0),
@@ -524,9 +526,10 @@ class PaperPortfolioService:
         market_value: Optional[float] = None,
         status: str,
     ) -> None:
+        code = canonical_stock_code(code)
         session.flush()
         row = session.execute(
-            select(PaperPortfolioHolding).where(PaperPortfolioHolding.code == code).limit(1)
+            select(PaperPortfolioHolding).where(PaperPortfolioHolding.code.in_(stock_code_aliases(code))).limit(1)
         ).scalar_one_or_none()
         now = datetime.now()
         if market_value is None:
@@ -553,6 +556,7 @@ class PaperPortfolioService:
             session.add(row)
             return
 
+        row.code = code
         row.name = name or row.name
         row.quantity = max(quantity, 0.0)
         row.avg_cost = max(avg_cost, 0.0) if quantity > 0 else 0.0

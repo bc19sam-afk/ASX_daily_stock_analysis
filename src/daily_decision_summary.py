@@ -77,7 +77,7 @@ EVIDENCE_GAP_STATUSES = {"missing", "stale", "not_checked", "unavailable", "part
 EXECUTION_CHECKLIST = [
     "确认报告为昨收计划 / 开盘前计划，技术信号基于已收盘日线。",
     "开盘后执行前复核实时价格、盘口流动性和重大新闻。",
-    "BLOCK 或数据质量风险未解除前，不把对应标的当作可执行动作。",
+    "验证阻断或数据质量风险未解除前，不把对应标的当作可执行动作。",
 ]
 WATCH_TRIGGER_RULE = "仅在价格突破/回撤到参考位、验证状态变化、或出现重大新闻/财报事件时再打开观察名单。"
 
@@ -344,9 +344,9 @@ def _build_triage_card(
             _triage_item(
                 blocked_item,
                 section="data_quality_attention",
-                reason=str(item.get("reason") or "触发 BLOCK，只能观察，不能当作可执行动作。"),
-                evidence_basis="validation_status=BLOCK",
-                confidence_note="BLOCK 仍是硬阻断。",
+                reason=str(item.get("reason") or "验证未通过，只能观察，不能当作可执行动作。"),
+                evidence_basis="验证状态阻断",
+                confidence_note="验证阻断仍是硬阻断。",
                 source_fields=["blocked_items", "final_action_display", "data_quality_flags"],
             )
         )
@@ -712,7 +712,7 @@ def build_daily_decision_summary(
             {
                 "code": "validation_block",
                 "severity": "block",
-                "message": f"{len(blocked_items)} 只标的触发 BLOCK，只能观察。",
+                "message": f"{len(blocked_items)} 只标的触发验证阻断，只能观察。",
             }
         )
     if failed_results:
@@ -916,8 +916,13 @@ def _action_review_text(item: Dict[str, Any]) -> str:
     reasons = [str(reason).strip() for reason in (display.get("review_reasons") or []) if str(reason).strip()]
     if reasons:
         label = str(display.get("review_label") or "执行前复核").strip()
-        return f"{label}：{'；'.join(reasons[:2])}"
-    return str(display.get("review_label") or "").strip()
+        review_text = f"{label}：{'；'.join(reasons[:2])}"
+    else:
+        review_text = str(display.get("review_label") or "").strip()
+    scope_note = str(item.get("account_scope_note") or "").strip()
+    if scope_note and review_text:
+        return f"{scope_note}；{review_text}"
+    return scope_note or review_text
 
 
 def _render_action_table_lines(items: List[Dict[str, Any]]) -> List[str]:
@@ -983,7 +988,7 @@ def _today_conclusion(
     if actionable_items:
         return f"今日有 {len(actionable_items)} 个明确计划动作，开盘后确认价格再决定是否执行。"
     if blocked_items:
-        return f"今日无可执行动作；{len(blocked_items)} 只标的被阻断（BLOCK），先观察。"
+        return f"今日无可执行动作；{len(blocked_items)} 只标的被验证阻断，先观察。"
     return "今日没有明确计划动作，以观察为主。"
 
 
@@ -994,7 +999,7 @@ def _format_action_counts_inline(counts: Dict[str, Any]) -> str:
         f"减仓 {int(counts.get('reduce', 0) or 0)} / "
         f"清仓 {int(counts.get('close', 0) or 0)} / "
         f"观察 {int(counts.get('hold_watch', 0) or 0)} / "
-        f"阻断（BLOCK）{int(counts.get('blocked', 0) or 0)}"
+        f"阻断 {int(counts.get('blocked', 0) or 0)}"
     )
 
 
@@ -1022,7 +1027,7 @@ def _top_risk_lines(
 ) -> List[str]:
     risk_lines: List[str] = []
     if blocked_items:
-        risk_lines.append(f"{len(blocked_items)} 只股票被阻断（BLOCK），已从可执行动作中排除。")
+        risk_lines.append(f"{len(blocked_items)} 只股票被验证阻断，已从可执行动作中排除。")
         for item in blocked_items[:2]:
             reason = str(item.get("reason") or "").strip()
             if reason:
@@ -1038,9 +1043,9 @@ def _top_risk_lines(
     coverage_gap_label = _evidence_coverage_gap_label(evidence_summary)
     if coverage_gap_label:
         line = (
-            f"存在{coverage_gap_label}覆盖缺口，BLOCK 标的解除前仍只观察。"
+            f"存在{coverage_gap_label}覆盖缺口，验证阻断标的解除前仍只观察。"
             if blocked_items
-            else f"无 validation BLOCK；但仍可能存在{coverage_gap_label}覆盖缺口。"
+            else f"当前没有验证阻断；但仍可能存在{coverage_gap_label}覆盖缺口。"
         )
         if line not in seen:
             risk_lines.append(line)
@@ -1233,7 +1238,7 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         for risk_line in risk_lines:
             lines.append(f"- {risk_line}")
     else:
-        lines.append("- 未发现阻断（BLOCK）或数据质量风险。")
+        lines.append("- 未发现验证阻断或数据质量风险。")
     execution_lines = [
         f"**报告可信度**：{_report_reliability_sentence(summary.get('report_reliability') or {})}",
         f"**价格来源**：{_price_policy_label(summary.get('price_policy', 'close_only'))}；技术基准日 {_display_date_or_placeholder(summary.get('technical_basis_date'))}",

@@ -176,7 +176,7 @@ class ReportConditionalPricePointsTestCase(unittest.TestCase):
 
         report = service.generate_single_stock_report(result)
 
-        self.assertIn("BLOCK / 不可决策 / 仅观察", report)
+        self.assertIn("验证未通过 / 不可决策 / 仅观察", report)
         self.assertNotIn("条件化计划点位", report)
         self.assertNotIn("10.50", report)
         self.assertNotIn("9.80", report)

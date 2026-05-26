@@ -69,7 +69,7 @@ def build_final_action_display(
             target_weight=current_weight,
             current_weight=current_weight,
             delta_amount=0.0,
-            reason=format_validation_issue_text(result) or "validation_status=BLOCK。",
+            reason=format_validation_issue_text(result) or "验证未通过，已暂停动作，仅观察。",
             display_label="不可决策 / 仅观察",
             can_show_sizing=False,
             can_show_plan_points=False,

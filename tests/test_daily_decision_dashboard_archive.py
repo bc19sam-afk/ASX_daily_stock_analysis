@@ -128,7 +128,7 @@ def test_preopen_dashboard_close_only_wording_and_action_counts(mock_get_db):
     assert "| **低优先级** |" in report
     assert "| **有机会但证据不足** |" in report
     assert "| **先补数据再判断** |" in report
-    assert "买入 1 / 加仓 1 / 减仓 1 / 清仓 1 / 观察 1 / 阻断（BLOCK）1" in report
+    assert "买入 1 / 加仓 1 / 减仓 1 / 清仓 1 / 观察 1 / 阻断 1" in report
     assert "**执行口径**" in report
     assert "| 复核项 |" in report
     assert "**报告可信度**" in report
@@ -208,7 +208,7 @@ def test_noise_sized_actions_are_counted_as_watch_not_actionable(mock_get_db):
     report = service.generate_dashboard_report(results, report_date="2026-04-29")
     summary = service.get_last_daily_decision_summary()
 
-    assert "**今日动作数量**：买入 0 / 加仓 0 / 减仓 1 / 清仓 0 / 观察 1 / 阻断（BLOCK）0" in report
+    assert "**今日动作数量**：买入 0 / 加仓 0 / 减仓 1 / 清仓 0 / 观察 1 / 阻断 0" in report
     assert "LAU：减仓" not in report
     assert "LAU (LAU.AX)：减仓" not in report
     assert "**LAU (LAU.AX)** | 减仓" not in report
@@ -248,7 +248,7 @@ def test_tiny_open_is_watch_across_dashboard_and_wechat_summaries(mock_get_db):
     assert summary["action_counts"]["total_actions"] == 0
     assert summary["action_counts"]["buy"] == 0
     assert summary["action_counts"]["hold_watch"] == 1
-    assert "**今日动作数量**：买入 0 / 加仓 0 / 减仓 0 / 清仓 0 / 观察 1 / 阻断（BLOCK）0" in dashboard_report
+    assert "**今日动作数量**：买入 0 / 加仓 0 / 减仓 0 / 清仓 0 / 观察 1 / 阻断 0" in dashboard_report
     assert all(text not in dashboard_report for text in forbidden_action_text)
 
     summary_only_service = _service()
@@ -288,7 +288,7 @@ def test_normal_open_is_counted_as_buy_action(mock_get_db):
     assert summary["action_counts"]["total_actions"] == 1
     assert summary["action_counts"]["buy"] == 1
     assert summary["action_counts"]["hold_watch"] == 0
-    assert "**今日动作数量**：买入 1 / 加仓 0 / 减仓 0 / 清仓 0 / 观察 0 / 阻断（BLOCK）0" in report
+    assert "**今日动作数量**：买入 1 / 加仓 0 / 减仓 0 / 清仓 0 / 观察 0 / 阻断 0" in report
 
 
 @patch("src.notification.get_db")
@@ -518,7 +518,7 @@ def test_data_quality_snapshot_summarizes_free_inputs_without_changing_actions(m
     assert snapshot["news"]["missing_or_stale_count"] == 1
     assert any(item["code"] == "analysis_failed" for item in snapshot["attention"])
     assert "**免费数据质量快照**" in report
-    assert "| 估值 | 1/2 估值/基本面证据可用" in report
+    assert "| 估值 | 1/2 基本面/辅助证据可用；核心估值字段覆盖" in report
     assert report.index("**免费数据质量快照**") < report.index("\n---\n")
 
 
