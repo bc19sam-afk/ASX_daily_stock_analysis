@@ -229,6 +229,76 @@ def test_noise_sized_actions_are_counted_as_watch_not_actionable(mock_get_db):
 
 
 @patch("src.notification.get_db")
+def test_current_holding_hold_keeps_followup_review_without_fake_sell(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    result = _result(
+        code="BHP.AX",
+        name="BHP",
+        final_decision="HOLD",
+        position_action="HOLD",
+        current_weight=0.05,
+        target_weight=0.20,
+        delta_amount=0.0,
+        risk_warning="若跌破 47.50 需要人工复核风险，需看公告。",
+        dashboard={
+            "battle_plan": {
+                "sniper_points": {
+                    "stop_loss": "47.50",
+                    "take_profit": "55.00",
+                }
+            },
+            "intelligence": {
+                "risk_alerts": [{"message": "若跌破 47.50 建议卖出，需看公告。"}]
+            },
+        },
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-04-29")
+
+    assert "## 持仓后续复盘" in report
+    assert "买入后的持仓跟踪" in report
+    assert "| BHP (BHP.AX) | 持有观察 | 25.00% | 20.00% | +0.00 | 47.50 | 55.00 |" in report
+    assert "| BHP (BHP.AX) | 持有观察 | 5.00% | 20.00% |" not in report
+    assert "若跌破 47.50 需人工复核风险" in report
+    assert "建议卖出" not in report
+    assert "| BHP (BHP.AX) | 清仓 |" not in report
+
+
+@patch("src.notification.get_db")
+def test_holding_followup_keeps_explicit_reduce_risk_wording_for_reduce_action(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    result = _result(
+        code="BHP.AX",
+        name="BHP",
+        final_decision="SELL",
+        position_action="REDUCE",
+        current_weight=0.05,
+        target_weight=0.10,
+        delta_amount=-5000.0,
+        risk_warning="若跌破 47.50 建议减仓，需看公告。",
+        dashboard={
+            "battle_plan": {
+                "sniper_points": {
+                    "stop_loss": "47.50",
+                    "take_profit": "55.00",
+                }
+            },
+            "intelligence": {
+                "risk_alerts": [{"message": "若跌破 47.50 建议减仓，需看公告。"}]
+            },
+        },
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-04-29")
+
+    assert "| BHP (BHP.AX) | 减仓 | 25.00% | 10.00% | -5,000.00 | 47.50 | 55.00 |" in report
+    assert "若跌破 47.50 建议减仓，需看公告。" in report
+    assert "需人工复核风险，需看公告" not in report
+
+
+@patch("src.notification.get_db")
 def test_tiny_open_is_watch_across_dashboard_and_wechat_summaries(mock_get_db):
     mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
     result = _result(
