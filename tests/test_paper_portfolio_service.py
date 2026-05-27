@@ -369,6 +369,62 @@ class PaperPortfolioServiceTestCase(unittest.TestCase):
         assert "NHF.ASX" not in report
         assert "现金不足：目标数量需要 2,109.80，可用现金 1,565.18，跳过" in report
 
+    def test_paper_report_keeps_tiny_existing_open_but_marks_it_as_noise(self):
+        service = NotificationService.__new__(NotificationService)
+        service._report_summary_only = False
+        service._report_timezone = "Australia/Sydney"
+        service._last_daily_decision_summary = None
+        overview = {
+            "available": True,
+            "initialized": True,
+            "snapshot_date": "2026-05-27",
+            "cash": 1564.52,
+            "equity_value": 8408.35,
+            "total_value": 9972.87,
+            "total_pnl": -993.11,
+            "total_pnl_pct": -9.06,
+            "unrealized_pnl": -629.36,
+            "realized_pnl": -363.75,
+            "holdings": [
+                {
+                    "code": "IPH.AX",
+                    "quantity": 8.11,
+                    "avg_cost": 3.81,
+                    "current_price": 3.81,
+                    "market_value": 30.92,
+                    "unrealized_pnl": 0.0,
+                    "unrealized_pnl_pct": 0.0,
+                }
+            ],
+            "latest_simulated_trades": [
+                {
+                    "simulation_time": "2026-05-27T09:36:40",
+                    "code": "IPH.AX",
+                    "action": "OPEN",
+                    "executed": True,
+                    "before_quantity": 8.02,
+                    "after_quantity": 8.11,
+                    "quantity_delta": 0.09,
+                    "price": 3.81,
+                    "cash_delta": -0.34,
+                    "reason": "Applied",
+                }
+            ],
+            "last_simulation_time": "2026-05-27T09:36:40",
+        }
+
+        report = "\n".join(
+            service._build_paper_portfolio_readonly_lines(
+                overview,
+                has_plan_actions=True,
+                report_date="2026-05-27",
+            )
+        )
+
+        assert "已有仓位微调/补齐目标" in report
+        assert "低于有效交易阈值，仅账本微调/目标同步" in report
+        assert "| IPH.AX | 新开仓 |" not in report
+
     def test_malformed_target_payload_is_skipped_without_crash(self):
         self.service.init_from_current()
         overview = self.service.apply_analysis_results([

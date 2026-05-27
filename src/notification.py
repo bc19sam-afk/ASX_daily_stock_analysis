@@ -873,7 +873,7 @@ class NotificationService:
                 # 风险提示
                 if hasattr(result, 'risk_warning') and result.risk_warning:
                     report_lines.extend([
-                        f"⚠️ **风险提示**：{self._sanitize_user_facing_ai_text(result, result.risk_warning, strip_position_sizing=False)}",
+                        f"⚠️ **风险提示**：{self._sanitize_user_facing_risk_text(result, result.risk_warning)}",
                         "",
                     ])
                 
@@ -1555,6 +1555,19 @@ class NotificationService:
         normalized = self._sanitize_unverified_backtest_claim(result, normalized)
         return self._sanitize_report_jargon(normalized)
 
+    def _sanitize_user_facing_risk_text(
+        self,
+        result: AnalysisResult,
+        text: Any,
+        *,
+        action_model: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        sanitized = self._sanitize_user_facing_ai_text(result, text, strip_position_sizing=False)
+        return self._neutralize_hold_risk_sell_directives(
+            sanitized,
+            action_model or self._get_primary_action_model(result),
+        )
+
     def _get_conflict_safe_ai_commentary(self, result: AnalysisResult) -> str:
         """Return AI commentary text safe for conflict-state presentation."""
         if _is_validation_blocked(result):
@@ -1885,7 +1898,7 @@ class NotificationService:
                     "| "
                     f"{self._to_markdown_table_cell(trade.get('simulation_time') or overview.get('last_simulation_time') or '时间未知')} | "
                     f"{self._to_markdown_table_cell(canonical_stock_code(trade.get('code')) or '未知标的')} | "
-                    f"{self._to_markdown_table_cell(self._format_paper_trade_action(trade.get('action')))} | "
+                    f"{self._to_markdown_table_cell(self._format_paper_trade_action(trade.get('action'), trade))} | "
                     f"{executed_text} | "
                     f"{self._format_report_signed_number(trade.get('quantity_delta'))} | "
                     f"{self._format_report_money(trade.get('price'))} | "
@@ -1914,8 +1927,10 @@ class NotificationService:
         return 2
 
     @staticmethod
-    def _format_paper_trade_action(action: Any) -> str:
+    def _format_paper_trade_action(action: Any, trade: Optional[Dict[str, Any]] = None) -> str:
         normalized = str(action or "").strip().upper()
+        if normalized == "OPEN" and NotificationService._paper_trade_before_quantity(trade) > 0:
+            return "已有仓位微调/补齐目标"
         return {
             "OPEN": "新开仓",
             "ADD": "加仓",
@@ -1929,6 +1944,8 @@ class NotificationService:
         text = str(reason or "").strip()
         lower_text = text.lower()
         if lower_text == "applied":
+            if NotificationService._is_noise_sized_paper_trade(trade):
+                return "已按计划写入模拟盘；低于有效交易阈值，仅账本微调/目标同步"
             return "已按计划写入模拟盘"
         if lower_text == "skipped: hold action":
             return "HOLD 观察，未产生模拟交易"
@@ -1958,6 +1975,40 @@ class NotificationService:
         if lower_text.startswith("skipped: "):
             return text[len("Skipped: "):]
         return text
+
+    @staticmethod
+    def _paper_trade_before_quantity(trade: Optional[Dict[str, Any]]) -> float:
+        if not isinstance(trade, dict):
+            return 0.0
+        return NotificationService._safe_optional_float(trade.get("before_quantity")) or 0.0
+
+    @staticmethod
+    def _is_noise_sized_paper_trade(trade: Optional[Dict[str, Any]]) -> bool:
+        if not isinstance(trade, dict) or not bool(trade.get("executed")):
+            return False
+        threshold = NotificationService._get_actionable_delta_amount_threshold()
+        if threshold <= 0:
+            return False
+        notional = NotificationService._paper_trade_abs_notional(trade)
+        return 0 < notional < threshold
+
+    @staticmethod
+    def _paper_trade_abs_notional(trade: Dict[str, Any]) -> float:
+        explicit = NotificationService._safe_optional_float(trade.get("notional"))
+        if explicit is not None:
+            return abs(explicit)
+        cash_delta = NotificationService._safe_optional_float(trade.get("cash_delta"))
+        if cash_delta is not None:
+            return abs(cash_delta)
+        quantity_delta = NotificationService._safe_optional_float(trade.get("quantity_delta"))
+        price = NotificationService._safe_optional_float(trade.get("price"))
+        if quantity_delta is not None and price is not None:
+            return abs(quantity_delta * price)
+        before_quantity = NotificationService._safe_optional_float(trade.get("before_quantity")) or 0.0
+        after_quantity = NotificationService._safe_optional_float(trade.get("after_quantity")) or 0.0
+        if price is not None:
+            return abs((after_quantity - before_quantity) * price)
+        return 0.0
 
     @staticmethod
     def _paper_trade_cash_shortfall_values(
@@ -2062,6 +2113,7 @@ class NotificationService:
         sniper = battle.get("sniper_points", {}) if battle else {}
         plan_points = self._build_conditional_plan_points(result, sniper)
         risk_alerts = intel.get("risk_alerts", []) if intel else []
+        action_model = self._get_primary_action_model(result)
         reason_text = self._sanitize_user_facing_ai_text(
             result,
             result.buy_reason or result.analysis_summary or "N/A",
@@ -2077,14 +2129,16 @@ class NotificationService:
             else:
                 text = str(item).strip()
             if text:
-                normalized_risk_alerts.append(self._sanitize_user_facing_ai_text(result, text, strip_position_sizing=False))
+                normalized_risk_alerts.append(
+                    self._sanitize_user_facing_risk_text(result, text, action_model=action_model)
+                )
 
         risk_text = (
             "；".join(normalized_risk_alerts[:2])
-            if normalized_risk_alerts else self._sanitize_user_facing_ai_text(
+            if normalized_risk_alerts else self._sanitize_user_facing_risk_text(
                 result,
                 result.risk_warning or "暂无新增高优先级风险",
-                strip_position_sizing=False,
+                action_model=action_model,
             )
         )
 
@@ -2093,11 +2147,123 @@ class NotificationService:
         return {
             "heading": f"### {signal_emoji} {self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))}",
             "summary_line": f"- 核心结论：{signal_text} | 评分 {result.sentiment_score} | {result.trend_prediction}",
-            "action_line": f"- 主动作：{notification_formatting.format_position_action_label(self._get_primary_action_model(result)['position_action'])}",
+            "action_line": f"- 主动作：{notification_formatting.format_position_action_label(action_model['position_action'])}",
             "reason_line": f"- 关键理由：{reason_text}",
             "risk_line": f"- 风险：{risk_text}",
             "reference_line": f"- 条件化计划点位：{ref_text}",
         }
+
+    def _build_holding_followup_review_lines(
+        self,
+        results: List[AnalysisResult],
+        *,
+        current_weight_by_code: Optional[Dict[str, float]] = None,
+    ) -> List[str]:
+        if not results:
+            return []
+        current_weight_by_code = current_weight_by_code or {}
+        lines = [
+            "## 持仓后续复盘",
+            "",
+            "> 买入后的持仓跟踪：只展示已有动作、风险位和止盈/止损复核点，不因风险提示自动生成卖出建议。",
+            "",
+            "| 标的 | 今日动作 | 当前仓位 | 目标仓位 | 计划金额 | 止损/风险观察位 | 止盈观察位 | 复核重点 |",
+            "| --- | --- | ---: | ---: | ---: | --- | --- | --- |",
+        ]
+        for result in results:
+            action_model = self._get_primary_action_model(result)
+            plan_points = self._build_conditional_plan_points(
+                result,
+                ((getattr(result, "dashboard", None) or {}).get("battle_plan", {}) or {}).get("sniper_points", {}),
+            )
+            stop_loss = self._display_conditional_point_value(plan_points, "stop_loss")
+            take_profit = self._display_conditional_point_value(plan_points, "take_profit")
+            review_focus = self._holding_followup_review_focus(result, action_model=action_model)
+            current_weight = self._holding_followup_current_weight(result, current_weight_by_code)
+            lines.append(
+                "| "
+                f"{self._to_markdown_table_cell(notification_formatting.format_stock_display_name(result.name, result.code))} | "
+                f"{self._to_markdown_table_cell(notification_formatting.format_position_action_label(action_model['position_action']))} | "
+                f"{current_weight:.2%} | "
+                f"{float(action_model.get('target_weight') or 0.0):.2%} | "
+                f"{self._format_report_signed_money(action_model.get('delta_amount'))} | "
+                f"{self._to_markdown_table_cell(stop_loss)} | "
+                f"{self._to_markdown_table_cell(take_profit)} | "
+                f"{self._to_markdown_table_cell(review_focus)} |"
+            )
+        lines.append("")
+        return lines
+
+    @staticmethod
+    def _holding_followup_current_weight(
+        result: AnalysisResult,
+        current_weight_by_code: Dict[str, float],
+    ) -> float:
+        code = canonical_stock_code(getattr(result, "code", ""))
+        if code and code in current_weight_by_code:
+            return float(current_weight_by_code.get(code) or 0.0)
+        return float(getattr(result, "current_weight", 0.0) or 0.0)
+
+    @staticmethod
+    def _display_conditional_point_value(points: List[Any], label: str) -> str:
+        for point in points:
+            if getattr(point, "label", "") != label:
+                continue
+            price = getattr(point, "price", None)
+            if price is not None:
+                try:
+                    return f"{float(price):.2f}"
+                except (TypeError, ValueError):
+                    pass
+            raw_value = str(getattr(point, "raw_value", "") or "").strip()
+            return raw_value or "需人工复核"
+        return "暂无明确点位"
+
+    def _holding_followup_review_focus(
+        self,
+        result: AnalysisResult,
+        *,
+        action_model: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        dashboard = result.dashboard if hasattr(result, "dashboard") and result.dashboard else {}
+        intel = dashboard.get("intelligence", {}) if dashboard else {}
+        risk_alerts = intel.get("risk_alerts", []) if intel else []
+        for item in risk_alerts:
+            text = (
+                str(item.get("message") or item.get("title") or "").strip()
+                if isinstance(item, dict)
+                else str(item or "").strip()
+            )
+            if text:
+                return self._sanitize_user_facing_risk_text(result, text, action_model=action_model)
+        return self._sanitize_user_facing_risk_text(
+            result,
+            getattr(result, "risk_warning", "") or getattr(result, "action_reason", "") or "开盘后复核价格、公告和新闻。",
+            action_model=action_model,
+        )
+
+    @staticmethod
+    def _neutralize_hold_risk_sell_directives(
+        text: str,
+        action_model: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        action = str((action_model or {}).get("position_action") or "HOLD").strip().upper()
+        if action not in {"", "HOLD"}:
+            return text
+        neutralized = re.sub(
+            r"(?:建议|考虑|应当|应该|可考虑|可以|需要|必须|立即|直接)?\s*(?:全部|部分)?\s*(?:卖出|卖掉|减仓|清仓|离场)",
+            "需人工复核风险",
+            str(text or ""),
+            flags=re.IGNORECASE,
+        )
+        neutralized = re.sub(
+            r"\b(?:sell|reduce|exit|close(?:\s+(?:out|position|positions|the\s+position|all))?)\b",
+            "manual risk review",
+            neutralized,
+            flags=re.IGNORECASE,
+        )
+        neutralized = re.sub(r"(?:需人工复核风险[，,；;、\s]*){2,}", "需人工复核风险", neutralized)
+        return neutralized.strip() or "需人工复核风险。"
 
     def _build_dashboard_observation_appendix_lines(
         self,
@@ -2208,6 +2374,11 @@ class NotificationService:
             report_lines.extend([portfolio_summary_section.rstrip(), "", "---", ""])
 
         holdings = overview.get("holdings") or []
+        executed_weight_by_code = {
+            canonical_stock_code(item.get("code", "")): float(item.get("weight") or 0.0)
+            for item in holdings
+            if canonical_stock_code(item.get("code", ""))
+        }
         holding_codes = {
             canonical_stock_code(item.get("code", ""))
             for item in holdings
@@ -2284,6 +2455,13 @@ class NotificationService:
                     report_lines.append("")
                     report_lines.extend(self._build_dashboard_observation_items_lines(display_holding_results))
             report_lines.append("")
+            if display_holding_results:
+                report_lines.extend(
+                    self._build_holding_followup_review_lines(
+                        display_holding_results,
+                        current_weight_by_code=executed_weight_by_code,
+                    )
+                )
             if uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis:
                 report_lines.extend([
                     "**待补齐 / 风险提醒**",
@@ -2317,12 +2495,6 @@ class NotificationService:
                 if has_mixed_price_basis:
                     report_lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
                 report_lines.append("")
-
-        executed_weight_by_code = {
-            canonical_stock_code(item.get("code", "")): float(item.get("weight") or 0.0)
-            for item in holdings
-            if canonical_stock_code(item.get("code", ""))
-        }
 
         if display_non_holding_results:
             report_lines.extend([
@@ -2453,13 +2625,17 @@ class NotificationService:
                         if isinstance(risk_item, dict) else str(risk_item or "").strip()
                     )
                     if risk_text:
-                        canonical_risk = self._sanitize_user_facing_ai_text(result, risk_text, strip_position_sizing=False)
+                        canonical_risk = self._sanitize_user_facing_risk_text(
+                            result,
+                            risk_text,
+                            action_model=action_model,
+                        )
                         break
                 if canonical_risk:
                     report_lines.append(f"- ⚠️ {canonical_risk}")
                 elif result.risk_warning:
                     report_lines.append(
-                        f"- ⚠️ {self._sanitize_user_facing_ai_text(result, result.risk_warning, strip_position_sizing=False)}"
+                        f"- ⚠️ {self._sanitize_user_facing_risk_text(result, result.risk_warning, action_model=action_model)}"
                     )
                 report_lines.append("")
                 if action_model['ai_conflict']:
@@ -2582,7 +2758,7 @@ class NotificationService:
                     # 风险提示
                     if result.risk_warning:
                         report_lines.extend([
-                            f"**⚠️ 风险提示**: {self._sanitize_report_jargon(self._sanitize_unverified_backtest_claim(result, result.risk_warning))}",
+                            f"**⚠️ 风险提示**: {self._sanitize_user_facing_risk_text(result, result.risk_warning, action_model=action_model)}",
                             "",
                         ])
                     # 技术面分析
@@ -2833,10 +3009,10 @@ class NotificationService:
                             str(risk.get("message") or risk.get("title") or "").strip()
                             if isinstance(risk, dict) else str(risk or "").strip()
                         )
-                        risk_text = self._sanitize_user_facing_ai_text(
+                        risk_text = self._sanitize_user_facing_risk_text(
                             result,
                             raw_risk,
-                            strip_position_sizing=False,
+                            action_model=action_model,
                         )
                         risk_text = risk_text[:50] + "..." if len(risk_text) > 50 else risk_text
                         lines.append(f"   • {risk_text}")
@@ -2991,7 +3167,7 @@ class NotificationService:
             
             # 风险提示（截断）
             if hasattr(result, 'risk_warning') and result.risk_warning:
-                sanitized_risk = self._sanitize_user_facing_ai_text(result, result.risk_warning, strip_position_sizing=False)
+                sanitized_risk = self._sanitize_user_facing_risk_text(result, result.risk_warning)
                 risk = sanitized_risk[:50] + "..." if len(sanitized_risk) > 50 else sanitized_risk
                 lines.append(f"⚠️ {risk}")
             
@@ -3135,7 +3311,7 @@ class NotificationService:
                         str(risk.get("message") or risk.get("title") or "").strip()
                         if isinstance(risk, dict) else str(risk or "").strip()
                     )
-                    risk_text = self._sanitize_user_facing_ai_text(result, risk_text, strip_position_sizing=False)
+                    risk_text = self._sanitize_user_facing_risk_text(result, risk_text)
                     lines.append(f"- {risk_text[:60]}")
             
             # 利好催化
