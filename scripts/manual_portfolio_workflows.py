@@ -5,17 +5,20 @@ This module supports these simple commands:
 1) init-portfolio
 2) record-trade
 3) init-paper-portfolio
+4) import-asx-csv
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Iterable, List
 
 from sqlalchemy import func, select
 
+from src.services.asx_portfolio_import_service import AsxPortfolioImportService
 from src.services.paper_portfolio_service import PaperPortfolioService
 from src.storage import AccountSnapshot, DatabaseManager, PortfolioPosition, TradeJournal
 from src.stock_code import canonical_stock_code, stock_code_aliases
@@ -560,6 +563,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Fail instead of skipping when the real portfolio has no snapshot/holdings",
     )
 
+    import_cmd = sub.add_parser("import-asx-csv", help="Preview or apply an ASX portfolio CSV import")
+    import_cmd.add_argument("--csv", dest="csv_path", required=True, help="Path to the CSV file")
+    import_cmd.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply rows to the local portfolio ledger; omitted means preview only",
+    )
+
     return parser
 
 
@@ -611,6 +622,12 @@ def main() -> int:
                 f"with {len(overview.get('holdings') or [])} holding(s)."
             )
         return 0
+
+    if args.command == "import-asx-csv":
+        service = AsxPortfolioImportService(db)
+        result = service.apply_csv(args.csv_path) if args.apply else service.preview_csv(args.csv_path)
+        print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        return 0 if not args.apply or result.get("status") == "applied" else 1
 
     raise ValueError(f"Unsupported command: {args.command}")
 
