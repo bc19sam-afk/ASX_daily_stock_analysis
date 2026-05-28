@@ -206,7 +206,15 @@ class StockAnalysisPipeline:
             logger.error(f"[{code}] {error_msg}")
             return False, error_msg, {}
     
-    def analyze_stock(self, code: str, report_type: ReportType, query_id: str, df_attrs: Optional[dict] = None, market_overview: Optional[dict] = None) -> Optional[AnalysisResult]:
+    def analyze_stock(
+        self,
+        code: str,
+        report_type: ReportType,
+        query_id: str,
+        df_attrs: Optional[dict] = None,
+        market_overview: Optional[dict] = None,
+        force_refresh: bool = False,
+    ) -> Optional[AnalysisResult]:
         """
         分析单只股票（增强版：含量比、换手率、多维度情报）
         
@@ -274,14 +282,16 @@ class StockAnalysisPipeline:
             
             # Step 4: 多维度情报搜索（最新消息+风险排查+业绩预期）
             news_context = None
-            if self.search_service.is_available:
+            news_intel_cache_enabled = bool(getattr(self.config, "news_intel_cache_enabled", True))
+            if self.search_service.is_available or news_intel_cache_enabled:
                 logger.info(f"[{code}] 开始多维度情报搜索...")
                 
                 # 使用多维度搜索（最多5次搜索）
-                intel_results = self.search_service.search_comprehensive_intel(
-                    stock_code=code,
+                intel_results = self._search_comprehensive_intel_with_news_cache(
+                    code=code,
                     stock_name=stock_name,
-                    max_searches=5
+                    max_searches=5,
+                    force_refresh=force_refresh,
                 )
                 
                 # 格式化情报报告
@@ -298,6 +308,8 @@ class StockAnalysisPipeline:
                         query_context = self._build_query_context(query_id=query_id)
                         for dim_name, response in intel_results.items():
                             if response and response.success and response.results:
+                                if response.provider == SearchService.NEWS_INTEL_CACHE_PROVIDER:
+                                    continue
                                 self.db.save_news_intel(
                                     code=code,
                                     name=stock_name,
@@ -479,6 +491,81 @@ class StockAnalysisPipeline:
             logger.error(f"[{code}] 分析失败: {e}")
             logger.exception(f"[{code}] 详细错误信息:")
             return None
+
+    def _search_comprehensive_intel_with_news_cache(
+        self,
+        *,
+        code: str,
+        stock_name: str,
+        max_searches: int,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Reuse recent persisted news_intel rows before falling back to external search.
+        """
+        cache_enabled = bool(getattr(self.config, "news_intel_cache_enabled", True))
+        if force_refresh or not cache_enabled:
+            return self.search_service.search_comprehensive_intel(
+                stock_code=code,
+                stock_name=stock_name,
+                max_searches=max_searches,
+            )
+
+        try:
+            search_limit = max(0, int(max_searches))
+        except (TypeError, ValueError):
+            search_limit = 5
+
+        dimensions = self.search_service.build_comprehensive_intel_dimensions(code, stock_name)[:search_limit]
+        min_results = max(1, int(getattr(self.config, "news_intel_cache_min_results", 1) or 1))
+        cache_days = max(1, int(getattr(self.config, "news_intel_cache_days", 1) or 1))
+        cached_intel: Dict[str, Any] = {}
+
+        for dim in dimensions:
+            try:
+                records = self.db.get_recent_news_intel(
+                    code=code,
+                    dimension=dim["name"],
+                    days=cache_days,
+                    limit=max(3, min_results),
+                )
+                cached_response = self.search_service.build_news_intel_cache_response(
+                    stock_code=code,
+                    stock_name=stock_name,
+                    dimension=dim["name"],
+                    query=dim["query"],
+                    records=records,
+                    min_results=min_results,
+                )
+                if cached_response is not None:
+                    cached_intel[dim["name"]] = cached_response
+            except Exception as exc:
+                logger.debug(
+                    "[%s] 读取 news_intel 缓存失败，维度 %s 将走搜索 provider: %s",
+                    code,
+                    dim["name"],
+                    exc,
+                )
+
+        missing_dimensions = [dim for dim in dimensions if dim["name"] not in cached_intel]
+        results = dict(cached_intel)
+        if missing_dimensions:
+            if self.search_service.is_available:
+                fresh_results = self.search_service.search_comprehensive_intel(
+                    stock_code=code,
+                    stock_name=stock_name,
+                    max_searches=len(missing_dimensions),
+                    dimensions=missing_dimensions,
+                )
+                results.update(fresh_results)
+            elif not results:
+                return {}
+
+        return {
+            dim["name"]: results[dim["name"]]
+            for dim in dimensions
+            if dim["name"] in results
+        }
 
     @staticmethod
     def _map_alpha_decision(buy_signal: Optional[str]) -> str:
@@ -1414,7 +1501,14 @@ class StockAnalysisPipeline:
                 return None
             
             effective_query_id = analysis_query_id or self.query_id or uuid.uuid4().hex
-            result = self.analyze_stock(code, report_type, query_id=effective_query_id, df_attrs=df_attrs, market_overview=market_overview)
+            result = self.analyze_stock(
+                code,
+                report_type,
+                query_id=effective_query_id,
+                df_attrs=df_attrs,
+                market_overview=market_overview,
+                force_refresh=force_refresh,
+            )
             
             if result:
                 logger.info(

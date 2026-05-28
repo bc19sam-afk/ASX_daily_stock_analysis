@@ -16,12 +16,13 @@ import json
 import logging
 import random
 import re
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Callable, List, Dict, Any, Optional, Tuple
 from itertools import cycle
 from zoneinfo import ZoneInfo
 import requests
@@ -98,6 +99,13 @@ class SearchResponse:
             lines.append(f"\n{i}. {result.to_text()}")
         
         return "\n".join(lines)
+
+
+@dataclass
+class _InflightCacheEntry:
+    event: threading.Event = field(default_factory=threading.Event)
+    response: Optional[SearchResponse] = None
+    error: Optional[BaseException] = None
 
 
 class BaseSearchProvider(ABC):
@@ -690,6 +698,7 @@ class SearchService:
         "date",
         "time",
     )
+    NEWS_INTEL_CACHE_PROVIDER = "news_intel_cache"
     
     def __init__(
         self,
@@ -748,6 +757,8 @@ class SearchService:
 
         self._cache: Dict[str, Tuple[float, 'SearchResponse']] = {}
         self._cache_ttl: int = 600
+        self._cache_lock = threading.RLock()
+        self._cache_inflight: Dict[str, _InflightCacheEntry] = {}
 
     @staticmethod
     def _resolve_market_timezone(market_timezone: Optional[str]) -> str:
@@ -790,17 +801,76 @@ class SearchService:
     def _cache_key(self, query: str, max_results: int, days: int) -> str:
         return f"{query}|{max_results}|{days}"
 
-    def _get_cached(self, key: str) -> Optional['SearchResponse']:
+    def _get_cached_unlocked(self, key: str) -> Optional['SearchResponse']:
         entry = self._cache.get(key)
-        if entry is None: return None
+        if entry is None:
+            return None
         ts, response = entry
         if time.time() - ts > self._cache_ttl:
-            del self._cache[key]
+            self._cache.pop(key, None)
             return None
         return response
 
+    def _get_cached(self, key: str) -> Optional['SearchResponse']:
+        with self._cache_lock:
+            return self._get_cached_unlocked(key)
+
     def _put_cache(self, key: str, response: 'SearchResponse') -> None:
-        self._cache[key] = (time.time(), response)
+        with self._cache_lock:
+            self._cache[key] = (time.time(), response)
+
+    def _get_or_fill_cache(
+        self,
+        key: str,
+        producer: Callable[[], 'SearchResponse']
+    ) -> 'SearchResponse':
+        """Return cached result or coalesce concurrent fills for the same key."""
+        with self._cache_lock:
+            cached = self._get_cached_unlocked(key)
+            if cached is not None:
+                return cached
+
+            inflight = self._cache_inflight.get(key)
+            if inflight is None:
+                inflight = _InflightCacheEntry()
+                self._cache_inflight[key] = inflight
+                owner = True
+            else:
+                owner = False
+
+        if not owner:
+            inflight.event.wait()
+            if inflight.error is not None:
+                raise inflight.error
+            if inflight.response is not None:
+                return inflight.response
+            cached = self._get_cached(key)
+            if cached is not None:
+                return cached
+            return SearchResponse(
+                query=key,
+                results=[],
+                provider="None",
+                success=False,
+                error_message="Inflight search completed without a response"
+            )
+
+        response: Optional[SearchResponse] = None
+        error: Optional[BaseException] = None
+        try:
+            response = producer()
+            if response.success and response.results:
+                self._put_cache(key, response)
+            return response
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            with self._cache_lock:
+                inflight.response = response
+                inflight.error = error
+                self._cache_inflight.pop(key, None)
+                inflight.event.set()
 
     @staticmethod
     def _parse_entity_hints(stock_code: str, stock_name: str) -> Dict[str, Any]:
@@ -1121,39 +1191,40 @@ class SearchService:
         logger.info(f"搜索股票新闻: {stock_name}({stock_code}), query='{query}'")
         
         cache_key = self._cache_key(query, max_results, search_days)
-        cached = self._get_cached(cache_key)
-        if cached: return cached
 
-        for provider in self._providers:
-            if not provider.is_available: continue
-            response = provider.search(query, max_results, days=search_days)
-            if response.success and response.results:
-                fresh_response = self._filter_by_news_age(response)
-                if not fresh_response.results:
+        def fill() -> SearchResponse:
+            for provider in self._providers:
+                if not provider.is_available:
+                    continue
+                response = provider.search(query, max_results, days=search_days)
+                if response.success and response.results:
+                    fresh_response = self._filter_by_news_age(response)
+                    if not fresh_response.results:
+                        logger.debug(
+                            "搜索结果在时效过滤后为空，继续尝试下一个 provider: %s(%s) provider=%s",
+                            stock_name,
+                            stock_code,
+                            provider.name
+                        )
+                        continue
+                    filtered_response = self._filter_entity_consistent_results(
+                        fresh_response,
+                        stock_code=stock_code,
+                        stock_name=stock_name,
+                        dimension="latest_news"
+                    )
+                    if filtered_response.results:
+                        return filtered_response
                     logger.debug(
-                        "搜索结果在时效过滤后为空，继续尝试下一个 provider: %s(%s) provider=%s",
+                        "搜索结果在实体消歧后为空，继续尝试下一个 provider: %s(%s) provider=%s",
                         stock_name,
                         stock_code,
                         provider.name
                     )
-                    continue
-                filtered_response = self._filter_entity_consistent_results(
-                    fresh_response,
-                    stock_code=stock_code,
-                    stock_name=stock_name,
-                    dimension="latest_news"
-                )
-                if filtered_response.results:
-                    self._put_cache(cache_key, filtered_response)
-                    return filtered_response
-                logger.debug(
-                    "搜索结果在实体消歧后为空，继续尝试下一个 provider: %s(%s) provider=%s",
-                    stock_name,
-                    stock_code,
-                    provider.name
-                )
-        
-        return SearchResponse(query=query, results=[], provider="None", success=False, error_message="All providers failed")
+
+            return SearchResponse(query=query, results=[], provider="None", success=False, error_message="All providers failed")
+
+        return self._get_or_fill_cache(cache_key, fill)
 
     def search_stock_events(self, stock_code: str, stock_name: str, event_types: Optional[List[str]] = None) -> SearchResponse:
         if event_types is None:
@@ -1170,29 +1241,108 @@ class SearchService:
             
         return SearchResponse(query=query, results=[], provider="None", success=False, error_message="Events search failed")
 
-    def search_comprehensive_intel(self, stock_code: str, stock_name: str, max_searches: int = 3) -> Dict[str, SearchResponse]:
-        results = {}
+    def build_comprehensive_intel_dimensions(self, stock_code: str, stock_name: str) -> List[Dict[str, str]]:
         is_foreign = self._is_foreign_stock(stock_code)
-        
+
         if is_foreign:
             # 针对外盘（澳股/美股），直接使用 stock_code 搜索，避开中文名干扰
-            dims = [
+            return [
                 {'name': 'latest_news', 'query': self._build_grounded_query(stock_code, stock_name, ["latest news events"]), 'desc': '最新消息'},
                 {'name': 'market_analysis', 'query': self._build_grounded_query(stock_code, stock_name, ["analyst rating target price report"]), 'desc': '机构分析'},
                 {'name': 'risk_check', 'query': self._build_grounded_query(stock_code, stock_name, ["risk insider selling lawsuit litigation"]), 'desc': '风险排查'},
                 {'name': 'earnings', 'query': self._build_grounded_query(stock_code, stock_name, ["earnings revenue profit growth forecast"]), 'desc': '业绩预期'},
                 {'name': 'industry', 'query': self._build_grounded_query(stock_code, stock_name, ["industry competitors market share outlook"]), 'desc': '行业分析'},
             ]
-        else:
-            dims = [
-                {'name': 'latest_news', 'query': f"{stock_name} 最新新闻", 'desc': '最新消息'},
-                {'name': 'market_analysis', 'query': f"{stock_name} 研报 评级", 'desc': '机构分析'},
-                {'name': 'risk_check', 'query': f"{stock_name} 利空 风险", 'desc': '风险排查'},
-                {'name': 'earnings', 'query': f"{stock_name} 业绩预告", 'desc': '业绩预期'},
-                {'name': 'industry', 'query': f"{stock_name} 行业分析", 'desc': '行业分析'},
-            ]
 
-        for dim in dims:
+        return [
+            {'name': 'latest_news', 'query': f"{stock_name} 最新新闻", 'desc': '最新消息'},
+            {'name': 'market_analysis', 'query': f"{stock_name} 研报 评级", 'desc': '机构分析'},
+            {'name': 'risk_check', 'query': f"{stock_name} 利空 风险", 'desc': '风险排查'},
+            {'name': 'earnings', 'query': f"{stock_name} 业绩预告", 'desc': '业绩预期'},
+            {'name': 'industry', 'query': f"{stock_name} 行业分析", 'desc': '行业分析'},
+        ]
+
+    @staticmethod
+    def _format_news_intel_datetime(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.strftime("%Y-%m-%d %H:%M:%S")
+        return str(value)
+
+    def build_news_intel_cache_response(
+        self,
+        *,
+        stock_code: str,
+        stock_name: str,
+        dimension: str,
+        query: str,
+        records: List[Any],
+        min_results: int,
+    ) -> Optional[SearchResponse]:
+        """Build a SearchResponse from persisted news_intel rows when still entity-consistent."""
+        cache_results: List[SearchResult] = []
+        for record in records:
+            title = str(getattr(record, "title", "") or "").strip()
+            url = str(getattr(record, "url", "") or "").strip()
+            if not title and not url:
+                continue
+            source = str(getattr(record, "source", "") or "").strip()
+            published_date = self._format_news_intel_datetime(getattr(record, "published_date", None))
+            fetched_at = self._format_news_intel_datetime(getattr(record, "fetched_at", None))
+            provider = str(getattr(record, "provider", "") or "").strip()
+            cache_results.append(
+                SearchResult(
+                    title=title,
+                    snippet=str(getattr(record, "snippet", "") or "").strip(),
+                    url=url,
+                    source=source,
+                    published_date=published_date,
+                    published_fields={
+                        "news_intel_provider": provider,
+                        "news_intel_fetched_at": fetched_at,
+                    },
+                )
+            )
+
+        response = SearchResponse(
+            query=query,
+            results=cache_results,
+            provider=self.NEWS_INTEL_CACHE_PROVIDER,
+            success=bool(cache_results),
+        )
+        filtered = self._filter_entity_consistent_results(
+            response,
+            stock_code=stock_code,
+            stock_name=stock_name,
+            dimension=dimension,
+        )
+        required_count = max(1, int(min_results or 1))
+        if len(filtered.results) < required_count:
+            return None
+        return filtered
+
+    def search_comprehensive_intel(
+        self,
+        stock_code: str,
+        stock_name: str,
+        max_searches: int = 5,
+        cached_intel: Optional[Dict[str, SearchResponse]] = None,
+        dimensions: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, SearchResponse]:
+        results = {}
+        dims = list(dimensions) if dimensions is not None else self.build_comprehensive_intel_dimensions(stock_code, stock_name)
+        try:
+            search_limit = max(0, int(max_searches))
+        except (TypeError, ValueError):
+            search_limit = len(dims)
+
+        for dim in dims[:search_limit]:
+            cached_response = (cached_intel or {}).get(dim['name'])
+            if cached_response and cached_response.success and cached_response.results:
+                results[dim['name']] = cached_response
+                continue
+
             # 始终优先使用 Tavily (如果配置了且排在第一位)
             selected_resp: Optional[SearchResponse] = None
             for provider in self._providers:
@@ -1251,8 +1401,15 @@ class SearchService:
             lines.append(f"\n{dim_desc} (来源: {resp.provider}):")
             if resp.success and resp.results:
                 for i, r in enumerate(resp.results[:3], 1):
-                    date_str = f" [{r.published_date}]" if r.published_date else ""
-                    lines.append(f"  {i}. {r.title}{date_str}")
+                    meta_parts = []
+                    if r.source:
+                        meta_parts.append(f"来源: {r.source}")
+                    if r.published_date:
+                        meta_parts.append(f"日期: {r.published_date}")
+                    if r.url:
+                        meta_parts.append(f"URL: {r.url}")
+                    meta = f" ({'; '.join(meta_parts)})" if meta_parts else ""
+                    lines.append(f"  {i}. {r.title}{meta}")
             else:
                 lines.append("  未找到相关信息")
         
