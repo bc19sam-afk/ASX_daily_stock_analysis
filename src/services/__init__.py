@@ -9,6 +9,7 @@
 """
 
 from src.services.analysis_service import AnalysisService
+from src.services.asx_portfolio_import_service import AsxPortfolioImportService
 from src.services.backtest_service import BacktestService
 from src.services.history_service import HistoryService
 from src.services.stock_service import StockService
@@ -16,6 +17,7 @@ from src.services.task_service import TaskService, get_task_service
 
 __all__ = [
     "AnalysisService",
+    "AsxPortfolioImportService",
     "BacktestService",
     "HistoryService",
     "StockService",
