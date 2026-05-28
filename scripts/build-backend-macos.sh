@@ -47,6 +47,7 @@ hidden_imports=(
   "api.v1.endpoints.history"
   "api.v1.endpoints.stocks"
   "api.v1.endpoints.health"
+  "api.v1.endpoints.workbench"
   "api.v1.schemas"
   "api.v1.schemas.analysis"
   "api.v1.schemas.history"
@@ -58,6 +59,7 @@ hidden_imports=(
   "src.services.task_queue"
   "src.services.analysis_service"
   "src.services.history_service"
+  "src.services.backtest_service"
   "uvicorn.logging"
   "uvicorn.loops"
   "uvicorn.loops.auto"
@@ -84,5 +86,9 @@ echo "Running: ${cmd[*]}"
 popd >/dev/null
 
 cp -R "${ROOT_DIR}/dist/stock_analysis" "${ROOT_DIR}/dist/backend/stock_analysis"
+if [[ -d "${ROOT_DIR}/static" ]]; then
+  rm -rf "${ROOT_DIR}/dist/backend/stock_analysis/static"
+  cp -R "${ROOT_DIR}/static" "${ROOT_DIR}/dist/backend/stock_analysis/static"
+fi
 
 log "Backend build completed."

@@ -16,7 +16,7 @@ class SpaFallbackTestCase(unittest.TestCase):
         self.static_dir = Path(self.temp_dir.name) / "static"
         self.static_dir.mkdir(parents=True, exist_ok=True)
         (self.static_dir / "index.html").write_text(
-            "<html><body>spa-entry</body></html>",
+            "<html><body>workbench-entry</body></html>",
             encoding="utf-8",
         )
 
@@ -39,7 +39,7 @@ class SpaFallbackTestCase(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers.get("content-type", ""))
-        self.assertIn("spa-entry", response.text)
+        self.assertIn("workbench-entry", response.text)
 
 
 if __name__ == "__main__":

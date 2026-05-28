@@ -12,7 +12,7 @@ API v1 路由聚合
 from fastapi import APIRouter, Depends
 
 from api.deps import require_api_auth
-from api.v1.endpoints import analysis, history, stocks, backtest, system_config, paper_portfolio
+from api.v1.endpoints import analysis, history, stocks, backtest, system_config, paper_portfolio, workbench
 
 # 创建 v1 版本主路由
 router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_auth)])
@@ -51,4 +51,10 @@ router.include_router(
     paper_portfolio.router,
     prefix="/paper-portfolio",
     tags=["PaperPortfolio"]
+)
+
+router.include_router(
+    workbench.router,
+    prefix="/workbench",
+    tags=["Workbench"]
 )
