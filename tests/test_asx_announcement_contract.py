@@ -194,6 +194,69 @@ def test_daily_summary_announcement_contract_does_not_change_actions():
     assert "announcement" not in _by_category(summary["evidence_matrix"]["BHP.AX"])
 
 
+def test_daily_summary_passes_announcement_checks_without_changing_deterministic_actions():
+    results = [
+        _result(code="BHP.AX"),
+        _result(
+            code="NAB.AX",
+            validation_status="BLOCK",
+            validation_issues=["收盘价缺失，无法确认昨收计划。"],
+        ),
+    ]
+
+    baseline = build_daily_decision_summary(
+        results=results,
+        report_date="2026-05-06",
+        generated_at=datetime(2026, 5, 6, 7, 30, tzinfo=ZoneInfo("Australia/Sydney")),
+        overview={"cash": 10000.0, "holdings": []},
+        get_primary_action_model=_model,
+        classify_price_basis=lambda result: "close_only",
+        format_stock_display_name=lambda name, code: f"{name} ({code})",
+        format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
+    )
+    with_announcements = build_daily_decision_summary(
+        results=results,
+        report_date="2026-05-06",
+        generated_at=datetime(2026, 5, 6, 7, 30, tzinfo=ZoneInfo("Australia/Sydney")),
+        overview={"cash": 10000.0, "holdings": []},
+        get_primary_action_model=_model,
+        classify_price_basis=lambda result: "close_only",
+        format_stock_display_name=lambda name, code: f"{name} ({code})",
+        format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
+        announcement_checks={
+            "BHP.AX": ASXAnnouncementCheck(
+                code="BHP.AX",
+                checked=True,
+                source="asx_market_announcements",
+                checked_at="2026-05-06T07:30:00+10:00",
+                has_price_sensitive_item=True,
+                status="risk_found",
+                reason="检测到 ASX 公告风险；执行前人工复核。",
+                latest_items=[{"headline": "Trading halt request", "published_at": "2026-05-06T07:10:00+10:00"}],
+            ),
+            "NAB.AX": ASXAnnouncementCheck(
+                code="NAB.AX",
+                checked=False,
+                source="asx_market_announcements",
+                checked_at="2026-05-06T07:30:00+10:00",
+                status="unavailable",
+                reason="ASX 公告源不可用，执行前人工检查。",
+            ),
+        },
+    )
+
+    assert with_announcements["action_counts"] == baseline["action_counts"]
+    assert with_announcements["actionable_items"][0]["position_action"] == baseline["actionable_items"][0]["position_action"]
+    assert with_announcements["actionable_items"][0]["target_weight"] == baseline["actionable_items"][0]["target_weight"]
+    assert with_announcements["actionable_items"][0]["delta_amount"] == baseline["actionable_items"][0]["delta_amount"]
+    assert with_announcements["blocked_items"][0]["target_weight"] == baseline["blocked_items"][0]["target_weight"]
+    assert _by_category(with_announcements["evidence_matrix"]["BHP.AX"])["announcement"]["status"] == "risk_found"
+    assert _by_category(with_announcements["evidence_matrix"]["NAB.AX"])["announcement"]["status"] == "unavailable"
+    assert "ASX 公告存在风险，执行前人工复核" in with_announcements["actionable_items"][0]["final_action_display"]["review_reasons"]
+    assert with_announcements["actionable_items"][0]["final_action_display"]["confirmation_gap"] is True
+    assert "ASX 公告源不可用，执行前人工检查" in str(with_announcements["report_reliability"]["flags"])
+
+
 def test_default_announcement_not_checked_is_hidden_from_daily_review_reasons():
     result = _result(
         code="BHP.AX",

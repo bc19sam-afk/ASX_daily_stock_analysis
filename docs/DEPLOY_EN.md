@@ -364,9 +364,15 @@ Add these Secrets:
 | `GEMINI_GROUNDING_MODEL` | Grounding model; empty value follows `GEMINI_MODEL`, then `gemini-3.5-flash` | Optional |
 | `GEMINI_GROUNDING_MAX_RESULTS` | Maximum Grounding results, default `3` | Optional |
 | `SERPAPI_API_KEYS` | SerpAPI Key, low-frequency fallback after Tavily/Gemini Grounding | Optional |
+| `ASX_ANNOUNCEMENTS_ENABLED` | Read-only ASX official announcements evidence switch, default `true`; failures are reported as `unavailable` only | Optional |
+| `ASX_ANNOUNCEMENTS_LOOKBACK_DAYS` | ASX announcements lookback, default `1`; today page at most once, previous trading day at most once | Optional |
+| `ASX_ANNOUNCEMENTS_MAX_ITEMS` | Announcement metadata items retained per `.AX` ticker, default `5` | Optional |
+| `ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS` | ASX page request timeout, default `10`, runtime capped at 10 seconds | Optional |
 | `GEMINI_MODEL` | Model name (default gemini-3.5-flash) | Optional |
 
 > *Note: Configure at least one notification channel, multiple channels supported for simultaneous push
+
+> ASX official announcements are evidence for `evidence_matrix`, `report_reliability`, and manual review prompts only. The source does not download PDFs, parse PDF bodies, provide realtime quotes, act as an order-execution signal, or connect to brokers.
 
 #### 3. Verify Workflow File
 

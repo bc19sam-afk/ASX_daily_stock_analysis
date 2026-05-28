@@ -190,7 +190,7 @@ def _score_evidence_completeness(matrix: Dict[str, List[Dict[str, Any]]], flags:
             {
                 "code": "asx_announcement_unavailable",
                 "severity": "warning",
-                "message": f"{announcement_unavailable} 只股票 ASX 公告源不可用；执行前检查公告。",
+                "message": f"{announcement_unavailable} 只股票 ASX 公告源不可用，执行前人工检查。",
             }
         )
     if announcement_risk_found > 0:

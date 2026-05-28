@@ -220,6 +220,17 @@ GitHub Actions 默认每个工作日 **08:00（Australia/Sydney）** 自动执�
 | `BRAVE_API_KEYS` | Brave Search API Key（美股优化） | 可选 |
 | `SERPAPI_API_KEYS` | SerpAPI 低频备用搜索，位于 Gemini Grounding 之后 | 可选 |
 
+### ASX 官方公告证据源
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `ASX_ANNOUNCEMENTS_ENABLED` | 启用 ASX 官方 Market Announcements 只读证据源；仅用于证据矩阵、报告可信度和人工复核提示 | `true` |
+| `ASX_ANNOUNCEMENTS_LOOKBACK_DAYS` | 获取 today 页面；大于 0 时最多再获取 previous trading day 页面一次 | `1` |
+| `ASX_ANNOUNCEMENTS_MAX_ITEMS` | 每只 `.AX` 标的写入报告证据的公告 metadata 条数上限 | `5` |
+| `ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS` | 每个 ASX 页面请求超时；运行时最大不超过 10 秒 | `10` |
+
+该源不下载 PDF、不解析 PDF 正文、不是实时行情源、不是订单执行依据、不是券商接口。本 PR 不涉及 broker、真实交易或自动下单。若 ASX 页面不可用、超时或结构变化，日报继续运行并标记 `unavailable`，执行前需要人工检查 ASX 公告。
+
 ### 其他配置
 
 | 变量名 | 说明 | 默认值 |
