@@ -68,7 +68,7 @@ python main.py --serve
 
 ### ASX 官方公告证据源
 
-`ASX_ANNOUNCEMENTS_ENABLED=true` 会为 `.AX` 标的启用 ASX 官方 Market Announcements 页面只读检查。结果只进入 `evidence_matrix`、`evidence_summary`、`report_reliability` 和人工复核提示；它不是实时行情源，不是订单执行依据，也不是券商接口。本 PR 不涉及 broker、真实交易或自动下单。若 ASX 页面超时、不可访问或结构变化，日报继续运行，并把公告源标记为 `unavailable`，提示“ASX 公告源不可用，执行前人工检查”。
+`ASX_ANNOUNCEMENTS_ENABLED=true` 会为 `.AX` 标的启用 ASX 官方 Market Announcements 页面只读检查。结果只进入 `evidence_matrix`、`evidence_summary`、`report_reliability` 和人工复核提示；该能力是人工复核用的只读证据源，不提供实时行情、订单执行或券商连接。若 ASX 页面超时、不可访问或结构变化，日报继续运行，并把公告源标记为 `unavailable`，提示“ASX 公告源不可用，执行前人工检查”。
 
 ### 3) Docker / Compose
 

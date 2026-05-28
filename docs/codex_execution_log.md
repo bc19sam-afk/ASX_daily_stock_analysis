@@ -659,7 +659,7 @@ Process notes:
 - Parsed only listing metadata: code, date/published_at, headline, URL, price-sensitive marker, and optional pages/size. The implementation does not download PDFs or parse PDF bodies.
 - Integrated checks into daily summary evidence through `announcement_checks`, `evidence_matrix`, `evidence_summary`, `report_reliability`, and manual review prompts. `risk_found` and `unavailable` are display-only confirmation gaps; they do not change `final_decision`, `position_action`, `target_weight`, `delta_amount`, `action_counts`, `actionable_items`, `blocked_items`, validation gates, or simulated paper-portfolio writes.
 - Added config/workflow defaults: `ASX_ANNOUNCEMENTS_ENABLED=true`, `ASX_ANNOUNCEMENTS_LOOKBACK_DAYS=1`, `ASX_ANNOUNCEMENTS_MAX_ITEMS=5`, and `ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS=10`. Daily workflow passes these as vars/defaults only; no new secrets.
-- Updated `.env.example`, README, full guide, and deployment docs to state this is a read-only evidence source, not a realtime quote source, not an order-execution basis, and not a broker interface. This PR does not involve broker integration, real trading, or automatic order placement.
+- Updated `.env.example`, README, full guide, and deployment docs to state this is a read-only evidence source for manual review, not a realtime quote source, not an order-execution basis, and not a broker interface.
 - Added mocked ASX HTML/response tests for clear, `risk_found`, `unavailable`, ASX canonicalization, non-ASX skip, price-sensitive marker parsing, risk headline matching, page-structure fail-open, and network/timeout degradation.
 - Red test result before implementation: `python -m pytest tests/test_asx_announcements_fetcher.py ...` failed because `ASX_TODAY_ANNOUNCEMENTS_URL` and the fetcher API did not exist.
 - Test result: `python -m pytest tests/test_asx_announcement_contract.py tests/test_evidence_matrix.py tests/test_report_reliability_score.py` passed, 23 tests.
@@ -667,3 +667,12 @@ Process notes:
 - Test result: `npm run smoke` from `apps/dsa-desktop` passed (`desktop smoke OK`).
 - Test result: `python -m compileall -q src` passed.
 - Scope check: no search provider changes, no `max_searches`, no persistent search cache, no Web dashboard, no CSV import, no alert center, no broker integration, no real-account trading, no automatic order placement, and no deterministic action/sizing mutation.
+
+### 2026-05-28 - Documentation Boundary Sync
+
+- Status: implemented.
+- Scope: docs-only branch from `main` HEAD `55864458b32cd4bc85f004638de0346820727e4e`; align README, full guide, roadmap, and execution log wording with the current AGENTS boundary and completed ASX official announcements source.
+- Replaced temporary per-change broker/execution disclaimers in README and full-guide content with long-term product language: ASX Market Announcements is read-only evidence for manual review and does not provide realtime quotes, order execution, or broker connectivity.
+- Updated the roadmap to keep human-in-the-loop as the default while allowing explicitly scoped broker, real-account, or order-execution work to be designed separately.
+- Marked P2-3 as completed and implemented: conservative announcement-check contract plus ASX official Market Announcements listing metadata source v1.
+- Preserved the implementation boundary that the source reads listing metadata only; do not build brittle PDF scraping, download PDFs, parse PDF bodies, or claim unchecked announcements are clear.
