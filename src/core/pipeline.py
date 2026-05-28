@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 from src.config import get_config, Config
 from src.storage import get_db
 from data_provider import DataFetcherManager
+from src.analysis_context import build_analysis_context_pack
 from src.analyzer import GeminiAnalyzer, AnalysisResult, STOCK_NAME_MAP
 from src.notification import NotificationService, NotificationChannel
 from src.search_service import SearchService
@@ -435,6 +436,12 @@ class StockAnalysisPipeline:
                 trend_result,
                 stock_name  # 传入股票名称
             )
+            enhanced_context["analysis_context_pack"] = build_analysis_context_pack(
+                enhanced_context,
+                stock_name=stock_name,
+                news_context=news_context,
+                report_date=_report_run_date_safe(self.config).isoformat(),
+            ).to_dict()
             
             # Step 7: 调用 AI 分析（传入增强的上下文和新闻）
             result = self.analyzer.analyze(enhanced_context, news_context=news_context)
@@ -458,6 +465,14 @@ class StockAnalysisPipeline:
                     result=result,
                     enhanced_context=enhanced_context,
                 )
+                enhanced_context["analysis_context_pack"] = build_analysis_context_pack(
+                    enhanced_context,
+                    stock_name=result.name,
+                    news_context=news_context,
+                    report_date=_report_run_date_safe(self.config).isoformat(),
+                    validation_status=result.validation_status,
+                    validation_issues=result.validation_issues,
+                ).to_dict()
                 if result.validation_status != "BLOCK":
                     self._apply_position_management(
                         result=result,
@@ -1349,6 +1364,12 @@ class StockAnalysisPipeline:
                 'signal_reasons': trend_result.signal_reasons,
                 'risk_factors': trend_result.risk_factors,
             }
+
+        enhanced["analysis_context_pack"] = build_analysis_context_pack(
+            enhanced,
+            stock_name=enhanced.get("stock_name"),
+            report_date=enhanced.get("report_date") or enhanced.get("date"),
+        ).to_dict()
         
         return enhanced
     
