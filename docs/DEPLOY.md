@@ -366,6 +366,10 @@ git push -u origin main
 | `GEMINI_GROUNDING_MODEL` | Grounding 模型，空值跟随 `GEMINI_MODEL`，再回退 `gemini-3.5-flash` | 可选 |
 | `GEMINI_GROUNDING_MAX_RESULTS` | Grounding 最大结果数，默认 `3` | 可选 |
 | `SERPAPI_API_KEYS` | SerpAPI Key，位于 Tavily/Gemini Grounding 之后的低频 fallback | 可选 |
+| `ASX_ANNOUNCEMENTS_ENABLED` | ASX 官方公告只读证据源开关，默认 `true`；失败只在日报中标记 `unavailable` | 可选 |
+| `ASX_ANNOUNCEMENTS_LOOKBACK_DAYS` | ASX 公告 lookback，默认 `1`；today 页面最多一次，previous trading day 页面最多一次 | 可选 |
+| `ASX_ANNOUNCEMENTS_MAX_ITEMS` | 每只 `.AX` 标的保留的公告 metadata 条数，默认 `5` | 可选 |
+| `ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS` | ASX 页面请求超时，默认 `10`，运行时最大 10 秒 | 可选 |
 | `GEMINI_MODEL` | 模型名称（默认 gemini-3.5-flash） | 可选 |
 
 > *注：通知渠道至少配置一个，支持多渠道同时推送
@@ -374,6 +378,7 @@ git push -u origin main
 > - `GEMINI_API_KEYS` 优先级高于 `GEMINI_API_KEY`，多个 key 使用英文逗号分隔。
 > - Gemini 仅在 `429`、quota/rate limit、瞬时 `5xx`、连接类错误时自动切换到下一个 key。
 > - `TAVILY_API_KEYS` 也支持多个 key，使用方式同样是英文逗号分隔。
+> - ASX 官方公告源只用于 evidence_matrix、report_reliability 和人工复核提示；不下载 PDF、不解析 PDF 正文、不是实时行情源、不是订单执行依据、不是券商接口。
 
 #### 3. 验证 Workflow 文件
 

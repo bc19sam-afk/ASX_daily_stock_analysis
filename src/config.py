@@ -210,6 +210,11 @@ class Config:
     analysis_read_only: bool = True
     # 每日分析后写入模拟盘账本：只影响 paper_portfolio_* 表，不触碰真实账户
     paper_portfolio_auto_apply: bool = True
+    # ASX 官方公告源：只读 best-effort 证据源，不影响 deterministic action/sizing
+    asx_announcements_enabled: bool = True
+    asx_announcements_lookback_days: int = 1
+    asx_announcements_max_items: int = 5
+    asx_announcements_timeout_seconds: float = 10.0
 
     # === 回测配置 ===
     backtest_enabled: bool = True
@@ -494,6 +499,13 @@ class Config:
             save_context_snapshot=os.getenv('SAVE_CONTEXT_SNAPSHOT', 'true').lower() == 'true',
             analysis_read_only=os.getenv('ANALYSIS_READ_ONLY', 'true').lower() == 'true',
             paper_portfolio_auto_apply=os.getenv('PAPER_PORTFOLIO_AUTO_APPLY', 'true').lower() == 'true',
+            asx_announcements_enabled=os.getenv('ASX_ANNOUNCEMENTS_ENABLED', 'true').lower() == 'true',
+            asx_announcements_lookback_days=max(0, int(os.getenv('ASX_ANNOUNCEMENTS_LOOKBACK_DAYS', '1'))),
+            asx_announcements_max_items=max(0, int(os.getenv('ASX_ANNOUNCEMENTS_MAX_ITEMS', '5'))),
+            asx_announcements_timeout_seconds=min(
+                10.0,
+                max(0.1, float(os.getenv('ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS', '10'))),
+            ),
             backtest_enabled=os.getenv('BACKTEST_ENABLED', 'true').lower() == 'true',
             backtest_eval_window_days=int(os.getenv('BACKTEST_EVAL_WINDOW_DAYS', '10')),
             backtest_min_age_days=int(os.getenv('BACKTEST_MIN_AGE_DAYS', '14')),

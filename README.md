@@ -66,6 +66,10 @@ Optional API Bearer authentication is supported for protected configuration endp
 
 News and risk intelligence prioritizes accuracy over search quota savings. The default provider order is `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`. Tavily keeps `search_depth="advanced"` as the primary path for fuller ASX news, risk, and research coverage. Gemini Grounding reuses `GEMINI_API_KEYS` / `GEMINI_API_KEY`; SerpAPI is retained as a low-frequency fallback after Tavily and Gemini Grounding are unavailable.
 
+### ASX Official Announcements Evidence
+
+`ASX_ANNOUNCEMENTS_ENABLED=true` enables a read-only, best-effort check of ASX official Market Announcements listing pages for `.AX` tickers. The check adds metadata evidence to `evidence_matrix`, `evidence_summary`, `report_reliability`, and manual review prompts. It is not a realtime quote source, not an order execution signal, not a broker interface, and this PR does not involve broker integration, real trading, or automatic order placement. If ASX pages time out or change structure, the daily report continues and marks the source `unavailable` with an execution-before-manual-check warning.
+
 ### 3) Docker / Compose
 
 ```bash

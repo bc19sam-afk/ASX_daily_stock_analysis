@@ -650,3 +650,20 @@ Process notes:
 - Test result: `python -m pytest tests/test_report_readability_guardrail.py tests/test_report_body_deduplication.py tests/test_daily_decision_dashboard_archive.py` passed, 16 tests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Test result: `python -m pytest` passed, 565 tests, 6 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
 - Scope check: P2-4 records and appends review artifacts only; it does not connect brokers, write accounts, infer real fills, modify portfolio holdings, mutate daily summary fields, or affect `close_only` report generation.
+
+### 2026-05-28 - ASX Official Announcements Source v1
+
+- Status: implemented.
+- Scope: small PR from `main` HEAD `b36a15266eb11a9a17ed3249b7298079f7b174aa`; add ASX official Market Announcements as a read-only, best-effort evidence source.
+- Added batched ASX listing-page metadata fetch in `src/asx_announcements.py`: one today request plus, when lookback is positive, at most one previous-trading-day request. Requests use a User-Agent, cap per-page timeout at 10 seconds, catch network/timeout/parse errors, and return `unavailable` rather than pretending `clear`.
+- Parsed only listing metadata: code, date/published_at, headline, URL, price-sensitive marker, and optional pages/size. The implementation does not download PDFs or parse PDF bodies.
+- Integrated checks into daily summary evidence through `announcement_checks`, `evidence_matrix`, `evidence_summary`, `report_reliability`, and manual review prompts. `risk_found` and `unavailable` are display-only confirmation gaps; they do not change `final_decision`, `position_action`, `target_weight`, `delta_amount`, `action_counts`, `actionable_items`, `blocked_items`, validation gates, or simulated paper-portfolio writes.
+- Added config/workflow defaults: `ASX_ANNOUNCEMENTS_ENABLED=true`, `ASX_ANNOUNCEMENTS_LOOKBACK_DAYS=1`, `ASX_ANNOUNCEMENTS_MAX_ITEMS=5`, and `ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS=10`. Daily workflow passes these as vars/defaults only; no new secrets.
+- Updated `.env.example`, README, full guide, and deployment docs to state this is a read-only evidence source, not a realtime quote source, not an order-execution basis, and not a broker interface. This PR does not involve broker integration, real trading, or automatic order placement.
+- Added mocked ASX HTML/response tests for clear, `risk_found`, `unavailable`, ASX canonicalization, non-ASX skip, price-sensitive marker parsing, risk headline matching, page-structure fail-open, and network/timeout degradation.
+- Red test result before implementation: `python -m pytest tests/test_asx_announcements_fetcher.py ...` failed because `ASX_TODAY_ANNOUNCEMENTS_URL` and the fetcher API did not exist.
+- Test result: `python -m pytest tests/test_asx_announcement_contract.py tests/test_evidence_matrix.py tests/test_report_reliability_score.py` passed, 23 tests.
+- Test result: `python -m pytest -m "not network"` passed, 757 tests, 7 warnings, 5 subtests; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Test result: `npm run smoke` from `apps/dsa-desktop` passed (`desktop smoke OK`).
+- Test result: `python -m compileall -q src` passed.
+- Scope check: no search provider changes, no `max_searches`, no persistent search cache, no Web dashboard, no CSV import, no alert center, no broker integration, no real-account trading, no automatic order placement, and no deterministic action/sizing mutation.

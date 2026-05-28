@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from src.core.utils import is_failed_analysis, safe_float
 from src.core.validator import normalize_validation_status
@@ -251,6 +251,14 @@ def _append_evidence_review_reasons(reasons: List[str], entries: List[Dict[str, 
         status = str(entry.get("status") or "")
         if category == "announcement" and status == "not_checked":
             _append_unique(reasons, "公告未检查，执行前复核")
+            continue
+        if category == "announcement" and status == "unavailable":
+            _append_unique(reasons, "ASX 公告源不可用，执行前人工检查")
+            confirmation_gap = True
+            continue
+        if category == "announcement" and status == "risk_found":
+            _append_unique(reasons, "ASX 公告存在风险，执行前人工复核")
+            confirmation_gap = True
             continue
         if category == "backtest" and status == "not_checked":
             _append_unique(reasons, "回测证据未检查")
@@ -576,6 +584,7 @@ def build_daily_decision_summary(
     backtest_confidence: Optional[Dict[str, Any]] = None,
     score_bucket_calibration: Optional[Dict[str, Any]] = None,
     risk_sizing_settings: Optional[RiskSizingSettings] = None,
+    announcement_checks: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a stable summary for pre-open reporting."""
     successful_results = [r for r in results if not is_failed_analysis(r)]
@@ -760,6 +769,7 @@ def build_daily_decision_summary(
         overview=overview,
         classify_price_basis=classify_price_basis,
         format_validation_issue_text=format_validation_issue_text,
+        announcement_checks=announcement_checks,
     )
     evidence_summary = summarize_evidence_matrix(evidence_matrix)
     report_reliability = build_report_reliability(

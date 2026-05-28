@@ -208,6 +208,17 @@ GitHub Actions default schedule: every weekday at **08:00 Australia/Sydney** for
 | `BOCHA_API_KEYS` | Bocha Search API Key (Chinese optimized) | Optional |
 | `SERPAPI_API_KEYS` | SerpAPI low-frequency fallback after Gemini Grounding | Optional |
 
+### ASX Official Announcements Evidence
+
+| Variable | Description | Default |
+|--------|------|--------|
+| `ASX_ANNOUNCEMENTS_ENABLED` | Enable the read-only ASX official Market Announcements evidence source for evidence matrix, reliability, and manual review prompts only | `true` |
+| `ASX_ANNOUNCEMENTS_LOOKBACK_DAYS` | Fetch today's listing; when positive, fetch the previous trading day listing at most once | `1` |
+| `ASX_ANNOUNCEMENTS_MAX_ITEMS` | Maximum announcement metadata items retained per `.AX` ticker in report evidence | `5` |
+| `ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS` | Per-page ASX request timeout; runtime caps it at 10 seconds | `10` |
+
+This source does not download PDFs, parse PDF bodies, provide realtime quotes, act as an order-execution signal, or connect to brokers. This PR does not involve broker integration, real trading, or automatic order placement. If ASX is unavailable, times out, or changes page structure, the daily report continues and marks the source `unavailable` for manual checking before execution.
+
 ### Other Configuration
 
 | Variable | Description | Default |

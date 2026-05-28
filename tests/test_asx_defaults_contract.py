@@ -96,6 +96,54 @@ def test_daily_workflow_exposes_gemini_grounding_search_defaults():
     assert "GEMINI_GROUNDING_MAX_RESULTS: ${{ vars.GEMINI_GROUNDING_MAX_RESULTS || '3' }}" in daily_workflow
 
 
+def test_daily_workflow_exposes_asx_announcement_defaults_without_secrets():
+    daily_workflow = _read(".github/workflows/daily_analysis.yml")
+
+    assert "ASX_ANNOUNCEMENTS_ENABLED: ${{ vars.ASX_ANNOUNCEMENTS_ENABLED || 'true' }}" in daily_workflow
+    assert "ASX_ANNOUNCEMENTS_LOOKBACK_DAYS: ${{ vars.ASX_ANNOUNCEMENTS_LOOKBACK_DAYS || '1' }}" in daily_workflow
+    assert "ASX_ANNOUNCEMENTS_MAX_ITEMS: ${{ vars.ASX_ANNOUNCEMENTS_MAX_ITEMS || '5' }}" in daily_workflow
+    assert "ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS: ${{ vars.ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS || '10' }}" in daily_workflow
+    assert "secrets.ASX_ANNOUNCEMENTS" not in daily_workflow
+
+
+def test_config_registry_exposes_asx_announcement_defaults():
+    enabled = get_field_definition("ASX_ANNOUNCEMENTS_ENABLED")
+    lookback = get_field_definition("ASX_ANNOUNCEMENTS_LOOKBACK_DAYS")
+    max_items = get_field_definition("ASX_ANNOUNCEMENTS_MAX_ITEMS")
+    timeout = get_field_definition("ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS")
+
+    assert enabled["default_value"] == "true"
+    assert lookback["default_value"] == "1"
+    assert max_items["default_value"] == "5"
+    assert timeout["default_value"] == "10"
+    assert enabled["is_sensitive"] is False
+    assert timeout["validation"]["max"] == 10
+
+
+def test_runtime_config_exposes_asx_announcement_defaults(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("ENV_FILE", str(env_path))
+    for key in (
+        "ASX_ANNOUNCEMENTS_ENABLED",
+        "ASX_ANNOUNCEMENTS_LOOKBACK_DAYS",
+        "ASX_ANNOUNCEMENTS_MAX_ITEMS",
+        "ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    Config.reset_instance()
+    try:
+        config = Config.get_instance()
+
+        assert config.asx_announcements_enabled is True
+        assert config.asx_announcements_lookback_days == 1
+        assert config.asx_announcements_max_items == 5
+        assert config.asx_announcements_timeout_seconds == 10
+    finally:
+        Config.reset_instance()
+
+
 def test_analyzer_llm_pre_call_wait_is_conservative_twenty_seconds():
     analyzer_py = _read("src/analyzer.py")
 

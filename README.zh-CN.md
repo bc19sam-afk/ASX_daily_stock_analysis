@@ -66,6 +66,10 @@ python main.py --serve
 
 新闻与风险情报默认优先准确性，不以节省 Tavily/Gemini 搜索额度为目标。默认搜索顺序是 `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`。Tavily 保持 `search_depth="advanced"` 作为主路径，用于提高 ASX 新闻、风险、研报搜索完整性。Gemini Grounding 复用 `GEMINI_API_KEYS` / `GEMINI_API_KEY`；SerpAPI 保留为 Tavily 和 Gemini Grounding 都不可用后的低频 fallback。
 
+### ASX 官方公告证据源
+
+`ASX_ANNOUNCEMENTS_ENABLED=true` 会为 `.AX` 标的启用 ASX 官方 Market Announcements 页面只读检查。结果只进入 `evidence_matrix`、`evidence_summary`、`report_reliability` 和人工复核提示；它不是实时行情源，不是订单执行依据，也不是券商接口。本 PR 不涉及 broker、真实交易或自动下单。若 ASX 页面超时、不可访问或结构变化，日报继续运行，并把公告源标记为 `unavailable`，提示“ASX 公告源不可用，执行前人工检查”。
+
 ### 3) Docker / Compose
 
 ```bash

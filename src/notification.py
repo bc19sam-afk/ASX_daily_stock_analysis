@@ -42,6 +42,7 @@ except ImportError:
 
 from src.config import get_config
 from src.analyzer import AnalysisResult
+from src.asx_announcements import ASXAnnouncementCheck, build_asx_announcement_checks, is_asx_ticker
 from src.core.utils import is_failed_analysis
 from src.core.validator import normalize_validation_status
 from src.security_logging import redact_log_text, summarize_http_response_for_log
@@ -1299,7 +1300,39 @@ class NotificationService:
             backtest_confidence=self._build_backtest_confidence_panel(),
             score_bucket_calibration=self._build_score_bucket_calibration(),
             risk_sizing_settings=risk_sizing_settings_from_config(get_config()),
+            announcement_checks=self._build_asx_announcement_checks_for_report(results),
         )
+
+    def _build_asx_announcement_checks_for_report(self, results: List[AnalysisResult]) -> Dict[str, ASXAnnouncementCheck]:
+        """Build display-only ASX announcement checks without risking report failure."""
+        config = get_config()
+        if not bool(getattr(config, "asx_announcements_enabled", True)):
+            return {}
+
+        codes = [getattr(result, "code", "") for result in (results or [])]
+        try:
+            return build_asx_announcement_checks(
+                codes,
+                enabled=True,
+                lookback_days=getattr(config, "asx_announcements_lookback_days", 1),
+                max_items=getattr(config, "asx_announcements_max_items", 5),
+                timeout_seconds=getattr(config, "asx_announcements_timeout_seconds", 10),
+            )
+        except Exception as exc:  # pragma: no cover - defensive daily-job guard
+            logger.warning("ASX announcement check failed; report will continue: %s", exc)
+            checked_at = self._now_in_report_tz().isoformat(timespec="seconds")
+            return {
+                canonical_stock_code(code): ASXAnnouncementCheck(
+                    code=code,
+                    checked=False,
+                    source="asx_market_announcements",
+                    checked_at=checked_at,
+                    status="unavailable",
+                    reason="ASX 公告源不可用，执行前人工检查。",
+                )
+                for code in codes
+                if is_asx_ticker(code)
+            }
 
     def get_last_daily_decision_summary(self) -> Optional[Dict[str, Any]]:
         """Return the last summary generated as part of report rendering."""
