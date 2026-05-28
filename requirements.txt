@@ -21,13 +21,13 @@ json-repair>=0.55.1         # JSON 修复
 pydantic>=2,<3              # Analyzer schema validation (v2 API)
 
 # AI 分析
-google-genai>=0.7.0,<2.0      # Gemini API (新版，替代废弃的 google-generativeai)
+google-genai>=0.7.0,<2.0      # Gemini API + Grounding with Google Search
 anthropic>=0.18.0           # Anthropic Claude API（可选）
 openai>=1.0.0               # OpenAI 兼容 API（可选，支持 DeepSeek/通义千问等）
 
 # 搜索引擎（用于获取股票新闻）
-tavily-python>=0.3.0        # Tavily 搜索 API（每月 1000 次免费）
-google-search-results>=2.4.0  # SerpAPI（每月 100 次免费）
+tavily-python>=0.3.0        # Tavily 搜索 API（advanced 主路径）
+google-search-results>=2.4.0  # SerpAPI（低频 fallback）
 
 # 网络请求
 requests>=2.31.0            # HTTP 请求

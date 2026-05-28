@@ -280,6 +280,38 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.assertEqual(intel["latest_news"].provider, "p2")
         self.assertGreaterEqual(p2.call_count, 1)
 
+    def test_search_comprehensive_intel_default_dimensions_and_result_count_are_unchanged(self) -> None:
+        """默认情报搜索仍覆盖 5 个维度，每维请求 3 条结果。"""
+        calls = []
+
+        class RecordingProvider(FakeSearchProvider):
+            def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+                calls.append({"query": query, "max_results": max_results})
+                return SearchResponse(
+                    query=query,
+                    results=[
+                        SearchResult(
+                            title="ASX: CBA.AX coverage",
+                            snippet="Commonwealth Bank of Australia update",
+                            url=f"https://example.com/{len(calls)}",
+                            source="example.com",
+                            published_date=self_outer.fresh_published_date,
+                        )
+                    ],
+                    provider=self.name,
+                    success=True,
+                )
+
+        self_outer = self
+        provider = RecordingProvider("p1", [])
+        self.service._providers = [provider]
+
+        intel = self.service.search_comprehensive_intel(self.code, self.name)
+
+        self.assertEqual(list(intel.keys()), ["latest_news", "market_analysis", "risk_check", "earnings", "industry"])
+        self.assertEqual(len(calls), 5)
+        self.assertTrue(all(call["max_results"] == 3 for call in calls))
+
     def test_search_comprehensive_intel_latest_news_name_only_fallback(self) -> None:
         """latest_news 维度应修复 name-only 误杀。"""
         code = "WES.AX"

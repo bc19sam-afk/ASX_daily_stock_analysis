@@ -48,7 +48,7 @@ This document compiles common issues encountered by users and their solutions.
 
 **Solution**:
 1. The current ASX/AU/US default data path uses yfinance and does not require an extra market-data token.
-2. News search still benefits from `TAVILY_API_KEYS`, `SERPAPI_API_KEYS`, or `BRAVE_API_KEYS`.
+2. News search defaults to `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`; Tavily advanced is primary, Gemini Grounding reuses Gemini keys, and SerpAPI is only a low-frequency fallback.
 3. AI analysis still requires at least one model API key.
 
 ---

@@ -62,6 +62,10 @@ python main.py --serve
 
 Optional API Bearer authentication is supported for protected configuration endpoints. Local development remains compatible with `API_AUTH_ENABLED=false`; for production or public network access, set `API_AUTH_ENABLED=true` and configure a strong `API_AUTH_TOKEN`.
 
+### Search Accuracy Defaults
+
+News and risk intelligence prioritizes accuracy over search quota savings. The default provider order is `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`. Tavily keeps `search_depth="advanced"` as the primary path for fuller ASX news, risk, and research coverage. Gemini Grounding reuses `GEMINI_API_KEYS` / `GEMINI_API_KEY`; SerpAPI is retained as a low-frequency fallback after Tavily and Gemini Grounding are unavailable.
+
 ### 3) Docker / Compose
 
 ```bash

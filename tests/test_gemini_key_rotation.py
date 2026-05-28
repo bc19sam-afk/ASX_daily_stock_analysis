@@ -68,6 +68,38 @@ def test_config_registry_exposes_gemini_fallback_model_default():
     assert "GEMINI_MODEL_FALLBACK" in schema_keys
 
 
+def test_config_exposes_gemini_grounding_search_defaults(tmp_path, monkeypatch):
+    config = _load_config(
+        tmp_path,
+        monkeypatch,
+        "STOCK_LIST=BHP.AX\nGEMINI_API_KEYS=gemini-key-1234567890\nGEMINI_MODEL=gemini-custom-model\n",
+    )
+
+    assert config.gemini_grounding_search_enabled is True
+    assert config.gemini_grounding_model == "gemini-custom-model"
+    assert config.gemini_grounding_max_results == 3
+
+
+def test_config_registry_exposes_gemini_grounding_search_fields():
+    schema = build_schema_response()
+    schema_keys = {
+        item["key"]
+        for category in schema["categories"]
+        for item in category["fields"]
+    }
+
+    enabled = get_field_definition("GEMINI_GROUNDING_SEARCH_ENABLED")
+    model = get_field_definition("GEMINI_GROUNDING_MODEL")
+    max_results = get_field_definition("GEMINI_GROUNDING_MAX_RESULTS")
+
+    assert enabled["category"] == "data_source"
+    assert enabled["default_value"] == "true"
+    assert enabled["ui_control"] == "switch"
+    assert model["default_value"] == "gemini-3.5-flash"
+    assert max_results["default_value"] == "3"
+    assert {"GEMINI_GROUNDING_SEARCH_ENABLED", "GEMINI_GROUNDING_MODEL", "GEMINI_GROUNDING_MAX_RESULTS"} <= schema_keys
+
+
 def test_config_prefers_multi_gemini_keys_over_legacy_single_key(tmp_path, monkeypatch):
     config = _load_config(
         tmp_path,

@@ -113,10 +113,11 @@ daily_stock_analysis/
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
 | `STOCK_LIST` | 自选股代码，如 `BHP.AX,CBA.AX,CSL.AX` | ✅ |
-| `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API（新闻搜索） | 推荐 |
+| `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API；advanced 是默认主路径，用于提高 ASX 新闻、风险、研报搜索完整性 | 推荐 |
+| `GEMINI_GROUNDING_SEARCH_ENABLED` | 启用 Tavily 后的 Gemini Grounding with Google Search；复用 `GEMINI_API_KEYS` / `GEMINI_API_KEY` | 可选 |
 | `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索优化，支持AI摘要，多个key用逗号分隔） | 可选 |
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
-| `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 备用搜索 | 可选 |
+| `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 低频备用搜索，位于 Tavily/Gemini Grounding 之后 | 可选 |
 
 #### ✅ 最小配置示例
 
@@ -211,10 +212,13 @@ GitHub Actions 默认每个工作日 **08:00（Australia/Sydney）** 自动执�
 
 | 变量名 | 说明 | 必填 |
 |--------|------|:----:|
-| `TAVILY_API_KEYS` | Tavily 搜索 API Key（推荐） | 推荐 |
+| `TAVILY_API_KEYS` | Tavily 搜索 API Key（推荐，固定 advanced 主路径） | 推荐 |
+| `GEMINI_GROUNDING_SEARCH_ENABLED` | Gemini Grounding 搜索开关，默认 `true`；复用 Gemini API key | 可选 |
+| `GEMINI_GROUNDING_MODEL` | Grounding 模型；空值默认跟随 `GEMINI_MODEL`，再回退 `gemini-3.5-flash` | 可选 |
+| `GEMINI_GROUNDING_MAX_RESULTS` | Grounding 最大结果数，默认 `3` | 可选 |
 | `BOCHA_API_KEYS` | 博查搜索 API Key（中文优化） | 可选 |
 | `BRAVE_API_KEYS` | Brave Search API Key（美股优化） | 可选 |
-| `SERPAPI_API_KEYS` | SerpAPI 备用搜索 | 可选 |
+| `SERPAPI_API_KEYS` | SerpAPI 低频备用搜索，位于 Gemini Grounding 之后 | 可选 |
 
 ### 其他配置
 
@@ -540,7 +544,7 @@ PUSHOVER_API_TOKEN=your_api_token
 ## 数据源配置
 
 当前 ASX/AU/US 默认数据路径使用 yfinance，无需额外行情源 token。
-新闻搜索仍建议配置 `TAVILY_API_KEYS`、`SERPAPI_API_KEYS` 或 `BRAVE_API_KEYS`。
+新闻搜索默认顺序为 `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`。Tavily advanced 是主路径；Gemini Grounding 复用 Gemini key；SerpAPI 额度较少，仅作为 Tavily/Gemini Grounding 都不可用后的低频 fallback。
 
 ---
 

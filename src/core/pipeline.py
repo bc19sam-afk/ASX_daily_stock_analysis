@@ -136,7 +136,12 @@ class StockAnalysisPipeline:
             tavily_keys=self.config.tavily_api_keys,
             brave_keys=self.config.brave_api_keys,
             serpapi_keys=self.config.serpapi_keys,
-            news_max_age_days=self.config.news_max_age_days
+            gemini_keys=self.config.gemini_api_keys,
+            gemini_grounding_enabled=self.config.gemini_grounding_search_enabled,
+            gemini_grounding_model=self.config.gemini_grounding_model,
+            gemini_grounding_max_results=self.config.gemini_grounding_max_results,
+            news_max_age_days=self.config.news_max_age_days,
+            market_timezone=self.config.market_timezone,
         )
         
         logger.info(f"调度器初始化完成，最大并发数: {self.max_workers}")
@@ -147,7 +152,7 @@ class StockAnalysisPipeline:
         else:
             logger.info("实时行情已禁用，将使用历史收盘价")
         if self.search_service.is_available:
-            logger.info("搜索服务已启用 (Tavily/SerpAPI)")
+            logger.info("搜索服务已启用 (Tavily/Gemini Grounding/SerpAPI/Brave/Bocha)")
         else:
             logger.warning("搜索服务未启用（未配置 API Key）")
     

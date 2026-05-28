@@ -48,7 +48,7 @@
 
 **解决方案**：
 1. 当前 ASX/AU/US 默认数据路径使用 yfinance，无需额外行情源 token。
-2. 搜索新闻仍建议配置 `TAVILY_API_KEYS`、`SERPAPI_API_KEYS` 或 `BRAVE_API_KEYS`。
+2. 新闻搜索默认顺序是 `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`；Tavily advanced 是主路径，Gemini Grounding 复用 Gemini key，SerpAPI 只作为低频 fallback。
 3. AI 分析仍需要至少配置一个模型 API key。
 
 ---
