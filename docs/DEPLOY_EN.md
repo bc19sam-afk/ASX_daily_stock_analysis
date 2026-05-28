@@ -363,6 +363,9 @@ Add these Secrets:
 | `GEMINI_GROUNDING_SEARCH_ENABLED` | Gemini Grounding search switch, default `true`; reuses Gemini API keys | Optional |
 | `GEMINI_GROUNDING_MODEL` | Grounding model; empty value follows `GEMINI_MODEL`, then `gemini-3.5-flash` | Optional |
 | `GEMINI_GROUNDING_MAX_RESULTS` | Maximum Grounding results, default `3` | Optional |
+| `NEWS_INTEL_CACHE_ENABLED` | Reuse recent `news_intel` persistence before external search, default `true`; hits are labeled `news_intel_cache` | Optional |
+| `NEWS_INTEL_CACHE_DAYS` | Freshness window for `news_intel` cache, default `1` day | Optional |
+| `NEWS_INTEL_CACHE_MIN_RESULTS` | Minimum cached results required before reuse, default `1` | Optional |
 | `SERPAPI_API_KEYS` | SerpAPI Key, low-frequency fallback after Tavily/Gemini Grounding | Optional |
 | `ASX_ANNOUNCEMENTS_ENABLED` | Read-only ASX official announcements evidence switch, default `true`; failures are reported as `unavailable` only | Optional |
 | `ASX_ANNOUNCEMENTS_LOOKBACK_DAYS` | ASX announcements lookback, default `1`; today page at most once, previous trading day at most once | Optional |

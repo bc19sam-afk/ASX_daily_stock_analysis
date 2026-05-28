@@ -365,6 +365,9 @@ git push -u origin main
 | `GEMINI_GROUNDING_SEARCH_ENABLED` | Gemini Grounding 搜索开关，默认 `true`，复用 Gemini API key | 可选 |
 | `GEMINI_GROUNDING_MODEL` | Grounding 模型，空值跟随 `GEMINI_MODEL`，再回退 `gemini-3.5-flash` | 可选 |
 | `GEMINI_GROUNDING_MAX_RESULTS` | Grounding 最大结果数，默认 `3` | 可选 |
+| `NEWS_INTEL_CACHE_ENABLED` | 先复用近期 `news_intel` 持久新闻缓存，默认 `true`；命中时来源显示 `news_intel_cache` | 可选 |
+| `NEWS_INTEL_CACHE_DAYS` | `news_intel` 缓存新鲜度窗口，默认 `1` 天 | 可选 |
+| `NEWS_INTEL_CACHE_MIN_RESULTS` | 单维度至少几条缓存结果才复用，默认 `1` | 可选 |
 | `SERPAPI_API_KEYS` | SerpAPI Key，位于 Tavily/Gemini Grounding 之后的低频 fallback | 可选 |
 | `ASX_ANNOUNCEMENTS_ENABLED` | ASX 官方公告只读证据源开关，默认 `true`；失败只在日报中标记 `unavailable` | 可选 |
 | `ASX_ANNOUNCEMENTS_LOOKBACK_DAYS` | ASX 公告 lookback，默认 `1`；today 页面最多一次，previous trading day 页面最多一次 | 可选 |

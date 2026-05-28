@@ -2,6 +2,9 @@
 """Search / News 实体消歧测试。"""
 
 import unittest
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from src.search_service import (
@@ -311,6 +314,170 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.assertEqual(list(intel.keys()), ["latest_news", "market_analysis", "risk_check", "earnings", "industry"])
         self.assertEqual(len(calls), 5)
         self.assertTrue(all(call["max_results"] == 3 for call in calls))
+
+    def test_search_comprehensive_intel_honors_smaller_max_searches(self) -> None:
+        """调用方显式传更小 max_searches 时，只搜索前 N 个维度。"""
+        calls = []
+
+        class RecordingProvider(FakeSearchProvider):
+            def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+                calls.append(query)
+                return SearchResponse(
+                    query=query,
+                    results=[
+                        SearchResult(
+                            title="ASX: CBA.AX coverage",
+                            snippet="Commonwealth Bank of Australia update",
+                            url=f"https://example.com/small-max-{len(calls)}",
+                            source="example.com",
+                            published_date=self_outer.fresh_published_date,
+                        )
+                    ],
+                    provider=self.name,
+                    success=True,
+                )
+
+        self_outer = self
+        self.service._providers = [RecordingProvider("p1", [])]
+
+        intel = self.service.search_comprehensive_intel(self.code, self.name, max_searches=2)
+
+        self.assertEqual(list(intel.keys()), ["latest_news", "market_analysis"])
+        self.assertEqual(len(calls), 2)
+
+    def test_search_comprehensive_intel_uses_cached_dimension_without_provider(self) -> None:
+        """已命中的持久缓存维度不再触发 provider 搜索。"""
+        cached = {
+            dim["name"]: SearchResponse(
+                query=dim["query"],
+                results=[
+                    SearchResult(
+                        title=f"ASX: CBA.AX cached {dim['name']}",
+                        snippet="Commonwealth Bank of Australia cached intelligence",
+                        url=f"https://example.com/cached-{dim['name']}",
+                        source="example.com",
+                        published_date=self.fresh_published_date,
+                    )
+                ],
+                provider="news_intel_cache",
+                success=True,
+            )
+            for dim in self.service.build_comprehensive_intel_dimensions(self.code, self.name)
+        }
+        provider = FakeSearchProvider("p1", [])
+        self.service._providers = [provider]
+
+        intel = self.service.search_comprehensive_intel(
+            self.code,
+            self.name,
+            max_searches=5,
+            cached_intel=cached,
+        )
+
+        self.assertEqual(list(intel.keys()), ["latest_news", "market_analysis", "risk_check", "earnings", "industry"])
+        self.assertTrue(all(resp.provider == "news_intel_cache" for resp in intel.values()))
+        self.assertEqual(provider.call_count, 0)
+
+        report = self.service.format_intel_report(intel, stock_name=self.name)
+        self.assertIn("来源: news_intel_cache", report)
+        self.assertIn("来源: example.com", report)
+        self.assertIn("URL: https://example.com/cached-latest_news", report)
+        self.assertIn(self.fresh_published_date.split(" ")[0], report)
+
+    def test_search_comprehensive_intel_falls_back_for_missing_cached_dimension(self) -> None:
+        """部分维度无缓存时，缺口维度继续走 provider fallback。"""
+        dims = self.service.build_comprehensive_intel_dimensions(self.code, self.name)
+        cached = {
+            "latest_news": SearchResponse(
+                query=dims[0]["query"],
+                results=[
+                    SearchResult(
+                        title="ASX: CBA.AX cached latest",
+                        snippet="Commonwealth Bank of Australia cached intelligence",
+                        url="https://example.com/cached-latest",
+                        source="example.com",
+                        published_date=self.fresh_published_date,
+                    )
+                ],
+                provider="news_intel_cache",
+                success=True,
+            )
+        }
+        provider_response = SearchResponse(
+            query="provider",
+            results=[
+                SearchResult(
+                    title="ASX: CBA.AX analysts update",
+                    snippet="Commonwealth Bank of Australia coverage",
+                    url="https://example.com/provider-market-analysis",
+                    source="provider.example",
+                    published_date=self.fresh_published_date,
+                )
+            ],
+            provider="p1",
+            success=True,
+        )
+        provider = FakeSearchProvider("p1", [provider_response])
+        self.service._providers = [provider]
+
+        intel = self.service.search_comprehensive_intel(
+            self.code,
+            self.name,
+            max_searches=2,
+            cached_intel=cached,
+        )
+
+        self.assertEqual(intel["latest_news"].provider, "news_intel_cache")
+        self.assertEqual(intel["market_analysis"].provider, "p1")
+        self.assertEqual(provider.call_count, 1)
+
+    def test_search_stock_news_inflight_cache_coalesces_concurrent_same_query(self) -> None:
+        """并发相同 query 时，只允许一个 provider 填充进程内 cache。"""
+
+        class BlockingProvider(BaseSearchProvider):
+            def __init__(self) -> None:
+                super().__init__(api_keys=["fake-key"], name="blocking")
+                self.call_count = 0
+                self.lock = threading.Lock()
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+                with self.lock:
+                    self.call_count += 1
+                self.started.set()
+                self.release.wait(timeout=2)
+                return SearchResponse(
+                    query=query,
+                    results=[
+                        SearchResult(
+                            title="ASX: CBA.AX concurrent cache hit",
+                            snippet="Commonwealth Bank of Australia update",
+                            url="https://example.com/concurrent-cache",
+                            source="example.com",
+                            published_date=self_outer.fresh_published_date,
+                        )
+                    ],
+                    provider=self.name,
+                    success=True,
+                )
+
+        self_outer = self
+        provider = BlockingProvider()
+        self.service._providers = [provider]
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(self.service.search_stock_news, self.code, self.name, 3)
+            self.assertTrue(provider.started.wait(timeout=1))
+            second = executor.submit(self.service.search_stock_news, self.code, self.name, 3)
+            time.sleep(0.05)
+            provider.release.set()
+            first_response = first.result(timeout=2)
+            second_response = second.result(timeout=2)
+
+        self.assertEqual(provider.call_count, 1)
+        self.assertEqual(first_response.results[0].url, "https://example.com/concurrent-cache")
+        self.assertEqual(second_response.results[0].url, "https://example.com/concurrent-cache")
 
     def test_search_comprehensive_intel_latest_news_name_only_fallback(self) -> None:
         """latest_news 维度应修复 name-only 误杀。"""

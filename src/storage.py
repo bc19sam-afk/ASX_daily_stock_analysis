@@ -1075,6 +1075,43 @@ class DatabaseManager:
 
             return list(results)
 
+    def get_recent_news_intel(
+        self,
+        code: str,
+        dimension: str,
+        days: int = 1,
+        limit: int = 20,
+    ) -> List[NewsIntel]:
+        """
+        按股票代码、情报维度和抓取时间窗口读取持久新闻情报缓存。
+        """
+        canonical_code = canonical_stock_code(code)
+        aliases = stock_code_aliases(canonical_code)
+        if not aliases:
+            return []
+        safe_days = max(1, int(days or 1))
+        safe_limit = max(1, int(limit or 1))
+        cutoff_date = datetime.now(tz=timezone.utc) - timedelta(days=safe_days)
+
+        with self.get_session() as session:
+            results = session.execute(
+                select(NewsIntel)
+                .where(
+                    and_(
+                        NewsIntel.code.in_(aliases),
+                        NewsIntel.dimension == dimension,
+                        NewsIntel.fetched_at >= cutoff_date,
+                    )
+                )
+                .order_by(
+                    desc(func.coalesce(NewsIntel.published_date, NewsIntel.fetched_at)),
+                    desc(NewsIntel.fetched_at),
+                )
+                .limit(safe_limit)
+            ).scalars().all()
+
+            return list(results)
+
     def get_news_intel_by_query_id(self, query_id: str, limit: int = 20) -> List[NewsIntel]:
         """
         根据 query_id 获取新闻情报列表

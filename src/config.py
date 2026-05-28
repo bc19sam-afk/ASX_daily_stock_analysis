@@ -125,6 +125,9 @@ class Config:
 
     # === 新闻与分析筛选配置 ===
     news_max_age_days: int = 3   # 新闻最大时效（天）
+    news_intel_cache_enabled: bool = True
+    news_intel_cache_days: int = 1
+    news_intel_cache_min_results: int = 1
     bias_threshold: float = 5.0  # 乖离率阈值（%），超过此值提示不追高
     bias_strong_trend_relax_multiplier: float = 1.5  # 强趋势时乖离率阈值最多放宽倍数
     
@@ -473,6 +476,9 @@ class Config:
             pushplus_token=os.getenv('PUSHPLUS_TOKEN'),
             serverchan3_sendkey=os.getenv('SERVERCHAN3_SENDKEY'),
             serverchan3_sendkey_2=os.getenv('SERVERCHAN3_SENDKEY_2'),
+            news_intel_cache_enabled=os.getenv('NEWS_INTEL_CACHE_ENABLED', 'true').lower() == 'true',
+            news_intel_cache_days=max(1, int(os.getenv('NEWS_INTEL_CACHE_DAYS', '1'))),
+            news_intel_cache_min_results=max(1, int(os.getenv('NEWS_INTEL_CACHE_MIN_RESULTS', '1'))),
             custom_webhook_urls=[u.strip() for u in os.getenv('CUSTOM_WEBHOOK_URLS', '').split(',') if u.strip()],
             custom_webhook_bearer_token=os.getenv('CUSTOM_WEBHOOK_BEARER_TOKEN'),
             webhook_verify_ssl=os.getenv('WEBHOOK_VERIFY_SSL', 'true').lower() == 'true',

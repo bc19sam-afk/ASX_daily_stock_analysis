@@ -120,6 +120,41 @@ def test_config_registry_exposes_asx_announcement_defaults():
     assert timeout["validation"]["max"] == 10
 
 
+def test_config_registry_exposes_news_intel_cache_defaults():
+    enabled = get_field_definition("NEWS_INTEL_CACHE_ENABLED")
+    days = get_field_definition("NEWS_INTEL_CACHE_DAYS")
+    min_results = get_field_definition("NEWS_INTEL_CACHE_MIN_RESULTS")
+
+    assert enabled["category"] == "data_source"
+    assert enabled["default_value"] == "true"
+    assert days["default_value"] == "1"
+    assert days["validation"]["min"] == 1
+    assert min_results["default_value"] == "1"
+    assert min_results["validation"]["min"] == 1
+
+
+def test_runtime_config_exposes_news_intel_cache_defaults(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("ENV_FILE", str(env_path))
+    for key in (
+        "NEWS_INTEL_CACHE_ENABLED",
+        "NEWS_INTEL_CACHE_DAYS",
+        "NEWS_INTEL_CACHE_MIN_RESULTS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    Config.reset_instance()
+    try:
+        config = Config.get_instance()
+
+        assert config.news_intel_cache_enabled is True
+        assert config.news_intel_cache_days == 1
+        assert config.news_intel_cache_min_results == 1
+    finally:
+        Config.reset_instance()
+
+
 def test_runtime_config_exposes_asx_announcement_defaults(monkeypatch, tmp_path):
     env_path = tmp_path / ".env"
     env_path.write_text("", encoding="utf-8")
