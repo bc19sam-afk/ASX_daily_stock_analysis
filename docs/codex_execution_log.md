@@ -676,3 +676,16 @@ Process notes:
 - Updated the roadmap to keep human-in-the-loop as the default while allowing explicitly scoped broker, real-account, or order-execution work to be designed separately.
 - Marked P2-3 as completed and implemented: conservative announcement-check contract plus ASX official Market Announcements listing metadata source v1.
 - Preserved the implementation boundary that the source reads listing metadata only; do not build brittle PDF scraping, download PDFs, parse PDF bodies, or claim unchecked announcements are clear.
+
+### 2026-05-28 - ASX Roadmap P2-P4 Delivery Chain
+
+- Status: merged.
+- Scope: roadmap phases 2-4, each delivered as its own PR from latest `main` and merged only after Actions were green.
+- P2 PR: `https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/179` | merge commit `37e522ab680784dffe6ac3263e4bc53093df2cc9` | `ASX AnalysisContextPack v1`.
+- P3 PR: `https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/180` | merge commit `83a0559b8769a63b1482f97e4995c893e1ba5224` | `Minimal Web Workbench v1`.
+- P4 PR: `https://github.com/bc19sam-afk/ASX_daily_stock_analysis/pull/181` | merge commit `d113358bde0c0446bf39a4aeaaec41fac1604764` | `ASX Portfolio Ledger / CSV Import v1`.
+- Final main HEAD: `d113358bde0c0446bf39a4aeaaec41fac1604764`.
+- Verification: `python -m pytest tests/test_asx_portfolio_import.py tests/test_manual_portfolio_workflows.py tests/test_portfolio_integrity_checks.py tests/test_position_management_accounting.py -m "not network"` passed, 71 tests / 5 subtests; `python -m compileall -q src scripts` passed.
+- Actions: PR #181 checks were green before merge; backend-gate passed and the other required checks passed or skipped according to change scope.
+- Boundary: the chain stayed local to analysis context, a minimal workbench, and a manual ledger import path; no broker API, no real account reads, and no automatic order placement.
+- Next step: ASX-aware alert center.
