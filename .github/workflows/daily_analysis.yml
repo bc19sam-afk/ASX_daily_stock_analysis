@@ -207,6 +207,11 @@ jobs:
           EXECUTION_PRICE_POLICY: close_only
           # 只写入模拟盘账本，不触碰真实账户；用于在日报中展示模拟操作与盈亏
           PAPER_PORTFOLIO_AUTO_APPLY: ${{ vars.PAPER_PORTFOLIO_AUTO_APPLY || secrets.PAPER_PORTFOLIO_AUTO_APPLY || 'true' }}
+          # ASX 官方公告源：只读 best-effort 证据源；失败只标注 unavailable，不阻断日报
+          ASX_ANNOUNCEMENTS_ENABLED: ${{ vars.ASX_ANNOUNCEMENTS_ENABLED || 'true' }}
+          ASX_ANNOUNCEMENTS_LOOKBACK_DAYS: ${{ vars.ASX_ANNOUNCEMENTS_LOOKBACK_DAYS || '1' }}
+          ASX_ANNOUNCEMENTS_MAX_ITEMS: ${{ vars.ASX_ANNOUNCEMENTS_MAX_ITEMS || '5' }}
+          ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS: ${{ vars.ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS || '10' }}
 
           # ==========================================
           # 系统配置
@@ -242,6 +247,7 @@ jobs:
           echo "  Gemini Grounding: $(if [ "$GEMINI_GROUNDING_SEARCH_ENABLED" = "true" ] && { [ -n "$GEMINI_API_KEYS" ] || [ -n "$GEMINI_API_KEY" ]; }; then echo '✅ 已配置'; else echo '⚪ 未配置'; fi)"
           echo "  SerpAPI Keys: $([ -n "$SERPAPI_API_KEYS" ] && echo '✅ 已配置' || echo '⚪ 未配置')"
           echo "  Brave API Keys: $([ -n "$BRAVE_API_KEYS" ] && echo '✅ 已配置' || echo '⚪ 未配置')"
+          echo "  ASX 官方公告源: $([ "$ASX_ANNOUNCEMENTS_ENABLED" = "true" ] && echo '✅ best-effort 启用' || echo '⚪ 关闭')"
           echo ""
           echo "【通知渠道】"
           echo "  PushPlus: $([ -n "$PUSHPLUS_TOKEN" ] && echo '✅ 已配置' || echo '⚪ 未配置')"
