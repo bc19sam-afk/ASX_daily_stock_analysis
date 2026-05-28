@@ -62,6 +62,10 @@ python main.py --serve
 
 系统支持为受保护的配置接口启用可选 Bearer Token 认证。本地开发可保持 `API_AUTH_ENABLED=false`；生产或公网访问建议设置 `API_AUTH_ENABLED=true`，并配置高强度 `API_AUTH_TOKEN`。
 
+### 搜索准确性默认值
+
+新闻与风险情报默认优先准确性，不以节省 Tavily/Gemini 搜索额度为目标。默认搜索顺序是 `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`。Tavily 保持 `search_depth="advanced"` 作为主路径，用于提高 ASX 新闻、风险、研报搜索完整性。Gemini Grounding 复用 `GEMINI_API_KEYS` / `GEMINI_API_KEY`；SerpAPI 保留为 Tavily 和 Gemini Grounding 都不可用后的低频 fallback。
+
 ### 3) Docker / Compose
 
 ```bash
@@ -84,6 +88,8 @@ docker compose -f docker/docker-compose.yml up -d
   - 对参数错误、模型名错误、请求格式错误这类永久错误，会直接报错，不会切 key
 - 搜索 secrets：
   - `TAVILY_API_KEYS` 支持多个 key，使用方式同样是英文逗号分隔
+  - Gemini Grounding 复用 `GEMINI_API_KEYS` / `GEMINI_API_KEY`，不需要另一套 key
+  - `SERPAPI_API_KEYS` 可继续配置，但只作为 Tavily/Gemini Grounding 之后的低频 fallback
 
 ## 运行模式（实际 CLI 行为）
 

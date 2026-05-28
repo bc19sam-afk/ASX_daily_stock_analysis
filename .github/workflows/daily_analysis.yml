@@ -120,6 +120,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-3.5-flash' }}
           GEMINI_MODEL_FALLBACK: ${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-3-flash-preview' }}
+          GEMINI_GROUNDING_SEARCH_ENABLED: ${{ vars.GEMINI_GROUNDING_SEARCH_ENABLED || 'true' }}
+          GEMINI_GROUNDING_MODEL: ${{ vars.GEMINI_GROUNDING_MODEL || secrets.GEMINI_GROUNDING_MODEL || vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-3.5-flash' }}
+          GEMINI_GROUNDING_MAX_RESULTS: ${{ vars.GEMINI_GROUNDING_MAX_RESULTS || '3' }}
           GEMINI_REQUEST_DELAY: '3.0'
           
           # OpenAI 兼容 API（备选）
@@ -133,6 +136,7 @@ jobs:
           BOCHA_API_KEYS: ${{ secrets.BOCHA_API_KEYS }}
           TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
           SERPAPI_API_KEYS: ${{ secrets.SERPAPI_API_KEYS }}
+          BRAVE_API_KEYS: ${{ secrets.BRAVE_API_KEYS }}
           
           # ==========================================
           # 通知渠道（可同时配置多个，全部推送）
@@ -232,8 +236,12 @@ jobs:
           echo "  OpenAI API Key: $([ -n "$OPENAI_API_KEY" ] && echo '✅ 已配置' || echo '⚪ 未配置')"
           echo ""
           echo "【搜索引擎】"
+          echo "  默认顺序: Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha"
           echo "  Bocha API Keys: $([ -n "$BOCHA_API_KEYS" ] && echo '✅ 已配置' || echo '⚪ 未配置')"
           echo "  Tavily API Keys: $([ -n "$TAVILY_API_KEYS" ] && echo '✅ 已配置' || echo '⚪ 未配置')"
+          echo "  Gemini Grounding: $(if [ "$GEMINI_GROUNDING_SEARCH_ENABLED" = "true" ] && { [ -n "$GEMINI_API_KEYS" ] || [ -n "$GEMINI_API_KEY" ]; }; then echo '✅ 已配置'; else echo '⚪ 未配置'; fi)"
+          echo "  SerpAPI Keys: $([ -n "$SERPAPI_API_KEYS" ] && echo '✅ 已配置' || echo '⚪ 未配置')"
+          echo "  Brave API Keys: $([ -n "$BRAVE_API_KEYS" ] && echo '✅ 已配置' || echo '⚪ 未配置')"
           echo ""
           echo "【通知渠道】"
           echo "  PushPlus: $([ -n "$PUSHPLUS_TOKEN" ] && echo '✅ 已配置' || echo '⚪ 未配置')"

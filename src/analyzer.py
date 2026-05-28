@@ -1229,7 +1229,7 @@ class GeminiAnalyzer:
                     model_name = self._current_model_name
             
             logger.info(f"========== AI 分析 {name}({code}) ==========")
-            time.sleep(30)
+            time.sleep(20)
             logger.info(f"[LLM配置] 模型: {model_name}")
             logger.info(f"[LLM配置] Prompt 长度: {len(prompt)} 字符")
             logger.info(f"[LLM配置] 是否包含新闻: {'是' if news_context else '否'}")

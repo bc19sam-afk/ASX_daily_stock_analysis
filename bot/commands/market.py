@@ -83,12 +83,31 @@ class MarketCommand(BotCommand):
 
             # 初始化搜索服务
             search_service = None
-            if config.bocha_api_keys or config.tavily_api_keys or config.brave_api_keys or config.serpapi_keys:
+            has_gemini_grounding_search = getattr(config, "gemini_grounding_search_enabled", True) and bool(
+                getattr(config, "gemini_api_keys", [])
+            )
+            if (
+                config.bocha_api_keys
+                or config.tavily_api_keys
+                or config.brave_api_keys
+                or config.serpapi_keys
+                or has_gemini_grounding_search
+            ):
                 search_service = SearchService(
                     bocha_keys=config.bocha_api_keys,
                     tavily_keys=config.tavily_api_keys,
                     brave_keys=config.brave_api_keys,
-                    serpapi_keys=config.serpapi_keys
+                    serpapi_keys=config.serpapi_keys,
+                    gemini_keys=getattr(config, "gemini_api_keys", []),
+                    gemini_grounding_enabled=getattr(config, "gemini_grounding_search_enabled", True),
+                    gemini_grounding_model=getattr(
+                        config,
+                        "gemini_grounding_model",
+                        getattr(config, "gemini_model", "gemini-3.5-flash"),
+                    ),
+                    gemini_grounding_max_results=getattr(config, "gemini_grounding_max_results", 3),
+                    news_max_age_days=getattr(config, "news_max_age_days", 3),
+                    market_timezone=getattr(config, "market_timezone", None),
                 )
 
             # 初始化 AI 分析器

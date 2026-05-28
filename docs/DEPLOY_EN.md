@@ -359,8 +359,11 @@ Add these Secrets:
 | `SERVERCHAN3_SENDKEY` | ServerChan v3 Sendkey | Optional* |
 | `CUSTOM_WEBHOOK_URLS` | Custom Webhook (comma-separated for multiple) | Optional* |
 | `STOCK_LIST` | Watchlist, e.g., `BHP.AX,CBA.AX,CSL.AX` | ✅ |
-| `TAVILY_API_KEYS` | Tavily Search API Key | Recommended |
-| `SERPAPI_API_KEYS` | SerpAPI Key | Optional |
+| `TAVILY_API_KEYS` | Tavily Search API Key (advanced primary path) | Recommended |
+| `GEMINI_GROUNDING_SEARCH_ENABLED` | Gemini Grounding search switch, default `true`; reuses Gemini API keys | Optional |
+| `GEMINI_GROUNDING_MODEL` | Grounding model; empty value follows `GEMINI_MODEL`, then `gemini-3.5-flash` | Optional |
+| `GEMINI_GROUNDING_MAX_RESULTS` | Maximum Grounding results, default `3` | Optional |
+| `SERPAPI_API_KEYS` | SerpAPI Key, low-frequency fallback after Tavily/Gemini Grounding | Optional |
 | `GEMINI_MODEL` | Model name (default gemini-3.5-flash) | Optional |
 
 > *Note: Configure at least one notification channel, multiple channels supported for simultaneous push

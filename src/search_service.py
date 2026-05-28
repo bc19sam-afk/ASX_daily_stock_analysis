@@ -6,12 +6,13 @@ ASX-first 自选股智能分析系统 - 搜索服务模块
 
 职责：
 1. 提供统一的新闻搜索接口
-2. 支持 Tavily, SerpAPI, Bocha, Brave 四种搜索引擎
+2. 支持 Tavily, Gemini Grounding, SerpAPI, Brave, Bocha 搜索引擎
 3. 多 Key 负载均衡和故障转移
 4. 搜索结果缓存和格式化
 5. 针对澳洲股票 (ASX) 进行了搜索源优先级优化
 """
 
+import json
 import logging
 import random
 import re
@@ -25,6 +26,8 @@ from itertools import cycle
 from zoneinfo import ZoneInfo
 import requests
 from newspaper import Article, Config
+
+from src.gemini_key_manager import is_valid_gemini_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +238,277 @@ class TavilySearchProvider(BaseSearchProvider):
             return '未知来源'
 
 
+class GeminiGroundingSearchProvider(BaseSearchProvider):
+    """Gemini Grounding with Google Search provider."""
+
+    def __init__(
+        self,
+        api_keys: List[str],
+        model: Optional[str] = None,
+        max_results: int = 3,
+        enabled: bool = True,
+    ):
+        valid_keys = [key for key in api_keys if is_valid_gemini_api_key(key)]
+        super().__init__(valid_keys, "Gemini Grounding")
+        self._model = (model or "gemini-3.5-flash").strip() or "gemini-3.5-flash"
+        self._grounding_max_results = max(1, int(max_results or 3))
+        self._enabled = enabled
+
+    @property
+    def is_available(self) -> bool:
+        return self._enabled and super().is_available
+
+    def search(self, query: str, max_results: int = 5, days: int = 7) -> SearchResponse:
+        if not self.is_available:
+            return SearchResponse(
+                query=query,
+                results=[],
+                provider=self.name,
+                success=False,
+                error_message="Gemini Grounding 未启用或未配置有效 Gemini API Key",
+            )
+
+        start_time = time.time()
+        errors: List[str] = []
+        attempted_keys = set()
+
+        for _ in range(len(self._api_keys)):
+            api_key = self._get_next_key()
+            if not api_key or api_key in attempted_keys:
+                break
+            attempted_keys.add(api_key)
+
+            response = self._do_search(query, api_key, max_results, days=days)
+            response.search_time = time.time() - start_time
+            if response.success and response.results:
+                self._record_success(api_key)
+                logger.info(f"[{self.name}] 搜索 '{query}' 成功，返回 {len(response.results)} 条结果")
+                return response
+
+            self._record_error(api_key)
+            if response.error_message:
+                errors.append(response.error_message)
+
+        return SearchResponse(
+            query=query,
+            results=[],
+            provider=self.name,
+            success=False,
+            error_message="; ".join(errors) or "Gemini Grounding 未返回可用搜索结果",
+            search_time=time.time() - start_time,
+        )
+
+    def _do_search(self, query: str, api_key: str, max_results: int, days: int = 7) -> SearchResponse:
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError:
+            return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message="google-genai 未安装")
+
+        try:
+            effective_max_results = min(max(1, max_results), self._grounding_max_results)
+            client = genai.Client(api_key=api_key)
+            tool = types.Tool(google_search=types.GoogleSearch())
+            config = types.GenerateContentConfig(tools=[tool], temperature=0.2)
+            response = client.models.generate_content(
+                model=self._model,
+                contents=self._build_prompt(query, effective_max_results, days),
+                config=config,
+            )
+
+            model_items = self._parse_model_results(getattr(response, "text", "") or "")
+            grounding_chunks = self._extract_grounding_chunks(response)
+            results = self._merge_grounded_results(grounding_chunks, model_items, effective_max_results)
+
+            if not results:
+                return SearchResponse(
+                    query=query,
+                    results=[],
+                    provider=self.name,
+                    success=False,
+                    error_message="Gemini Grounding 未返回 grounding_chunks 或可用 URL",
+                )
+
+            return SearchResponse(query=query, results=results, provider=self.name, success=True)
+        except Exception as e:
+            return SearchResponse(query=query, results=[], provider=self.name, success=False, error_message=str(e))
+
+    @staticmethod
+    def _build_prompt(query: str, max_results: int, days: int) -> str:
+        return f"""Use Google Search grounding to find current, source-backed web results for this query:
+{query}
+
+Return only JSON in this exact shape:
+{{
+  "results": [
+    {{
+      "title": "source title",
+      "snippet": "concise factual summary",
+      "url": "https://source.example/path",
+      "source": "source domain or publication",
+      "published_date": "YYYY-MM-DD or null"
+    }}
+  ]
+}}
+
+Rules:
+- Return at most {max_results} results.
+- Prefer sources from the last {days} day(s) when available.
+- If published_date cannot be determined, use null.
+- Do not include markdown fences or extra commentary.
+"""
+
+    @classmethod
+    def _parse_model_results(cls, response_text: str) -> List[Dict[str, Optional[str]]]:
+        payload = cls._extract_json_payload(response_text)
+        if not payload:
+            return []
+
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            try:
+                from json_repair import repair_json
+
+                data = json.loads(repair_json(payload))
+            except Exception:
+                return []
+
+        if isinstance(data, dict):
+            raw_items = data.get("results", [])
+        elif isinstance(data, list):
+            raw_items = data
+        else:
+            return []
+
+        items: List[Dict[str, Optional[str]]] = []
+        for raw in raw_items:
+            if not isinstance(raw, dict):
+                continue
+            url = str(raw.get("url") or raw.get("uri") or "").strip()
+            if not url:
+                continue
+            published_date = raw.get("published_date")
+            items.append(
+                {
+                    "title": str(raw.get("title") or "").strip() or None,
+                    "snippet": str(raw.get("snippet") or raw.get("summary") or "").strip() or None,
+                    "url": url,
+                    "source": str(raw.get("source") or "").strip() or None,
+                    "published_date": str(published_date).strip() if published_date not in (None, "") else None,
+                }
+            )
+        return items
+
+    @staticmethod
+    def _extract_json_payload(text: str) -> Optional[str]:
+        text = (text or "").strip()
+        if not text:
+            return None
+
+        starts = [(text.find("{"), "{", "}"), (text.find("["), "[", "]")]
+        starts = [item for item in starts if item[0] >= 0]
+        if not starts:
+            return None
+        start, _opener, closer = min(starts, key=lambda item: item[0])
+        end = text.rfind(closer)
+        if end < start:
+            return None
+        return text[start : end + 1]
+
+    @classmethod
+    def _extract_grounding_chunks(cls, response: Any) -> List[Dict[str, str]]:
+        candidates = cls._get_value(response, "candidates") or []
+        chunks: List[Dict[str, str]] = []
+
+        for candidate in candidates:
+            metadata = cls._get_value(candidate, "grounding_metadata") or cls._get_value(candidate, "groundingMetadata")
+            if not metadata:
+                continue
+            raw_chunks = cls._get_value(metadata, "grounding_chunks") or cls._get_value(metadata, "groundingChunks") or []
+            for raw_chunk in raw_chunks:
+                web = cls._get_value(raw_chunk, "web") or cls._get_value(raw_chunk, "retrieved_context")
+                if not web:
+                    continue
+                uri = str(cls._get_value(web, "uri") or cls._get_value(web, "url") or "").strip()
+                if not uri:
+                    continue
+                title = str(cls._get_value(web, "title") or cls._get_value(web, "name") or "").strip()
+                chunks.append({"url": uri, "title": title})
+
+        return chunks
+
+    @classmethod
+    def _merge_grounded_results(
+        cls,
+        grounding_chunks: List[Dict[str, str]],
+        model_items: List[Dict[str, Optional[str]]],
+        max_results: int,
+    ) -> List[SearchResult]:
+        model_by_url = {item["url"]: item for item in model_items if item.get("url")}
+        results: List[SearchResult] = []
+        seen_urls = set()
+
+        for chunk in grounding_chunks:
+            url = chunk.get("url", "")
+            if not url or url in seen_urls:
+                continue
+            model_item = model_by_url.get(url, {})
+            title = model_item.get("title") or chunk.get("title") or url
+            snippet = model_item.get("snippet") or ""
+            source = model_item.get("source") or cls._extract_domain(url)
+            published_date = model_item.get("published_date")
+            results.append(
+                SearchResult(
+                    title=title,
+                    snippet=snippet,
+                    url=url,
+                    source=source,
+                    published_date=published_date,
+                    published_fields={"published_date": published_date},
+                )
+            )
+            seen_urls.add(url)
+            if len(results) >= max_results:
+                return results
+
+        for model_item in model_items:
+            url = model_item.get("url") or ""
+            if not url or url in seen_urls:
+                continue
+            published_date = model_item.get("published_date")
+            results.append(
+                SearchResult(
+                    title=model_item.get("title") or url,
+                    snippet=model_item.get("snippet") or "",
+                    url=url,
+                    source=model_item.get("source") or cls._extract_domain(url),
+                    published_date=published_date,
+                    published_fields={"published_date": published_date},
+                )
+            )
+            seen_urls.add(url)
+            if len(results) >= max_results:
+                break
+
+        return results
+
+    @staticmethod
+    def _get_value(obj: Any, key: str) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key, None)
+
+    @staticmethod
+    def _extract_domain(url: str) -> str:
+        try:
+            from urllib.parse import urlparse
+
+            return urlparse(url).netloc.replace("www.", "") or "未知来源"
+        except Exception:
+            return "未知来源"
+
+
 class SerpAPISearchProvider(BaseSearchProvider):
     """SerpAPI 搜索引擎"""
     
@@ -423,11 +697,15 @@ class SearchService:
         tavily_keys: Optional[List[str]] = None,
         brave_keys: Optional[List[str]] = None,
         serpapi_keys: Optional[List[str]] = None,
+        gemini_keys: Optional[List[str]] = None,
+        gemini_grounding_enabled: bool = True,
+        gemini_grounding_model: Optional[str] = None,
+        gemini_grounding_max_results: int = 3,
         news_max_age_days: int = 3,
         market_timezone: Optional[str] = None
         
     ):
-        """初始化搜索服务（已针对澳洲股票优化：Tavily 优先）"""
+        """初始化搜索服务（已针对澳洲股票优化：Tavily advanced 优先）"""
         self._providers: List[BaseSearchProvider] = []
         
         self.news_max_age_days = max(1, news_max_age_days)  # <--- 插入这句
@@ -438,17 +716,29 @@ class SearchService:
             self._providers.append(TavilySearchProvider(tavily_keys))
             logger.info(f"已配置 Tavily 搜索，共 {len(tavily_keys)} 个 API Key")
 
-        # 2. SerpAPI 第二（Google 原生搜索）
+        # 2. Gemini Grounding with Google Search（Tavily 后第一 fallback，可复用 Gemini keys）
+        if gemini_grounding_enabled and gemini_keys:
+            self._providers.append(
+                GeminiGroundingSearchProvider(
+                    gemini_keys,
+                    model=gemini_grounding_model,
+                    max_results=gemini_grounding_max_results,
+                    enabled=gemini_grounding_enabled,
+                )
+            )
+            logger.info(f"已配置 Gemini Grounding 搜索，共 {len(gemini_keys)} 个 Gemini API Key")
+
+        # 3. SerpAPI（低频 Google fallback）
         if serpapi_keys:
             self._providers.append(SerpAPISearchProvider(serpapi_keys))
             logger.info(f"已配置 SerpAPI 搜索，共 {len(serpapi_keys)} 个 API Key")
 
-        # 3. Brave Search 第三
+        # 4. Brave Search
         if brave_keys:
             self._providers.append(BraveSearchProvider(brave_keys))
             logger.info(f"已配置 Brave 搜索，共 {len(brave_keys)} 个 API Key")
 
-        # 4. Bocha 降至最后（目前欠费，仅作最后备份）
+        # 5. Bocha 降至最后（目前欠费，仅作最后备份）
         if bocha_keys:
             self._providers.append(BochaSearchProvider(bocha_keys))
             logger.info(f"已配置 Bocha 搜索，共 {len(bocha_keys)} 个 API Key")
@@ -1148,6 +1438,12 @@ def get_search_service() -> SearchService:
             tavily_keys=config.tavily_api_keys,
             brave_keys=config.brave_api_keys,
             serpapi_keys=config.serpapi_keys,
+            gemini_keys=config.gemini_api_keys,
+            gemini_grounding_enabled=config.gemini_grounding_search_enabled,
+            gemini_grounding_model=config.gemini_grounding_model,
+            gemini_grounding_max_results=config.gemini_grounding_max_results,
+            news_max_age_days=config.news_max_age_days,
+            market_timezone=config.market_timezone,
         )
     
     return _search_service

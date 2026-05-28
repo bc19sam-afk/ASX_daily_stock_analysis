@@ -142,8 +142,11 @@ Docker 镜像默认提供后端 API 服务。
 |--------|------|
 | `GEMINI_API_KEY` | Gemini API 密钥 |
 | `BOCHA_API_KEYS` | Bocha API 密钥（用逗号分隔） |
-| `TAVILY_API_KEYS` | Tavily API 密钥（用逗号分隔） |
-| `SERPAPI_KEYS` | SerpAPI 密钥（用逗号分隔） |
+| `TAVILY_API_KEYS` | Tavily API 密钥（用逗号分隔，advanced 主路径） |
+| `GEMINI_GROUNDING_SEARCH_ENABLED` | Gemini Grounding 搜索开关，默认 `true`，复用 Gemini API key |
+| `GEMINI_GROUNDING_MODEL` | Grounding 模型，空值跟随 `GEMINI_MODEL`，再回退 `gemini-3.5-flash` |
+| `GEMINI_GROUNDING_MAX_RESULTS` | Grounding 最大结果数，默认 `3` |
+| `SERPAPI_API_KEYS` | SerpAPI 密钥（用逗号分隔），位于 Tavily/Gemini Grounding 之后的低频 fallback |
 
 ### 5.4 配置方法
 

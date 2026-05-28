@@ -19,7 +19,7 @@ from dotenv import load_dotenv, dotenv_values
 from dataclasses import dataclass, field
 
 from src.enums import ReportType
-from src.gemini_key_manager import parse_gemini_api_keys
+from src.gemini_key_manager import is_valid_gemini_api_key, parse_gemini_api_keys
 from src.stock_code import canonical_stock_codes
 
 logger = logging.getLogger(__name__)
@@ -94,6 +94,9 @@ class Config:
     gemini_api_keys: List[str] = field(default_factory=list)
     gemini_model: str = "gemini-3.5-flash"  # 主模型
     gemini_model_fallback: str = "gemini-3-flash-preview"  # 备选模型
+    gemini_grounding_search_enabled: bool = True  # 使用 Gemini Grounding with Google Search 作为搜索 fallback
+    gemini_grounding_model: str = "gemini-3.5-flash"
+    gemini_grounding_max_results: int = 3
     gemini_temperature: float = 0.7  # 温度参数（0.0-2.0，控制输出随机性，默认0.7）
 
     # Gemini API 请求配置（防止 429 限流）
@@ -393,6 +396,10 @@ class Config:
             os.getenv('GEMINI_API_KEYS', ''),
             os.getenv('GEMINI_API_KEY'),
         )
+        gemini_model = os.getenv('GEMINI_MODEL', 'gemini-3.5-flash') or 'gemini-3.5-flash'
+        gemini_model_fallback = os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-3-flash-preview') or 'gemini-3-flash-preview'
+        gemini_grounding_model = os.getenv('GEMINI_GROUNDING_MODEL') or gemini_model or 'gemini-3.5-flash'
+        gemini_grounding_max_results = max(1, int(os.getenv('GEMINI_GROUNDING_MAX_RESULTS', '3')))
         
         serpapi_keys_str = os.getenv('SERPAPI_API_KEYS', '')
         serpapi_keys = [k.strip() for k in serpapi_keys_str.split(',') if k.strip()]
@@ -418,8 +425,11 @@ class Config:
             feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),
             gemini_api_key=gemini_api_keys[0] if gemini_api_keys else os.getenv('GEMINI_API_KEY'),
             gemini_api_keys=gemini_api_keys,
-            gemini_model=os.getenv('GEMINI_MODEL', 'gemini-3.5-flash'),
-            gemini_model_fallback=os.getenv('GEMINI_MODEL_FALLBACK', 'gemini-3-flash-preview'),
+            gemini_model=gemini_model,
+            gemini_model_fallback=gemini_model_fallback,
+            gemini_grounding_search_enabled=os.getenv('GEMINI_GROUNDING_SEARCH_ENABLED', 'true').lower() == 'true',
+            gemini_grounding_model=gemini_grounding_model,
+            gemini_grounding_max_results=gemini_grounding_max_results,
             gemini_temperature=float(os.getenv('GEMINI_TEMPERATURE', '0.7')),
             gemini_request_delay=float(os.getenv('GEMINI_REQUEST_DELAY', '2.0')),
             gemini_max_retries=int(os.getenv('GEMINI_MAX_RETRIES', '5')),
@@ -729,8 +739,17 @@ class Config:
         elif not self.gemini_api_key and not self.anthropic_api_key:
             warnings.append("提示：未配置 Gemini/Anthropic API Key，将使用 OpenAI 兼容 API")
         
-        if not self.bocha_api_keys and not self.tavily_api_keys and not self.brave_api_keys and not self.serpapi_keys:
-            warnings.append("提示：未配置搜索引擎 API Key (Bocha/Tavily/Brave/SerpAPI)，新闻搜索功能将不可用")
+        gemini_grounding_available = self.gemini_grounding_search_enabled and any(
+            is_valid_gemini_api_key(key) for key in (self.gemini_api_keys or [])
+        )
+        if (
+            not self.bocha_api_keys
+            and not self.tavily_api_keys
+            and not self.brave_api_keys
+            and not self.serpapi_keys
+            and not gemini_grounding_available
+        ):
+            warnings.append("提示：未配置搜索引擎 API Key (Tavily/Gemini Grounding/SerpAPI/Brave/Bocha)，新闻搜索功能将不可用")
         
         # 检查通知配置
         has_notification = (

@@ -109,9 +109,10 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | Secret Name | Description | Required |
 |------------|------|:----:|
 | `STOCK_LIST` | Watchlist codes, e.g., `BHP.AX,CBA.AX,CSL.AX` | ✅ |
-| `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API (for news search) | Recommended |
+| `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API. Advanced search is the primary path for ASX news, risk, and research completeness. | Recommended |
+| `GEMINI_GROUNDING_SEARCH_ENABLED` | Enables Gemini Grounding with Google Search after Tavily. Reuses `GEMINI_API_KEYS` / `GEMINI_API_KEY`. | Optional |
 | `BOCHA_API_KEYS` | [Bocha Search](https://open.bocha.cn/) Web Search API (Chinese search optimized, supports AI summaries, multiple keys comma-separated) | Optional |
-| `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) Backup search | Optional |
+| `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) low-frequency fallback after Tavily and Gemini Grounding | Optional |
 
 #### ✅ Minimum Configuration Example
 
@@ -200,9 +201,12 @@ GitHub Actions default schedule: every weekday at **08:00 Australia/Sydney** for
 
 | Variable | Description | Required |
 |--------|------|:----:|
-| `TAVILY_API_KEYS` | Tavily Search API Key (recommended) | Recommended |
+| `TAVILY_API_KEYS` | Tavily Search API Key (recommended, fixed advanced primary path) | Recommended |
+| `GEMINI_GROUNDING_SEARCH_ENABLED` | Gemini Grounding search switch, default `true`; reuses Gemini API keys | Optional |
+| `GEMINI_GROUNDING_MODEL` | Grounding model; empty value follows `GEMINI_MODEL`, then `gemini-3.5-flash` | Optional |
+| `GEMINI_GROUNDING_MAX_RESULTS` | Maximum Grounding results, default `3` | Optional |
 | `BOCHA_API_KEYS` | Bocha Search API Key (Chinese optimized) | Optional |
-| `SERPAPI_API_KEYS` | SerpAPI Backup search | Optional |
+| `SERPAPI_API_KEYS` | SerpAPI low-frequency fallback after Gemini Grounding | Optional |
 
 ### Other Configuration
 
@@ -471,7 +475,7 @@ Features:
 ## Data Source Configuration
 
 The current ASX/AU/US default data path uses yfinance and does not require an extra market-data token.
-News search still benefits from `TAVILY_API_KEYS`, `SERPAPI_API_KEYS`, or `BRAVE_API_KEYS`.
+News search defaults to `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`. Tavily advanced is the primary path; Gemini Grounding reuses Gemini keys; SerpAPI has limited quota and is kept only as a low-frequency fallback after Tavily and Gemini Grounding are unavailable.
 
 ---
 

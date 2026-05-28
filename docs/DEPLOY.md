@@ -361,8 +361,11 @@ git push -u origin main
 | `SERVERCHAN3_SENDKEY` | Server酱³ Sendkey | 可选* |
 | `CUSTOM_WEBHOOK_URLS` | 自定义 Webhook（多个逗号分隔） | 可选* |
 | `STOCK_LIST` | 自选股列表，如 `BHP.AX,CBA.AX,CSL.AX` | ✅ |
-| `TAVILY_API_KEYS` | Tavily 搜索 API Key（多个 key 用逗号分隔） | 推荐 |
-| `SERPAPI_API_KEYS` | SerpAPI Key | 可选 |
+| `TAVILY_API_KEYS` | Tavily 搜索 API Key（多个 key 用逗号分隔，advanced 主路径） | 推荐 |
+| `GEMINI_GROUNDING_SEARCH_ENABLED` | Gemini Grounding 搜索开关，默认 `true`，复用 Gemini API key | 可选 |
+| `GEMINI_GROUNDING_MODEL` | Grounding 模型，空值跟随 `GEMINI_MODEL`，再回退 `gemini-3.5-flash` | 可选 |
+| `GEMINI_GROUNDING_MAX_RESULTS` | Grounding 最大结果数，默认 `3` | 可选 |
+| `SERPAPI_API_KEYS` | SerpAPI Key，位于 Tavily/Gemini Grounding 之后的低频 fallback | 可选 |
 | `GEMINI_MODEL` | 模型名称（默认 gemini-3.5-flash） | 可选 |
 
 > *注：通知渠道至少配置一个，支持多渠道同时推送

@@ -85,6 +85,24 @@ def test_daily_workflow_gemini_defaults_match_runtime_config():
     assert "GEMINI_MODEL_FALLBACK: ${{ vars.GEMINI_MODEL_FALLBACK || secrets.GEMINI_MODEL_FALLBACK || 'gemini-2.5-flash' }}" not in daily_workflow
 
 
+def test_daily_workflow_exposes_gemini_grounding_search_defaults():
+    daily_workflow = _read(".github/workflows/daily_analysis.yml")
+
+    assert "GEMINI_GROUNDING_SEARCH_ENABLED: ${{ vars.GEMINI_GROUNDING_SEARCH_ENABLED || 'true' }}" in daily_workflow
+    assert (
+        "GEMINI_GROUNDING_MODEL: "
+        "${{ vars.GEMINI_GROUNDING_MODEL || secrets.GEMINI_GROUNDING_MODEL || vars.GEMINI_MODEL || secrets.GEMINI_MODEL || 'gemini-3.5-flash' }}"
+    ) in daily_workflow
+    assert "GEMINI_GROUNDING_MAX_RESULTS: ${{ vars.GEMINI_GROUNDING_MAX_RESULTS || '3' }}" in daily_workflow
+
+
+def test_analyzer_llm_pre_call_wait_is_conservative_twenty_seconds():
+    analyzer_py = _read("src/analyzer.py")
+
+    assert "time.sleep(20)" in analyzer_py
+    assert "time.sleep(30)" not in analyzer_py
+
+
 def test_workflow_and_docker_defaults_are_asx_sydney():
     daily_workflow = _read(".github/workflows/daily_analysis.yml")
     ci_workflow = _read(".github/workflows/ci.yml")
