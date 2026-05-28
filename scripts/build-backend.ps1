@@ -25,6 +25,7 @@ $hiddenImports = @(
   'api.v1.endpoints.history',
   'api.v1.endpoints.stocks',
   'api.v1.endpoints.health',
+  'api.v1.endpoints.workbench',
   'api.v1.schemas',
   'api.v1.schemas.analysis',
   'api.v1.schemas.history',
@@ -36,6 +37,7 @@ $hiddenImports = @(
   'src.services.task_queue',
   'src.services.analysis_service',
   'src.services.history_service',
+  'src.services.backtest_service',
   'uvicorn.logging',
   'uvicorn.loops',
   'uvicorn.loops.auto',
@@ -54,5 +56,8 @@ Write-Host "Running: $cmd"
 Invoke-Expression $cmd
 
 Copy-Item -Path 'dist\stock_analysis' -Destination 'dist\backend\stock_analysis' -Recurse -Force
+if (Test-Path 'static') {
+  Copy-Item -Path 'static' -Destination 'dist\backend\stock_analysis\static' -Recurse -Force
+}
 
 Write-Host 'Backend build completed.'
