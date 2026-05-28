@@ -68,7 +68,7 @@ News and risk intelligence prioritizes accuracy over search quota savings. The d
 
 ### ASX Official Announcements Evidence
 
-`ASX_ANNOUNCEMENTS_ENABLED=true` enables a read-only, best-effort check of ASX official Market Announcements listing pages for `.AX` tickers. The check adds metadata evidence to `evidence_matrix`, `evidence_summary`, `report_reliability`, and manual review prompts. It is not a realtime quote source, not an order execution signal, not a broker interface, and this PR does not involve broker integration, real trading, or automatic order placement. If ASX pages time out or change structure, the daily report continues and marks the source `unavailable` with an execution-before-manual-check warning.
+`ASX_ANNOUNCEMENTS_ENABLED=true` enables a read-only, best-effort check of ASX official Market Announcements listing pages for `.AX` tickers. The check adds metadata evidence to `evidence_matrix`, `evidence_summary`, `report_reliability`, and manual review prompts. This feature is read-only evidence for manual review and does not provide realtime quotes, order execution, or broker connectivity. If ASX pages time out or change structure, the daily report continues and marks the source `unavailable` with an execution-before-manual-check warning.
 
 ### 3) Docker / Compose
 

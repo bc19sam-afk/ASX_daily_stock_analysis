@@ -12,11 +12,11 @@
 - Do not combine multiple roadmap PRs into one diff.
 - Do not do incidental refactors.
 - Do not mix retired same-day manual review modes into the daily report.
-- Do not connect brokers, automate trading, or write to real trading accounts.
+- For the current report/data roadmap, do not add broker, real-account, or automated order-execution behavior unless a PR is explicitly scoped for execution work.
 
 ## Long-Term Project Boundary
 
-This is an ASX-first daily stock analysis and reporting system. The default report is an Australia/Sydney pre-open daily report based on a `close_only` previous-close plan. It is a human decision-support system, not an automated trading system.
+This is an ASX-first daily stock analysis and reporting system. The default report is an Australia/Sydney pre-open daily report based on a `close_only` previous-close plan. By default, it is a human decision-support system. Explicitly scoped broker, real-account, or order-execution work can be designed separately and must not be mixed into ordinary report, data-source, UI, documentation, or test PRs.
 
 AI may explain deterministic outputs, summarize evidence, and list risks or invalidation conditions. AI must not override `final_decision`, `position_action`, or validation gates. `BLOCK` must hard-block pseudo-execution semantics. Buy, sell, stop-loss, and target points may remain only as conditional plan points with source, trigger condition, invalidation condition, and required human review before execution.
 
@@ -39,7 +39,7 @@ AI may explain deterministic outputs, summarize evidence, and list risks or inva
 
 ## Stop Conditions
 
-Stop immediately if tests fail and cannot be fixed inside the current PR scope, the scope grows beyond the current PR, project boundaries would need to change, unauthorized workflow / `close_only` / position-manager / data-provider / storage / database changes become necessary, broker or auto-trading integration would be required, current `main` is inconsistent with the roadmap assumptions, or the diff becomes too large for the PR.
+Stop immediately if tests fail and cannot be fixed inside the current PR scope, the scope grows beyond the current PR, project boundaries would need to change, unauthorized workflow / `close_only` / position-manager / data-provider / storage / database changes become necessary, unscoped broker or order-execution behavior would be required, current `main` is inconsistent with the roadmap assumptions, or the diff becomes too large for the PR.
 
 ## P0-1 AI Role Boundary
 
@@ -130,7 +130,7 @@ For `BLOCK` symbols, do not show executable points. Only show observation refere
 
 **Do Not Do:**
 
-- Do not add external data sources or ASX official announcement scraping.
+- Do not add external data sources inside P0-3. ASX official Market Announcements listing metadata is tracked separately and is now implemented as completed P2-3 work.
 - Do not change analysis logic, position rules, workflow, `close_only`, or database schema.
 - Do not implement report reliability score in this PR.
 
@@ -194,7 +194,7 @@ Dashboard evidence quality summary, for example complete market-data count, miss
 
 - Do not change buy / sell decisions, sizing, validation gates, or `position_action`.
 - Do not introduce a complex model or treat reliability as a trading signal.
-- Do not implement P1 backtest confidence or ASX announcement scraping.
+- Do not implement P1 backtest confidence inside P0-4, and do not download or parse ASX announcement PDF bodies.
 - Do not add database migrations.
 
 **Expected Files:**
@@ -409,9 +409,9 @@ Structure PE, PB, dividend yield, market cap, ROE, and debt-to-equity fields ins
 
 Make ASX news search ASX / Australia / English-first by default while preserving non-ASX and Chinese compatibility as secondary behavior.
 
-## P2 Roadmap - Retired Same-Day Review Items
+## P2 Roadmap - Retired Same-Day Review Items and Completed Announcement Source
 
-P2 originally covered same-day manual checks and long-term feedback loops. Same-day manual review inputs, evaluators, runners, and local JSON review artifacts are retired for the current operating boundary and must not be reintroduced without separate authorization.
+P2 originally covered same-day manual checks and long-term feedback loops. Same-day manual review inputs, evaluators, runners, and local JSON review artifacts are retired for the current operating boundary and must not be reintroduced without separate authorization. P2-3 is no longer a future-only contract item: the conservative contract and ASX official Market Announcements listing metadata source v1 are implemented.
 
 ### P2-1 Same-Day Review Input Contract
 
@@ -421,9 +421,9 @@ Retired. Do not maintain a separate same-day review input/output contract for th
 
 Retired. Do not maintain a separate same-day review mode, local market-input runner, or local JSON/Markdown review artifacts for the current ASX daily-report-only workflow.
 
-### P2-3 ASX Official Announcement Check Contract
+### P2-3 ASX Official Announcement Check Contract and Source v1
 
-Define a conservative announcement-check abstraction and report display status. Do not implement brittle scraping or claim unchecked announcements are clear.
+Completed and implemented. The conservative announcement-check contract and ASX official Market Announcements listing metadata source v1 are read-only evidence for `evidence_matrix`, `report_reliability`, and manual review prompts. They do not provide realtime quotes, order execution, or broker connectivity. Keep the boundary: do not build brittle PDF scraping, download or parse PDF bodies, or claim unchecked announcements are clear.
 
 ### P2-4 Daily Review Journal
 

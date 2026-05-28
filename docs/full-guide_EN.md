@@ -217,7 +217,7 @@ GitHub Actions default schedule: every weekday at **08:00 Australia/Sydney** for
 | `ASX_ANNOUNCEMENTS_MAX_ITEMS` | Maximum announcement metadata items retained per `.AX` ticker in report evidence | `5` |
 | `ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS` | Per-page ASX request timeout; runtime caps it at 10 seconds | `10` |
 
-This source does not download PDFs, parse PDF bodies, provide realtime quotes, act as an order-execution signal, or connect to brokers. This PR does not involve broker integration, real trading, or automatic order placement. If ASX is unavailable, times out, or changes page structure, the daily report continues and marks the source `unavailable` for manual checking before execution.
+This feature is read-only evidence for manual review and does not provide realtime quotes, order execution, or broker connectivity. It does not download PDFs or parse PDF bodies. If ASX is unavailable, times out, or changes page structure, the daily report continues and marks the source `unavailable` for manual checking before execution.
 
 ### Other Configuration
 
