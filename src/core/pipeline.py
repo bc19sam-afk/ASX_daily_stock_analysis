@@ -282,7 +282,7 @@ class StockAnalysisPipeline:
             
             # Step 4: 多维度情报搜索（最新消息+风险排查+业绩预期）
             news_context = None
-            news_intel_cache_enabled = bool(getattr(self.config, "news_intel_cache_enabled", True))
+            news_intel_cache_enabled = bool(getattr(self.config, "news_intel_cache_enabled", False))
             if self.search_service.is_available or news_intel_cache_enabled:
                 logger.info(f"[{code}] 开始多维度情报搜索...")
                 
@@ -503,7 +503,7 @@ class StockAnalysisPipeline:
         """
         Reuse recent persisted news_intel rows before falling back to external search.
         """
-        cache_enabled = bool(getattr(self.config, "news_intel_cache_enabled", True))
+        cache_enabled = bool(getattr(self.config, "news_intel_cache_enabled", False))
         if force_refresh or not cache_enabled:
             return self.search_service.search_comprehensive_intel(
                 stock_code=code,
