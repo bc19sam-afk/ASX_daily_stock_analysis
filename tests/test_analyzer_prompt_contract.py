@@ -97,3 +97,18 @@ def test_analysis_prompt_uses_configured_one_percent_trade_risk_budget(monkeypat
     prompt = _prompt_with_runtime_risk_config(monkeypatch, tmp_path, max_trade_risk_pct=0.01)
 
     assert "单笔交易最大允许亏损为总本金的 1%（即 100.0 AUD）" in prompt
+
+
+def test_analysis_prompt_embeds_context_pack_v1_contract(monkeypatch, tmp_path):
+    prompt = _prompt_with_runtime_risk_config(monkeypatch, tmp_path)
+
+    assert "AnalysisContextPack v1" in prompt
+    assert '"stock_identity"' in prompt
+    assert '"price_basis"' in prompt
+    assert '"market_snapshot"' in prompt
+    assert '"evidence_context"' in prompt
+    assert '"portfolio_context"' in prompt
+    assert '"risk_context"' in prompt
+    assert '"prompt_contract"' in prompt
+    assert "Australia/Sydney" in prompt
+    assert "AUD" in prompt

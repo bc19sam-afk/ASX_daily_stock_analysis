@@ -19,6 +19,7 @@ from typing import Optional, Dict, Any, List
 from json_repair import repair_json
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from src.analysis_context import build_analysis_context_pack
 from src.config import get_config
 from src.gemini_key_manager import (
     GeminiKeyManager,
@@ -1468,6 +1469,22 @@ class GeminiAnalyzer:
         else:
             fundamentals_table = "暂无基本面数据"
 
+        analysis_context_pack = build_analysis_context_pack(
+            context,
+            stock_name=stock_name,
+            news_context=news_context,
+            report_date=context.get("report_date") or context.get("date"),
+            validation_status=context.get("validation_status"),
+            validation_issues=context.get("validation_issues"),
+        )
+        context["analysis_context_pack"] = analysis_context_pack.to_dict()
+        analysis_context_pack_block = (
+            "## AnalysisContextPack v1\n"
+            "```json\n"
+            f"{json.dumps(context['analysis_context_pack'], ensure_ascii=False, sort_keys=True, indent=2)}\n"
+            "```\n"
+        )
+
         # 生成历史回测胜率摘要
         bt = context.get('backtest_summary')
         if bt:
@@ -1536,6 +1553,7 @@ class GeminiAnalyzer:
 
 {price_policy_block}
 {bias_threshold_block}
+{analysis_context_pack_block}
 
 ---
 
