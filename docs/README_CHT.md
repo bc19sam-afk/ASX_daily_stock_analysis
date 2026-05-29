@@ -48,7 +48,7 @@
 |------|------|
 | AI 模型 | Gemini（免費）、OpenAI 兼容、DeepSeek、通義千問、Claude、Ollama |
 | 行情數據 | YFinance（目前 ASX/AU/US 預設路徑） |
-| 新聞搜索 | Tavily advanced、Gemini Grounding、SerpAPI、Brave、Bocha |
+| 新聞搜索 | Tavily advanced、Gemini Grounding、SerpAPI |
 
 ### 內建交易紀律
 
@@ -119,8 +119,6 @@
 | `STOCK_LIST` | 自選股代碼，如 `BHP.AX,CBA.AX,AAPL` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API。advanced 是 ASX 新聞、風險、研報完整性的主路徑 | 推薦 |
 | `GEMINI_GROUNDING_SEARCH_ENABLED` | 啟用 Tavily 後的 Gemini Grounding with Google Search；復用 `GEMINI_API_KEYS` / `GEMINI_API_KEY` | 可選 |
-| `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索優化，支持AI摘要，多個key用逗號分隔） | 可選 |
-| `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隱私優先，美股優化，多個key用逗號分隔） | 可選 |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 低頻備用搜索，位於 Tavily/Gemini Grounding 之後 | 可選 |
 
 #### 3. 啟用 Actions

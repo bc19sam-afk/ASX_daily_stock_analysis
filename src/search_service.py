@@ -6,7 +6,7 @@ ASX-first 自选股智能分析系统 - 搜索服务模块
 
 职责：
 1. 提供统一的新闻搜索接口
-2. 支持 Tavily, Gemini Grounding, SerpAPI, Brave, Bocha 搜索引擎
+2. 默认使用 Tavily, Gemini Grounding, SerpAPI 搜索链路
 3. 多 Key 负载均衡和故障转移
 4. 搜索结果缓存和格式化
 5. 针对澳洲股票 (ASX) 进行了搜索源优先级优化
@@ -742,15 +742,8 @@ class SearchService:
             self._providers.append(SerpAPISearchProvider(serpapi_keys))
             logger.info(f"已配置 SerpAPI 搜索，共 {len(serpapi_keys)} 个 API Key")
 
-        # 4. Brave Search
-        if brave_keys:
-            self._providers.append(BraveSearchProvider(brave_keys))
-            logger.info(f"已配置 Brave 搜索，共 {len(brave_keys)} 个 API Key")
-
-        # 5. Bocha 降至最后（目前欠费，仅作最后备份）
-        if bocha_keys:
-            self._providers.append(BochaSearchProvider(bocha_keys))
-            logger.info(f"已配置 Bocha 搜索，共 {len(bocha_keys)} 个 API Key")
+        if brave_keys or bocha_keys:
+            logger.info("已忽略 Brave/Bocha 搜索配置，日常搜索链路仅使用 Tavily/Gemini Grounding/SerpAPI")
 
         if not self._providers:
             logger.warning("未配置任何搜索引擎 API Key，新闻搜索功能将不可用")
@@ -1241,25 +1234,25 @@ class SearchService:
             
         return SearchResponse(query=query, results=[], provider="None", success=False, error_message="Events search failed")
 
-    def build_comprehensive_intel_dimensions(self, stock_code: str, stock_name: str) -> List[Dict[str, str]]:
+    def build_comprehensive_intel_dimensions(self, stock_code: str, stock_name: str) -> List[Dict[str, Any]]:
         is_foreign = self._is_foreign_stock(stock_code)
 
         if is_foreign:
             # 针对外盘（澳股/美股），直接使用 stock_code 搜索，避开中文名干扰
             return [
-                {'name': 'latest_news', 'query': self._build_grounded_query(stock_code, stock_name, ["latest news events"]), 'desc': '最新消息'},
-                {'name': 'market_analysis', 'query': self._build_grounded_query(stock_code, stock_name, ["analyst rating target price report"]), 'desc': '机构分析'},
-                {'name': 'risk_check', 'query': self._build_grounded_query(stock_code, stock_name, ["risk insider selling lawsuit litigation"]), 'desc': '风险排查'},
-                {'name': 'earnings', 'query': self._build_grounded_query(stock_code, stock_name, ["earnings revenue profit growth forecast"]), 'desc': '业绩预期'},
-                {'name': 'industry', 'query': self._build_grounded_query(stock_code, stock_name, ["industry competitors market share outlook"]), 'desc': '行业分析'},
+                {'name': 'latest_news', 'query': self._build_grounded_query(stock_code, stock_name, ["latest news events"]), 'desc': '最新消息', 'strict_freshness': True},
+                {'name': 'market_analysis', 'query': self._build_grounded_query(stock_code, stock_name, ["analyst rating target price report"]), 'desc': '机构分析', 'strict_freshness': False},
+                {'name': 'risk_check', 'query': self._build_grounded_query(stock_code, stock_name, ["risk insider selling lawsuit litigation"]), 'desc': '风险排查', 'strict_freshness': True},
+                {'name': 'earnings', 'query': self._build_grounded_query(stock_code, stock_name, ["earnings revenue profit growth forecast"]), 'desc': '业绩预期', 'strict_freshness': False},
+                {'name': 'industry', 'query': self._build_grounded_query(stock_code, stock_name, ["industry competitors market share outlook"]), 'desc': '行业分析', 'strict_freshness': False},
             ]
 
         return [
-            {'name': 'latest_news', 'query': f"{stock_name} 最新新闻", 'desc': '最新消息'},
-            {'name': 'market_analysis', 'query': f"{stock_name} 研报 评级", 'desc': '机构分析'},
-            {'name': 'risk_check', 'query': f"{stock_name} 利空 风险", 'desc': '风险排查'},
-            {'name': 'earnings', 'query': f"{stock_name} 业绩预告", 'desc': '业绩预期'},
-            {'name': 'industry', 'query': f"{stock_name} 行业分析", 'desc': '行业分析'},
+            {'name': 'latest_news', 'query': f"{stock_name} 最新新闻", 'desc': '最新消息', 'strict_freshness': True},
+            {'name': 'market_analysis', 'query': f"{stock_name} 研报 评级", 'desc': '机构分析', 'strict_freshness': False},
+            {'name': 'risk_check', 'query': f"{stock_name} 利空 风险", 'desc': '风险排查', 'strict_freshness': True},
+            {'name': 'earnings', 'query': f"{stock_name} 业绩预告", 'desc': '业绩预期', 'strict_freshness': False},
+            {'name': 'industry', 'query': f"{stock_name} 行业分析", 'desc': '行业分析', 'strict_freshness': False},
         ]
 
     @staticmethod
@@ -1337,48 +1330,52 @@ class SearchService:
         except (TypeError, ValueError):
             search_limit = len(dims)
 
+        available_providers = [p for p in self._providers if p.is_available]
+        provider_index = 0
+
         for dim in dims[:search_limit]:
             cached_response = (cached_intel or {}).get(dim['name'])
             if cached_response and cached_response.success and cached_response.results:
                 results[dim['name']] = cached_response
                 continue
 
-            # 始终优先使用 Tavily (如果配置了且排在第一位)
-            selected_resp: Optional[SearchResponse] = None
-            for provider in self._providers:
-                if not provider.is_available: continue
-                resp = provider.search(dim['query'], max_results=3)
-                if resp.success and resp.results:
-                    fresh_resp = self._filter_by_news_age(resp)
-                    if not fresh_resp.results:
-                        logger.debug(
-                            "维度 %s 在时效过滤后为空，继续尝试下一个 provider: %s(%s) provider=%s",
-                            dim['name'],
-                            stock_name,
-                            stock_code,
-                            provider.name
-                        )
-                        continue
+            if not available_providers:
+                results[dim['name']] = SearchResponse(
+                    query=dim['query'],
+                    results=[],
+                    provider="None",
+                    success=False,
+                    error_message="No available providers"
+                )
+                continue
+
+            provider = available_providers[provider_index % len(available_providers)]
+            provider_index += 1
+            logger.info("[情报搜索] %s: 使用 %s", dim.get("desc", dim["name"]), provider.name)
+
+            resp = provider.search(dim['query'], max_results=3)
+            filtered_resp = resp
+            if resp.success and resp.results:
+                if dim.get("strict_freshness", True):
+                    filtered_resp = self._filter_by_news_age(resp)
+                if filtered_resp.results:
                     filtered_resp = self._filter_entity_consistent_results(
-                        fresh_resp,
+                        filtered_resp,
                         stock_code=stock_code,
                         stock_name=stock_name,
                         dimension=dim['name']
                     )
-                    if filtered_resp.results:
-                        selected_resp = filtered_resp
-                        break  # 仅当过滤后仍有有效结果时才跳出
-                    logger.debug(
-                        "维度 %s 在实体消歧后为空，继续尝试下一个 provider: %s(%s) provider=%s",
-                        dim['name'],
-                        stock_name,
-                        stock_code,
-                        provider.name
-                    )
-                time.sleep(0.5)
-            if selected_resp:
-                results[dim['name']] = selected_resp
+
+            if filtered_resp.success and filtered_resp.results:
+                results[dim['name']] = filtered_resp
             else:
+                logger.debug(
+                    "维度 %s 使用 provider 后无可用结果，不再同维度继续兜底: %s(%s) provider=%s",
+                    dim['name'],
+                    stock_name,
+                    stock_code,
+                    provider.name,
+                )
                 results[dim['name']] = SearchResponse(
                     query=dim['query'],
                     results=[],
@@ -1591,9 +1588,7 @@ def get_search_service() -> SearchService:
         config = get_config()
         
         _search_service = SearchService(
-            bocha_keys=config.bocha_api_keys,
             tavily_keys=config.tavily_api_keys,
-            brave_keys=config.brave_api_keys,
             serpapi_keys=config.serpapi_keys,
             gemini_keys=config.gemini_api_keys,
             gemini_grounding_enabled=config.gemini_grounding_search_enabled,

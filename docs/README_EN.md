@@ -48,7 +48,7 @@ English | [简体中文](../README.md) | [繁體中文](README_CHT.md)
 |------|----------|
 | LLMs | Gemini (free), OpenAI-compatible, DeepSeek, Qwen, Claude, Ollama |
 | Market Data | YFinance (current ASX/AU/US default path) |
-| News Search | Tavily advanced, Gemini Grounding, SerpAPI, Brave, Bocha |
+| News Search | Tavily advanced, Gemini Grounding, SerpAPI |
 
 ### Built-in Trading Rules
 
@@ -120,9 +120,7 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 | `STOCK_LIST` | Watchlist codes, e.g., `BHP.AX,CBA.AX,AAPL` | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) Search API. Advanced search is the primary path for ASX news, risk, and research completeness. | Recommended |
 | `GEMINI_GROUNDING_SEARCH_ENABLED` | Enables Gemini Grounding with Google Search after Tavily. Reuses `GEMINI_API_KEYS` / `GEMINI_API_KEY`. | Optional |
-| `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API (privacy-focused, US stocks optimized) | Optional |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) low-frequency fallback after Tavily and Gemini Grounding | Optional |
-| `BOCHA_API_KEYS` | [Bocha Search](https://open.bocha.cn/) Web Search API (Chinese search optimized, supports AI summaries, multiple keys comma-separated) | Optional |
 | `WECHAT_MSG_TYPE` | WeChat Work message type, default `markdown`, set to `text` for plain markdown text | Optional |
 
 **Stock Code Format**

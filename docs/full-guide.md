@@ -118,8 +118,6 @@ daily_stock_analysis/
 | `NEWS_INTEL_CACHE_ENABLED` | 先复用最近的 `news_intel` 持久新闻缓存；命中时 provider 标记为 `news_intel_cache` | 可选 |
 | `NEWS_INTEL_CACHE_DAYS` | `news_intel` 缓存新鲜度窗口，默认 `1` 天 | 可选 |
 | `NEWS_INTEL_CACHE_MIN_RESULTS` | 单维度至少几条缓存结果才复用，默认 `1` | 可选 |
-| `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索优化，支持AI摘要，多个key用逗号分隔） | 可选 |
-| `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 低频备用搜索，位于 Tavily/Gemini Grounding 之后 | 可选 |
 
 #### ✅ 最小配置示例
@@ -222,8 +220,6 @@ GitHub Actions 默认每个工作日 **08:00（Australia/Sydney）** 自动执�
 | `NEWS_INTEL_CACHE_ENABLED` | 先复用最近的 `news_intel` 持久新闻缓存；命中时 provider 标记为 `news_intel_cache` | 可选 |
 | `NEWS_INTEL_CACHE_DAYS` | `news_intel` 缓存新鲜度窗口，默认 `1` 天 | 可选 |
 | `NEWS_INTEL_CACHE_MIN_RESULTS` | 单维度至少几条缓存结果才复用，默认 `1` | 可选 |
-| `BOCHA_API_KEYS` | 博查搜索 API Key（中文优化） | 可选 |
-| `BRAVE_API_KEYS` | Brave Search API Key（美股优化） | 可选 |
 | `SERPAPI_API_KEYS` | SerpAPI 低频备用搜索，位于 Gemini Grounding 之后 | 可选 |
 
 ### ASX 官方公告证据源
@@ -561,7 +557,7 @@ PUSHOVER_API_TOKEN=your_api_token
 ## 数据源配置
 
 当前 ASX/AU/US 默认数据路径使用 yfinance，无需额外行情源 token。
-新闻搜索默认顺序为 `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`。Tavily advanced 是主路径；Gemini Grounding 复用 Gemini key；在调用外部 provider 前会先复用最近的 `news_intel` 持久缓存；SerpAPI 额度较少，仅作为 Tavily/Gemini Grounding 都不可用后的低频 fallback。
+新闻搜索默认顺序为 `Tavily advanced -> Gemini Grounding -> SerpAPI`。Tavily advanced 是主路径；Gemini Grounding 复用 Gemini key；在调用外部 provider 前会先复用最近的 `news_intel` 持久缓存；SerpAPI 额度较少，仅作为 Tavily/Gemini Grounding 都不可用后的低频 fallback。多维度情报按维度轮换单个 provider，不再在过滤为空后继续扫完整 provider 链。
 
 ---
 
