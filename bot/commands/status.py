@@ -71,8 +71,11 @@ class StatusCommand(BotCommand):
         status["ai_openai"] = bool(config.openai_api_key)
         
         # 搜索服务状态
-        status["search_bocha"] = len(config.bocha_api_keys) > 0
         status["search_tavily"] = len(config.tavily_api_keys) > 0
+        status["search_gemini_grounding"] = bool(
+            getattr(config, "gemini_grounding_search_enabled", True)
+            and getattr(config, "gemini_api_keys", [])
+        )
         status["search_serpapi"] = len(config.serpapi_keys) > 0
         
         # 通知渠道状态
@@ -115,8 +118,8 @@ class StatusCommand(BotCommand):
             f"• OpenAI API: {icon(status['ai_openai'])}",
             "",
             "**🔍 搜索服务**",
-            f"• Bocha: {icon(status['search_bocha'])}",
             f"• Tavily: {icon(status['search_tavily'])}",
+            f"• Gemini Grounding: {icon(status['search_gemini_grounding'])}",
             f"• SerpAPI: {icon(status['search_serpapi'])}",
             "",
             "**📢 通知渠道**",

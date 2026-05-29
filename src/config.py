@@ -118,9 +118,9 @@ class Config:
     openai_temperature: float = 0.7  # OpenAI 温度参数（0.0-2.0，默认0.7）
     
     # === 搜索引擎配置（支持多 Key 负载均衡）===
-    bocha_api_keys: List[str] = field(default_factory=list)  # Bocha API Keys
+    bocha_api_keys: List[str] = field(default_factory=list)  # Legacy Bocha API Keys，日常搜索链路不再使用
     tavily_api_keys: List[str] = field(default_factory=list)  # Tavily API Keys
-    brave_api_keys: List[str] = field(default_factory=list)  # Brave Search API Keys
+    brave_api_keys: List[str] = field(default_factory=list)  # Legacy Brave Search API Keys，日常搜索链路不再使用
     serpapi_keys: List[str] = field(default_factory=list)  # SerpAPI Keys
 
     # === 新闻与分析筛选配置 ===
@@ -761,13 +761,11 @@ class Config:
             is_valid_gemini_api_key(key) for key in (self.gemini_api_keys or [])
         )
         if (
-            not self.bocha_api_keys
-            and not self.tavily_api_keys
-            and not self.brave_api_keys
+            not self.tavily_api_keys
             and not self.serpapi_keys
             and not gemini_grounding_available
         ):
-            warnings.append("提示：未配置搜索引擎 API Key (Tavily/Gemini Grounding/SerpAPI/Brave/Bocha)，新闻搜索功能将不可用")
+            warnings.append("提示：未配置搜索引擎 API Key (Tavily/Gemini Grounding/SerpAPI)，新闻搜索功能将不可用")
         
         # 检查通知配置
         has_notification = (

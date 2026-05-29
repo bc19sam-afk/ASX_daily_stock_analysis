@@ -64,7 +64,7 @@ Optional API Bearer authentication is supported for protected configuration endp
 
 ### Search Accuracy Defaults
 
-News and risk intelligence prioritizes accuracy over search quota savings. The default provider order is `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`. Tavily keeps `search_depth="advanced"` as the primary path for fuller ASX news, risk, and research coverage. Gemini Grounding reuses `GEMINI_API_KEYS` / `GEMINI_API_KEY`; SerpAPI is retained as a low-frequency fallback after Tavily and Gemini Grounding are unavailable.
+News and risk intelligence uses a bounded default provider order: `Tavily advanced -> Gemini Grounding -> SerpAPI`. Tavily keeps `search_depth="advanced"` as the primary path for fuller ASX news, risk, and research coverage. Gemini Grounding reuses `GEMINI_API_KEYS` / `GEMINI_API_KEY`; SerpAPI is retained as a low-frequency fallback after Tavily and Gemini Grounding are unavailable. Multi-dimension intelligence rotates one provider per dimension instead of falling through the full provider chain after filtering.
 
 ### ASX Official Announcements Evidence
 

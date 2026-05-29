@@ -120,7 +120,7 @@ class SearchAsxLocalisationTestCase(unittest.TestCase):
         self.assertTrue(response.success)
         self.assertEqual(captured["search_depth"], "advanced")
 
-    def test_default_provider_order_is_tavily_gemini_serpapi_brave_bocha(self) -> None:
+    def test_default_provider_order_is_tavily_gemini_serpapi(self) -> None:
         service = SearchService(
             tavily_keys=["tavily-key"],
             gemini_keys=["gemini-key-1234567890"],
@@ -132,7 +132,7 @@ class SearchAsxLocalisationTestCase(unittest.TestCase):
 
         self.assertEqual(
             [provider.name for provider in service._providers],
-            ["Tavily", "Gemini Grounding", "SerpAPI", "Brave", "Bocha"],
+            ["Tavily", "Gemini Grounding", "SerpAPI"],
         )
 
     def test_gemini_grounding_is_first_provider_when_tavily_is_missing(self) -> None:
@@ -146,7 +146,7 @@ class SearchAsxLocalisationTestCase(unittest.TestCase):
 
         self.assertEqual(
             [provider.name for provider in service._providers],
-            ["Gemini Grounding", "SerpAPI", "Brave", "Bocha"],
+            ["Gemini Grounding", "SerpAPI"],
         )
 
     def test_gemini_grounding_extracts_search_results_from_grounding_chunks(self) -> None:

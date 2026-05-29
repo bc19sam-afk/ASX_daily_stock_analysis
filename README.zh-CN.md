@@ -64,7 +64,7 @@ python main.py --serve
 
 ### 搜索准确性默认值
 
-新闻与风险情报默认优先准确性，不以节省 Tavily/Gemini 搜索额度为目标。默认搜索顺序是 `Tavily advanced -> Gemini Grounding -> SerpAPI -> Brave -> Bocha`。Tavily 保持 `search_depth="advanced"` 作为主路径，用于提高 ASX 新闻、风险、研报搜索完整性。Gemini Grounding 复用 `GEMINI_API_KEYS` / `GEMINI_API_KEY`；SerpAPI 保留为 Tavily 和 Gemini Grounding 都不可用后的低频 fallback。
+新闻与风险情报默认使用有边界的搜索顺序：`Tavily advanced -> Gemini Grounding -> SerpAPI`。Tavily 保持 `search_depth="advanced"` 作为主路径，用于提高 ASX 新闻、风险、研报搜索完整性。Gemini Grounding 复用 `GEMINI_API_KEYS` / `GEMINI_API_KEY`；SerpAPI 保留为 Tavily 和 Gemini Grounding 都不可用后的低频 fallback。多维度情报会按维度轮换单个 provider，不再在过滤为空后继续扫完整 provider 链。
 
 ### ASX 官方公告证据源
 

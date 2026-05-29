@@ -243,8 +243,8 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.assertEqual(p1.call_count, 1)
         self.assertEqual(p2.call_count, 1)
 
-    def test_search_comprehensive_intel_continue_on_filtered_empty(self) -> None:
-        """某维度首个 provider 过滤后为空时，不应提前 break。"""
+    def test_search_comprehensive_intel_uses_one_provider_per_dimension(self) -> None:
+        """某维度过滤为空时，不应继续在同一维度铺开更多 provider。"""
         wrong_market = SearchResponse(
             query="wrong",
             results=[
@@ -277,11 +277,73 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         p2 = FakeSearchProvider("p2", [valid_result] * 5)
         self.service._providers = [p1, p2]
 
-        intel = self.service.search_comprehensive_intel(self.code, self.name, max_searches=5)
+        intel = self.service.search_comprehensive_intel(self.code, self.name, max_searches=1)
         self.assertIn("latest_news", intel)
-        self.assertTrue(intel["latest_news"].results)
-        self.assertEqual(intel["latest_news"].provider, "p2")
-        self.assertGreaterEqual(p2.call_count, 1)
+        self.assertFalse(intel["latest_news"].results)
+        self.assertEqual(intel["latest_news"].provider, "None")
+        self.assertEqual(p1.call_count, 1)
+        self.assertEqual(p2.call_count, 0)
+
+    def test_search_comprehensive_intel_round_robins_providers_across_dimensions(self) -> None:
+        """多个维度应在可用 provider 间轮换，而不是单 provider 吃满所有维度。"""
+        provider_response = SearchResponse(
+            query="ok",
+            results=[
+                SearchResult(
+                    title="ASX: CBA.AX coverage",
+                    snippet="Commonwealth Bank of Australia update",
+                    url="https://example.com/round-robin",
+                    source="example.com",
+                    published_date=self.fresh_published_date,
+                )
+            ],
+            provider="p",
+            success=True,
+        )
+        p1 = FakeSearchProvider("p1", [provider_response] * 5)
+        p2 = FakeSearchProvider("p2", [provider_response] * 5)
+        self.service._providers = [p1, p2]
+
+        intel = self.service.search_comprehensive_intel(self.code, self.name, max_searches=3)
+
+        self.assertEqual(list(intel.keys()), ["latest_news", "market_analysis", "risk_check"])
+        self.assertEqual(p1.call_count, 2)
+        self.assertEqual(p2.call_count, 1)
+
+    def test_search_comprehensive_intel_keeps_undated_non_news_dimension(self) -> None:
+        """非新闻类维度不应因为 provider 未给发布日期就被时效过滤清空。"""
+        response = SearchResponse(
+            query="analysis",
+            results=[
+                SearchResult(
+                    title="ASX: CBA.AX analyst coverage",
+                    snippet="Commonwealth Bank of Australia analyst report",
+                    url="https://example.com/no-date-analysis",
+                    source="example.com",
+                )
+            ],
+            provider="p1",
+            success=True,
+        )
+        p1 = FakeSearchProvider("p1", [response])
+        self.service._providers = [p1]
+
+        intel = self.service.search_comprehensive_intel(
+            self.code,
+            self.name,
+            max_searches=1,
+            dimensions=[
+                {
+                    "name": "market_analysis",
+                    "query": "CBA.AX analyst rating target price report",
+                    "desc": "机构分析",
+                    "strict_freshness": False,
+                }
+            ],
+        )
+
+        self.assertTrue(intel["market_analysis"].results)
+        self.assertEqual(intel["market_analysis"].results[0].url, "https://example.com/no-date-analysis")
 
     def test_search_comprehensive_intel_default_dimensions_and_result_count_are_unchanged(self) -> None:
         """默认情报搜索仍覆盖 5 个维度，每维请求 3 条结果。"""
