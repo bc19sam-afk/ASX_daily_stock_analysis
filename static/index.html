@@ -254,6 +254,11 @@
           </section>
 
           <section class="panel">
+            <h2>今日提醒</h2>
+            <div id="alertCenterBlock" class="empty">正在读取今日提醒...</div>
+          </section>
+
+          <section class="panel">
             <h2>最新日报</h2>
             <div id="latestReport" class="empty">正在读取最新报告...</div>
           </section>
@@ -296,6 +301,7 @@
         saveTokenBtn: document.getElementById('saveTokenBtn'),
         refreshBtn: document.getElementById('refreshBtn'),
         stats: document.getElementById('stats'),
+        alertCenterBlock: document.getElementById('alertCenterBlock'),
         latestReport: document.getElementById('latestReport'),
         historyList: document.getElementById('historyList'),
         portfolioBlock: document.getElementById('portfolioBlock'),
@@ -365,10 +371,43 @@
         return value || '提示';
       }
 
+      function alertTone(severity) {
+        const value = String(severity || '');
+        if (value === 'critical') return 'bad';
+        if (value === 'warning') return 'warn';
+        return 'good';
+      }
+
+      function alertSeverityLabel(severity) {
+        const value = String(severity || '');
+        if (value === 'critical') return '必看';
+        if (value === 'warning') return '复核';
+        return '提示';
+      }
+
+      function alertCategoryLabel(category) {
+        const value = String(category || '');
+        const labels = {
+          validation: '验证',
+          report_freshness: '日报新鲜度',
+          report_reliability: '可信度',
+          evidence: '证据',
+          announcement: 'ASX 公告',
+          risk_context: '上下文',
+          portfolio_import: '组合导入',
+          portfolio_integrity: '账本',
+          analysis: '日报',
+          data_quality: '数据',
+          watchlist: '观察',
+          holding: '持仓',
+        };
+        return labels[value] || value || '提醒';
+      }
+
       function renderStats(data) {
         const latest = data.latest_report || {};
         const portfolio = data.portfolio || {};
-        const risk = data.risk || {};
+        const alerts = data.alert_center?.summary || {};
         const config = data.config_status || {};
         const items = [
           {
@@ -382,9 +421,9 @@
             note: `${fmt((portfolio.holdings || []).length)} 只持仓`,
           },
           {
-            label: 'BLOCK / 缺口',
-            value: `${fmt(risk.blocked_count || 0)} / ${fmt(risk.data_gap_count || 0)}`,
-            note: `${fmt((risk.items || []).length)} 条复核提示`,
+            label: '今日提醒',
+            value: fmt(alerts.total || 0),
+            note: `必看 ${fmt(alerts.critical_count || 0)} · 复核 ${fmt(alerts.warning_count || 0)}`,
           },
           {
             label: '配置状态',
@@ -415,6 +454,45 @@
           `<div class="statusline">报告路径：<a href="${escapeHtml(latest.detail_path || '#')}">${escapeHtml(latest.detail_path || 'N/A')}</a></div>`,
         ];
         els.latestReport.innerHTML = bits.join('');
+      }
+
+      function renderAlertCenter(data) {
+        const center = data.alert_center || {};
+        const summary = center.summary || {};
+        const context = center.market_context || {};
+        const items = center.items || [];
+        const marketPills = `
+          <div class="toolbar" style="margin-bottom:10px;">
+            ${pill(alertSeverityLabel(summary.severity), alertTone(summary.severity))}
+            ${pill(`必看 ${fmt(summary.critical_count || 0)}`)}
+            ${pill(`复核 ${fmt(summary.warning_count || 0)}`)}
+            ${pill(`ASX ${fmt(context.report_date)}`)}
+            ${pill(fmt(context.data_basis))}
+          </div>
+        `;
+        if (!items.length) {
+          els.alertCenterBlock.innerHTML = `
+            ${marketPills}
+            <div class="empty">${escapeHtml(summary.message || '今天没有必须优先处理的风险提醒。')}</div>
+            <div class="statusline" style="margin-top:8px;">${escapeHtml(context.note || '')}</div>
+          `;
+          return;
+        }
+        els.alertCenterBlock.innerHTML = `
+          ${marketPills}
+          <div class="list">
+            ${items.slice(0, 6).map((item) => `
+              <div class="item">
+                <h3>${pill(alertSeverityLabel(item.severity), alertTone(item.severity))} ${escapeHtml(alertCategoryLabel(item.category))}${item.code ? ` · ${escapeHtml(fmt(item.code))}` : ''}</h3>
+                <p>${escapeHtml(fmt(item.title))}：${escapeHtml(fmt(item.message))}</p>
+                <div class="statusline">${escapeHtml(fmt(item.action_hint))}</div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="statusline" style="margin-top:10px;">
+            ${escapeHtml(context.note || '')} · <a href="/api/v1/workbench/alerts">查看全部提醒</a>
+          </div>
+        `;
       }
 
       function renderHistory(data) {
@@ -525,6 +603,7 @@
           const data = await fetchJson('/api/v1/workbench/summary');
           state.data = data;
           renderStats(data);
+          renderAlertCenter(data);
           renderLatest(data);
           renderHistory(data);
           renderPortfolio(data);
@@ -535,6 +614,7 @@
           const message = error?.message || '无法读取工作台信息。';
           els.headerMeta.textContent = message;
           els.stats.innerHTML = '';
+          els.alertCenterBlock.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
           els.latestReport.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
           els.historyList.innerHTML = '<div class="empty error">历史报告暂时不可用。</div>';
           els.portfolioBlock.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;

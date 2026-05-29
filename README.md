@@ -70,6 +70,10 @@ News and risk intelligence prioritizes accuracy over search quota savings. The d
 
 `ASX_ANNOUNCEMENTS_ENABLED=true` enables a read-only, best-effort check of ASX official Market Announcements listing pages for `.AX` tickers. The check adds metadata evidence to `evidence_matrix`, `evidence_summary`, `report_reliability`, and manual review prompts. This feature is read-only evidence for manual review and does not provide realtime quotes, order execution, or broker connectivity. If ASX pages time out or change structure, the daily report continues and marks the source `unavailable` with an execution-before-manual-check warning.
 
+### Alert Center
+
+The minimal Web Workbench includes a read-only Alert Center for "what needs a look today." It aggregates existing report, evidence, ASX announcement, AnalysisContextPack, and portfolio/import warning signals into `/api/v1/workbench/summary`, `/api/v1/workbench/alerts`, and `/api/v1/workbench/alerts/summary`. Alert Center uses the ASX calendar and `Australia/Sydney` timezone, keeps `close_only`, delayed, and unavailable data bases explicit, and always marks alerts as `is_trade_instruction=false`. It is a manual review surface only: it does not add data sources, connect to brokers, place orders, monitor realtime trading, or change deterministic action fields.
+
 ### 3) Docker / Compose
 
 ```bash
@@ -143,6 +147,7 @@ Current outputs on `main`:
   - `/api/v1/history/*` for report history + portfolio summary.
   - `/api/v1/backtest/*` for run/results/performance.
   - `/api/v1/stocks/extract-from-image` for image-based symbol extraction.
+  - `/api/v1/workbench/summary` and `/api/v1/workbench/alerts*` for the local ASX workbench and manual-review Alert Center.
 
 ## Known limitations (from current code)
 

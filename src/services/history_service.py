@@ -161,8 +161,9 @@ class HistoryService:
             similar_signal_performance = self._build_similar_signal_performance(record, raw_result)
             price_snapshot = self._extract_price_snapshot(context_snapshot)
             report_context = self._build_public_report_context(record, raw_result, context_snapshot)
+            alert_context = self._build_public_alert_context(raw_result, context_snapshot)
             
-            return {
+            payload = {
                 "query_id": record.query_id,
                 "stock_code": record.code,
                 "stock_name": record.name,
@@ -203,6 +204,8 @@ class HistoryService:
                 "news_content": record.news_content,
                 "portfolio": self.db.get_portfolio_overview(),
             }
+            payload.update(alert_context)
+            return payload
             
         except Exception as e:
             logger.error(f"查询历史详情失败: {e}", exc_info=True)
@@ -287,6 +290,51 @@ class HistoryService:
             "price_policy": price_policy,
             "execution_price_source": execution_price_source,
         }
+
+    def _build_public_alert_context(self, raw_result: Any, context_snapshot: Any) -> Dict[str, Any]:
+        """Expose structured alert inputs without leaking raw_result/context_snapshot."""
+        raw = raw_result if isinstance(raw_result, dict) else {}
+        context = context_snapshot if isinstance(context_snapshot, dict) else {}
+        enhanced = context.get("enhanced_context") if isinstance(context.get("enhanced_context"), dict) else {}
+        daily_summary = raw.get("daily_decision_summary") if isinstance(raw.get("daily_decision_summary"), dict) else {}
+        if not daily_summary:
+            daily_summary = raw.get("summary_artifact") if isinstance(raw.get("summary_artifact"), dict) else {}
+
+        payload: Dict[str, Any] = {}
+        for key in (
+            "evidence_matrix",
+            "evidence_summary",
+            "report_reliability",
+            "watch_items",
+            "blocked_items",
+            "uncovered_holdings",
+        ):
+            value = daily_summary.get(key) if daily_summary else raw.get(key)
+            if value is not None:
+                payload[key] = value
+
+        analysis_context_pack = raw.get("analysis_context_pack") or enhanced.get("analysis_context_pack")
+        if isinstance(analysis_context_pack, dict):
+            minimal_pack = self._minimal_analysis_context_pack(analysis_context_pack)
+            if minimal_pack:
+                payload["analysis_context_pack"] = minimal_pack
+
+        if not payload.get("report_reliability") and isinstance(raw.get("report_reliability"), dict):
+            payload["report_reliability"] = raw["report_reliability"]
+        return payload
+
+    @staticmethod
+    def _minimal_analysis_context_pack(analysis_context_pack: Dict[str, Any]) -> Dict[str, Any]:
+        """Keep only the AnalysisContextPack fields Alert Center needs."""
+        payload: Dict[str, Any] = {}
+        identity = analysis_context_pack.get("stock_identity")
+        if isinstance(identity, dict) and identity.get("code"):
+            payload["stock_identity"] = {"code": str(identity.get("code"))}
+        risk_context = analysis_context_pack.get("risk_context")
+        if isinstance(risk_context, dict):
+            allowed = ("validation_status", "validation_issues", "actionability")
+            payload["risk_context"] = {key: risk_context[key] for key in allowed if key in risk_context}
+        return payload
 
     def _extract_price_snapshot(self, context_snapshot: Any) -> Dict[str, Optional[float]]:
         if not isinstance(context_snapshot, dict):

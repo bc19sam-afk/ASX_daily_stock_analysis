@@ -1853,8 +1853,15 @@ class NotificationService:
             )
             return lines
 
-        holdings = overview.get("holdings") if isinstance(overview.get("holdings"), list) else []
-        trades = overview.get("latest_simulated_trades") if isinstance(overview.get("latest_simulated_trades"), list) else []
+        raw_holdings = overview.get("holdings") if isinstance(overview.get("holdings"), list) else []
+        raw_trades = (
+            overview.get("latest_simulated_trades")
+            if isinstance(overview.get("latest_simulated_trades"), list)
+            else []
+        )
+        holdings = [item for item in raw_holdings if isinstance(item, dict)]
+        trades = [item for item in raw_trades if isinstance(item, dict)]
+        malformed_row_count = (len(raw_holdings) - len(holdings)) + (len(raw_trades) - len(trades))
         last_simulation_time = overview.get("last_simulation_time")
         is_current_report_simulation = self._is_same_report_date(last_simulation_time, report_date)
         if is_current_report_simulation:
@@ -1890,6 +1897,13 @@ class NotificationService:
                 f"| 更新 | {self._to_markdown_table_cell(plan_line)} |",
             ]
         )
+        if malformed_row_count:
+            lines.extend(
+                [
+                    "",
+                    f"- 注意：部分模拟盘账本记录格式异常，已跳过 {malformed_row_count} 条；日报主体继续生成。",
+                ]
+            )
         if holdings:
             lines.extend(
                 [
