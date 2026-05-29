@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional
 
 from fastapi import APIRouter, Depends
 
 from api.deps import get_database_manager, get_system_config_service
+from src.alert_center import build_alert_center_from_workbench_inputs
 from src.services.backtest_service import BacktestService
 from src.services.history_service import HistoryService
 from src.services.system_config_service import SystemConfigService
@@ -17,6 +20,7 @@ from src.storage import DatabaseManager
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+DEFAULT_REPORTS_DIR = Path(__file__).resolve().parents[3] / "reports"
 
 
 @router.get(
@@ -29,13 +33,14 @@ def get_workbench_summary(
     config_service: SystemConfigService = Depends(get_system_config_service),
 ) -> Dict[str, Any]:
     """Return the daily workbench summary without triggering analysis or account writes."""
-    history_service = HistoryService(db_manager)
-    history = history_service.get_history_list(page=1, limit=8)
-    history_items = list(history.get("items") or [])
-    latest_item = history_items[0] if history_items else None
-    latest_detail = _load_latest_detail(history_service, latest_item)
+    context = _load_workbench_context(db_manager)
+    history = context["history"]
+    history_items = context["history_items"]
+    latest_item = context["latest_item"]
+    latest_detail = context["latest_detail"]
     portfolio_summary = _build_portfolio_summary(db_manager)
     risk_summary = _build_risk_summary(latest_detail=latest_detail, history_items=history_items)
+    alert_center = _build_alert_center(context)
     config_status = _build_config_status(config_service)
     backtest_summary = _build_backtest_summary(db_manager)
 
@@ -50,6 +55,7 @@ def get_workbench_summary(
         "paper_portfolio": portfolio_summary.get("paper_portfolio", {}),
         "recent_actions": portfolio_summary.get("today_actions", []),
         "risk": risk_summary,
+        "alert_center": alert_center,
         "backtest": backtest_summary,
         "config_status": config_status,
         "links": {
@@ -59,8 +65,76 @@ def get_workbench_summary(
             "paper_portfolio": "/api/v1/paper-portfolio/overview",
             "backtest": "/api/v1/backtest/performance",
             "config": "/api/v1/system/config",
+            "alerts": "/api/v1/workbench/alerts",
         },
     }
+
+
+@router.get(
+    "/alerts",
+    summary="Get Alert Center detail",
+    description="Read-only alert center built from existing report, evidence, and portfolio context.",
+)
+def get_workbench_alerts(
+    db_manager: DatabaseManager = Depends(get_database_manager),
+) -> Dict[str, Any]:
+    """Return alert detail without triggering analysis, broker calls, or account writes."""
+    context = _load_workbench_context(db_manager)
+    alert_center = _build_alert_center(context, item_limit=None)
+    alert_center["links"] = {
+        "summary": "/api/v1/workbench/summary",
+        "latest_report": _latest_detail_path(context["latest_item"]),
+    }
+    return alert_center
+
+
+@router.get(
+    "/alerts/summary",
+    summary="Get Alert Center summary",
+    description="Compact read-only alert counts for the ASX daily workbench.",
+)
+def get_workbench_alert_summary(
+    db_manager: DatabaseManager = Depends(get_database_manager),
+) -> Dict[str, Any]:
+    """Return compact alert counts for first-screen clients."""
+    context = _load_workbench_context(db_manager)
+    alert_center = _build_alert_center(context)
+    return {
+        "summary": alert_center.get("summary", {}),
+        "market_context": alert_center.get("market_context", {}),
+        "is_trade_instruction": False,
+        "links": {
+            "detail": "/api/v1/workbench/alerts",
+            "workbench": "/api/v1/workbench/summary",
+        },
+    }
+
+
+def _load_workbench_context(db_manager: DatabaseManager) -> Dict[str, Any]:
+    history_service = HistoryService(db_manager)
+    history = history_service.get_history_list(page=1, limit=8)
+    history_items = list(history.get("items") or [])
+    latest_item = history_items[0] if history_items else None
+    latest_detail = _load_latest_detail(history_service, latest_item)
+    summary_artifact = _load_daily_decision_summary(latest_detail)
+    portfolio_alert_context = _load_portfolio_alert_context(db_manager)
+    return {
+        "history": history,
+        "history_items": history_items,
+        "latest_item": latest_item,
+        "latest_detail": latest_detail,
+        "summary_artifact": summary_artifact,
+        "portfolio_alert_context": portfolio_alert_context,
+    }
+
+
+def _build_alert_center(context: Mapping[str, Any], *, item_limit: Optional[int] = 20) -> Dict[str, Any]:
+    return build_alert_center_from_workbench_inputs(
+        latest_detail=context.get("latest_detail"),
+        summary_artifact=context.get("summary_artifact"),
+        portfolio_import_result=context.get("portfolio_alert_context"),
+        item_limit=item_limit,
+    )
 
 
 def _load_latest_detail(history_service: HistoryService, latest_item: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -72,6 +146,53 @@ def _load_latest_detail(history_service: HistoryService, latest_item: Optional[D
     except Exception as exc:
         logger.warning("Failed to load latest workbench report detail: %s", exc)
         return {}
+
+
+def _load_daily_decision_summary(latest_detail: Mapping[str, Any]) -> Dict[str, Any]:
+    """Load the existing daily summary artifact for the latest report date."""
+    report_date = str((latest_detail or {}).get("report_date") or "").strip()
+    candidate = _daily_summary_path_for_report_date(report_date)
+    if candidate is None:
+        return {"artifact_status": "missing"}
+    try:
+        with candidate.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if isinstance(payload, dict):
+            return payload
+        return {"artifact_status": "invalid", "report_date": report_date}
+    except FileNotFoundError:
+        return {"artifact_status": "missing", "report_date": report_date}
+    except Exception as exc:
+        logger.warning("Failed to load workbench daily decision summary %s: %s", candidate, exc)
+        return {"artifact_status": "invalid", "report_date": report_date}
+
+
+def _daily_summary_path_for_report_date(report_date: str) -> Optional[Path]:
+    digits = "".join(ch for ch in str(report_date or "") if ch.isdigit())
+    if len(digits) < 8:
+        return None
+    return DEFAULT_REPORTS_DIR / f"daily_decision_summary_{digits[:8]}.json"
+
+
+def _load_portfolio_alert_context(db_manager: DatabaseManager) -> Dict[str, Any]:
+    """Expose current ledger integrity issues as read-only Alert Center input."""
+    try:
+        integrity = db_manager.check_portfolio_account_integrity()
+    except AttributeError:
+        return {}
+    except Exception as exc:
+        logger.warning("Failed to load workbench portfolio integrity: %s", exc)
+        return {}
+    if not isinstance(integrity, Mapping):
+        return {}
+    return {
+        "status": "current_integrity",
+        "integrity": {
+            "is_valid": bool(integrity.get("is_valid")),
+            "errors": list(integrity.get("errors") or []),
+            "warnings": list(integrity.get("warnings") or []),
+        },
+    }
 
 
 def _build_latest_report(latest_item: Optional[Dict[str, Any]], latest_detail: Dict[str, Any]) -> Dict[str, Any]:

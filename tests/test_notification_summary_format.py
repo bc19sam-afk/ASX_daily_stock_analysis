@@ -240,6 +240,40 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertNotIn("本次分析已先写入模拟盘", report)
 
     @patch("src.notification.get_db")
+    def test_dashboard_report_skips_malformed_paper_ledger_rows_without_crash(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        mock_get_db.return_value.get_paper_portfolio_overview.return_value = {
+            "initialized": True,
+            "snapshot_date": "2026-05-29",
+            "cash": 100.0,
+            "equity_value": 0.0,
+            "total_value": 100.0,
+            "holdings": ["bad holding row"],
+            "latest_simulated_trades": [
+                "bad trade row",
+                {
+                    "simulation_time": "2026-05-29T09:30:00",
+                    "code": "BHP.AX",
+                    "action": "HOLD",
+                    "executed": False,
+                    "reason": "Skipped: HOLD action",
+                    "quantity_delta": 0.0,
+                    "price": 40.0,
+                    "cash_delta": 0.0,
+                },
+            ],
+            "last_simulation_time": "2026-05-29T09:30:00",
+        }
+        service = self._build_service()
+
+        report = service.generate_dashboard_report([self._build_result(code="BHP.AX", name="BHP")], report_date="2026-05-29")
+
+        self.assertIn("# 🎯 2026-05-29 决策仪表盘", report)
+        self.assertIn("模拟盘账本（只读）", report)
+        self.assertIn("部分模拟盘账本记录格式异常，已跳过 2 条", report)
+        self.assertIn("| 2026-05-29T09:30:00 | BHP.AX | 持有/跳过 | 跳过 | +0.00 | 40.00 | +0.00 | HOLD 观察，未产生模拟交易 |", report)
+
+    @patch("src.notification.get_db")
     def test_dashboard_summary_escapes_long_operation_advice_and_reason(self, mock_get_db) -> None:
         mock_get_db.return_value.get_portfolio_overview.return_value = {}
         service = self._build_service()

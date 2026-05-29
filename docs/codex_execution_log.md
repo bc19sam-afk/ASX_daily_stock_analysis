@@ -689,3 +689,23 @@ Process notes:
 - Actions: PR #181 checks were green before merge; backend-gate passed and the other required checks passed or skipped according to change scope.
 - Boundary: the chain stayed local to analysis context, a minimal workbench, and a manual ledger import path; no broker API, no real account reads, and no automatic order placement.
 - Next step: ASX-aware alert center.
+
+### 2026-05-29 - ASX-aware Alert Center v1
+
+- Status: implemented on branch `codex/asx-aware-alert-center-v1`; publication details are tracked in GitHub PR / merge history.
+- Scope: read-only Alert Center for the minimal Web Workbench and API, aggregating "today's must-review" risks from existing report history, `daily_decision_summary`, `evidence_matrix`, `report_reliability`, ASX announcement evidence, AnalysisContextPack risk context, and optional portfolio import / integrity results.
+- Added `src/alert_center.py` with stable alert items: `id`, `category`, `severity`, `code`, `title`, `message`, `source`, `as_of`, `action_hint`, and `is_trade_instruction=false`.
+- Added `/api/v1/workbench/alerts` and `/api/v1/workbench/alerts/summary`, and embedded `alert_center` in `/api/v1/workbench/summary`.
+- Updated the static Web Workbench first screen with a `今日提醒` section and alert-count summary, using everyday review wording rather than engineering internals.
+- Alert Center uses `Australia/Sydney` and existing ASX market-calendar helpers to compute the closed-market report date; it does not guess from a hard-coded local `16:00`.
+- Alert Center keeps data basis explicit as `close_only`, `delayed`, or `unavailable`.
+- Scope boundary: no new external data source, no broker API, no realtime trading monitor, no automatic order placement, no daily workflow change, no search-provider order change, no `close_only` default change, and no mutation of `final_decision`, `position_action`, `target_weight`, `delta_amount`, or `action_counts`.
+- Red test result before implementation: `python -m pytest tests/test_alert_center.py -q` failed because `src.alert_center` did not exist.
+- Red UI test result before implementation: `python -m pytest tests/test_alert_center.py::test_static_workbench_has_alert_center_first_screen_region -q` failed because the static workbench had no `今日提醒` region.
+- Review result: code review and architecture review found no blocking issues; low-risk contract/watch items were fixed before publication.
+- Test result: `python -m pytest tests/test_alert_center.py tests/test_notification_summary_format.py -q` passed, 102 tests; Windows pytest temp cleanup may print a `PermissionError` after success with exit code 0.
+- Test result: `python -m compileall -q src api` passed.
+- Test result: `python -m flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics` passed with count `0`.
+- Test result: `python -m py_compile main.py src/config.py src/analyzer.py src/notification.py src/storage.py src/scheduler.py src/search_service.py src/market_analyzer.py src/stock_analyzer.py data_provider/__init__.py data_provider/base.py data_provider/realtime_types.py data_provider/yfinance_fetcher.py` passed.
+- Test result: `python -m pytest -m "not network"` passed, 796 tests / 5 subtests, 7 warnings; Windows pytest temp cleanup printed a `PermissionError` after success with exit code 0.
+- Next step: after merge, consider using the Alert Center payload in future review-journal or intraday-review surfaces, still without broker execution or realtime trading assumptions.
