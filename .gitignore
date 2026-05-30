@@ -50,6 +50,7 @@ env/
 data/
 logs/
 reports/
+.codegraph/
 *.db
 *.sqlite
 *.sqlite3
