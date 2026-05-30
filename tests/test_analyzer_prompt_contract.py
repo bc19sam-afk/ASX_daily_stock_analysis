@@ -99,16 +99,19 @@ def test_analysis_prompt_uses_configured_one_percent_trade_risk_budget(monkeypat
     assert "单笔交易最大允许亏损为总本金的 1%（即 100.0 AUD）" in prompt
 
 
-def test_analysis_prompt_embeds_context_pack_v1_contract(monkeypatch, tmp_path):
+def test_analysis_prompt_embeds_low_sensitivity_context_pack_summary(monkeypatch, tmp_path):
     prompt = _prompt_with_runtime_risk_config(monkeypatch, tmp_path)
 
-    assert "AnalysisContextPack v1" in prompt
-    assert '"stock_identity"' in prompt
-    assert '"price_basis"' in prompt
-    assert '"market_snapshot"' in prompt
-    assert '"evidence_context"' in prompt
-    assert '"portfolio_context"' in prompt
-    assert '"risk_context"' in prompt
-    assert '"prompt_contract"' in prompt
+    assert "AnalysisContextPack v1 low-sensitivity summary" in prompt
+    assert "Subject: BHP.AX" in prompt
+    assert "Market/time/currency: market=ASX; timezone=Australia/Sydney; currency=AUD" in prompt
+    assert "daily: status=available; source=today" in prompt
+    assert "realtime: status=missing; source=realtime" in prompt
+    assert "validation_status=UNAVAILABLE" in prompt
+    assert "actionability=pending_validation" in prompt
+    assert "deterministic_fields=final_decision, position_action" in prompt
+    assert "```json" not in prompt
+    assert '"stock_identity"' not in prompt
+    assert '"market_snapshot"' not in prompt
     assert "Australia/Sydney" in prompt
     assert "AUD" in prompt
