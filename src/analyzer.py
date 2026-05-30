@@ -20,6 +20,10 @@ from json_repair import repair_json
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from src.analysis_context import build_analysis_context_pack
+from src.analysis_context_prompt import (
+    format_analysis_context_pack_prompt_section,
+    redact_sensitive_text_for_prompt,
+)
 from src.config import get_config
 from src.gemini_key_manager import (
     GeminiKeyManager,
@@ -1478,11 +1482,8 @@ class GeminiAnalyzer:
             validation_issues=context.get("validation_issues"),
         )
         context["analysis_context_pack"] = analysis_context_pack.to_dict()
-        analysis_context_pack_block = (
-            "## AnalysisContextPack v1\n"
-            "```json\n"
-            f"{json.dumps(context['analysis_context_pack'], ensure_ascii=False, sort_keys=True, indent=2)}\n"
-            "```\n"
+        analysis_context_pack_block = format_analysis_context_pack_prompt_section(
+            analysis_context_pack
         )
 
         # 生成历史回测胜率摘要
@@ -1635,7 +1636,7 @@ class GeminiAnalyzer:
 ---
 ## 📰 舆情情报摘要
 以下是该股最新的市场情报，请结合上述板块和财报逻辑进行总结：
-{news_context}
+{redact_sensitive_text_for_prompt(news_context)}
 """
         else:
             prompt += "\n目前未搜索到近期相关新闻，请主要依据技术面和板块趋势进行分析。\n"
@@ -1690,7 +1691,7 @@ class GeminiAnalyzer:
                 "不得输出确定性基本面结论，不得给出高置信度表述。\n"
             )
         
-        return prompt
+        return redact_sensitive_text_for_prompt(prompt)
 
     def _sanitize_fundamentals(self, fundamentals: Dict[str, Any]) -> tuple[Dict[str, Any], List[str]]:
         """基本面硬校验：异常值一律降级为 N/A。"""
