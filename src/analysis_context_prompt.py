@@ -10,7 +10,7 @@ from typing import Any, Iterable, List
 
 SENSITIVE_FIELD_RE = re.compile(
     r"(?i)(?:['\"]?\b(?:api[_-]?key|access[_-]?token|authorization|webhook|password|cookie|secret|token)\b['\"]?"
-    r"\s*[:=]\s*['\"]?[^,\s;}\]\n|]+['\"]?)"
+    r"\s*[:=]\s*(?:['\"][^'\"\r\n]*['\"]|[^,;}\]\r\n|]+))"
 )
 SENSITIVE_WORD_RE = re.compile(
     r"(?i)\b(api[_-]?key|access[_-]?token|authorization|webhook|password|cookie|secret|token)\b"

@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 
 from src.analysis_context import build_analysis_context_pack
-from src.analysis_context_prompt import format_analysis_context_pack_prompt_section
+from src.analysis_context_prompt import (
+    format_analysis_context_pack_prompt_section,
+    redact_sensitive_text_for_prompt,
+)
 from src.analyzer import GeminiAnalyzer
 
 
@@ -21,6 +24,17 @@ def _assert_no_sensitive_markers(text):
     lowered = text.lower()
     for marker in SENSITIVE_MARKERS:
         assert marker not in lowered
+
+
+def test_redaction_removes_header_style_and_quoted_credentials_with_spaces():
+    text = redact_sensitive_text_for_prompt(
+        'Authorization: Bearer abc123 tail\npassword="two word secret"\nkeep=this'
+    )
+
+    assert "abc123" not in text
+    assert "two word secret" not in text
+    assert "keep=this" in text
+    _assert_no_sensitive_markers(text)
 
 
 def test_prompt_summary_renders_statuses_and_boundaries_without_raw_json_or_values():
