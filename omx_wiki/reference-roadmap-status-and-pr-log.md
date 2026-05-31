@@ -183,6 +183,31 @@ facts needed for future planning.
   follow-up can add operator-facing ledger v2 shadow-read diagnostics after
   manual review of dry-run mismatches; v1 remains authoritative until a future
   migration/cutover PR is explicitly authorized.
+- PR11 completed as GitHub PR #204, "Add ledger v2 shadow diagnostics", merged
+  at `fb24c823e165a4db4fbbed6e80149f3052f5af04`.
+  Scope: read-only `/api/v1/portfolio-events/ledger-v2/diagnostics` shadow-read
+  diagnostics over the PR10 dry-run comparison, grouped operator-facing
+  summaries for mismatched, missing, unsupported, and warning buckets, redacted
+  unsupported-placeholder details, and compact Workbench metadata/link to the
+  diagnostics endpoint. Verification: GitHub checks passed for backend gate,
+  Docker build, change detection, security, static checks, AI review, and review
+  reporting; desktop gate was skipped by change detection. Local verification
+  covered `tests/test_asx_ledger_v2_dry_run.py`,
+  `tests/test_portfolio_events_api.py`, `tests/test_workbench_api.py`,
+  `git diff --check`, targeted `py_compile`, and `./scripts/ci_gate.sh` with
+  the project virtualenv plus bundled Node on `PATH` (`848` tests plus `5`
+  subtests passing). Review handling: automated AI review and review report
+  passed with no review threads; the only PR comment was the generated summary
+  report. Boundary: diagnostics are dry-run/manual-review only; v1 remains
+  authoritative; no ledger v2 writes, production migration, cutover,
+  broker connection, real orders/fills, paper simulation writes, worker,
+  notification delivery, secrets, HIN originals, account credentials, account
+  numbers, order details, or fill detail exposure. Subagent note: native Codex
+  subagent attempts for PR11/PR12 sidecar exploration failed with provider auth
+  `503`, so implementation and verification remained leader-owned. Next
+  candidate: PR12 ASX dividend/franking/corporate-action event placeholders,
+  still explicit unsupported/partial where needed and still outside tax advice,
+  broker statements, migration, or cutover scope.
 
 ## Blocked Or Separately Authorized Areas
 
