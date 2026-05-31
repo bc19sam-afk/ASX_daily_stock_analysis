@@ -212,6 +212,209 @@ def test_unsupported_rows_and_dividend_franking_placeholders_are_explicit(tmp_pa
     DatabaseManager.reset_instance()
 
 
+def test_income_placeholders_normalize_aud_dividend_and_franking_without_cash_or_tax_rows(tmp_path: Path):
+    db = _make_db(tmp_path)
+    init_portfolio(
+        db,
+        cash=1000.0,
+        holdings=[HoldingInput(code="BHP.AX", quantity=4.0, avg_cost=25.0)],
+    )
+    with db.get_session() as session:
+        session.add(
+            TradeJournal(
+                query_id="income-dividend-row",
+                code="BHP.AX",
+                action_date=date(2026, 5, 24),
+                action="DIVIDEND",
+                final_decision="DIVIDEND",
+                current_quantity=4.0,
+                target_quantity=4.0,
+                current_price=25.0,
+                available_cash_before=1000.0,
+                available_cash_after=1012.0,
+                reason=(
+                    "event_type=dividend currency=AUD dividend=12.34 "
+                    "franking_credit=5.67 custody_metadata_present=true"
+                ),
+            )
+        )
+        session.commit()
+    before = _table_counts(db)
+
+    result = AsxLedgerV2DryRunService(db).build_dry_run()
+    candidate = next(
+        item
+        for item in result["candidates"]
+        if item["source_event_id"].startswith("trade_journal:income-dividend-row")
+    )
+
+    assert candidate["event_type"] == "unsupported"
+    assert candidate["currency"] == "AUD"
+    assert candidate["income"]["status"] == "partial_placeholder"
+    assert candidate["income"]["income_type"] == "dividend"
+    assert candidate["income"]["cash_amount"] == 12.34
+    assert candidate["income"]["currency"] == "AUD"
+    assert candidate["income"]["supported_in_dry_run"] is False
+    assert candidate["income"]["will_create_cash_event"] is False
+    assert candidate["corporate_action"]["status"] == "none"
+    assert candidate["corporate_action"]["action_type"] is None
+    assert candidate["corporate_action"]["requires_manual_review"] is False
+    assert candidate["franking"]["status"] == "placeholder"
+    assert candidate["franking"]["amount"] == 5.67
+    assert candidate["franking"]["currency"] == "AUD"
+    assert candidate["franking"]["supported_in_dry_run"] is False
+    assert candidate["tax"]["status"] == "unsupported"
+    assert any("franking" in warning.lower() for warning in candidate["warnings"])
+    assert any("tax return" in warning.lower() for warning in candidate["warnings"])
+    assert _table_counts(db) == before
+    serialized = str(result)
+    assert not any(marker in serialized for marker in SENSITIVE_MARKERS)
+    DatabaseManager.reset_instance()
+
+
+def test_corporate_action_placeholders_warn_for_drp_split_consolidation_and_return_of_capital(tmp_path: Path):
+    db = _make_db(tmp_path)
+    init_portfolio(
+        db,
+        cash=1000.0,
+        holdings=[HoldingInput(code="BHP.AX", quantity=4.0, avg_cost=25.0)],
+    )
+    with db.get_session() as session:
+        for index, action_type in enumerate(("DRP", "split", "consolidation", "return_of_capital"), start=1):
+            session.add(
+                TradeJournal(
+                    query_id=f"corporate-action-{index}",
+                    code="BHP.AX",
+                    action_date=date(2026, 6, index),
+                    action=action_type,
+                    final_decision=action_type,
+                    current_quantity=4.0,
+                    target_quantity=4.0,
+                    current_price=25.0,
+                    available_cash_before=1000.0,
+                    available_cash_after=1000.0,
+                    reason=(
+                        f"corporate_action_type={action_type} currency=AUD "
+                        "ratio=2.0 cash_amount=1.23 custody_metadata_present=true"
+                    ),
+                )
+            )
+        session.commit()
+
+    result = AsxLedgerV2DryRunService(db).build_dry_run()
+    candidates = [
+        item
+        for item in result["candidates"]
+        if item["source_event_id"].startswith("trade_journal:corporate-action-")
+    ]
+    placeholders = [item["corporate_action"] for item in candidates]
+
+    assert [item["action_type"] for item in placeholders] == [
+        "drp",
+        "split",
+        "consolidation",
+        "return_of_capital",
+    ]
+    for placeholder in placeholders:
+        assert placeholder["status"] == "unsupported_placeholder"
+        assert placeholder["currency"] == "AUD"
+        assert placeholder["supported_in_dry_run"] is False
+        assert placeholder["will_adjust_quantity"] is False
+        assert placeholder["will_adjust_cost_base"] is False
+        assert placeholder["requires_manual_review"] is True
+    assert all(item["income"]["status"] == "none" for item in candidates)
+    assert any("corporate action" in warning.lower() for warning in result["warnings"])
+    serialized = str(result)
+    assert not any(marker in serialized for marker in SENSITIVE_MARKERS)
+    DatabaseManager.reset_instance()
+
+
+def test_event_aliases_are_not_unknown_and_feed_source_identity(tmp_path: Path):
+    db = _make_db(tmp_path)
+    init_portfolio(
+        db,
+        cash=1000.0,
+        holdings=[HoldingInput(code="BHP.AX", quantity=4.0, avg_cost=25.0)],
+    )
+    with db.get_session() as session:
+        for action_type in ("split", "consolidation"):
+            session.add(
+                TradeJournal(
+                    query_id="same-action-alias-row",
+                    code="BHP.AX",
+                    action_date=date(2026, 6, 7),
+                    action="HOLD",
+                    final_decision="HOLD",
+                    current_quantity=4.0,
+                    target_quantity=4.0,
+                    current_price=25.0,
+                    available_cash_before=1000.0,
+                    available_cash_after=1000.0,
+                    reason=f"action_type={action_type} currency=AUD ratio=2.0",
+                )
+            )
+        session.commit()
+
+    result = AsxLedgerV2DryRunService(db).build_dry_run()
+    candidates = [
+        item
+        for item in result["candidates"]
+        if item["source_event_id"].startswith("trade_journal:same-action-alias-row")
+    ]
+
+    assert [item["corporate_action"]["action_type"] for item in candidates] == ["split", "consolidation"]
+    assert all(item["income"]["status"] == "none" for item in candidates)
+    assert all(item["corporate_action"]["status"] == "unsupported_placeholder" for item in candidates)
+    assert len({item["source_event_id"] for item in candidates}) == 2
+    assert len({item["source_hash"] for item in candidates}) == 2
+    DatabaseManager.reset_instance()
+
+
+def test_unknown_income_or_corporate_action_is_not_reported_as_supported(tmp_path: Path):
+    db = _make_db(tmp_path)
+    init_portfolio(
+        db,
+        cash=1000.0,
+        holdings=[HoldingInput(code="BHP.AX", quantity=4.0, avg_cost=25.0)],
+    )
+    with db.get_session() as session:
+        session.add(
+            TradeJournal(
+                query_id="unknown-action-row",
+                code="BHP.AX",
+                action_date=date(2026, 6, 10),
+                action="BONUS_ENTITLEMENT",
+                final_decision="BONUS_ENTITLEMENT",
+                current_quantity=4.0,
+                target_quantity=4.0,
+                current_price=25.0,
+                available_cash_before=1000.0,
+                available_cash_after=1000.0,
+                reason="event_type=bonus_entitlement currency=AUD custody_metadata_present=true",
+            )
+        )
+        session.commit()
+
+    result = AsxLedgerV2DryRunService(db).build_dry_run()
+    candidate = next(
+        item
+        for item in result["candidates"]
+        if item["source_event_id"].startswith("trade_journal:unknown-action-row")
+    )
+
+    assert candidate["event_type"] == "unsupported"
+    assert candidate["income"]["status"] == "unsupported"
+    assert candidate["income"]["income_type"] == "unknown"
+    assert candidate["income"]["supported_in_dry_run"] is False
+    assert candidate["corporate_action"]["status"] == "unsupported"
+    assert candidate["corporate_action"]["action_type"] == "unknown"
+    assert candidate["corporate_action"]["supported_in_dry_run"] is False
+    assert any("unknown" in warning.lower() for warning in candidate["warnings"])
+    serialized = str(candidate)
+    assert not any(marker in serialized for marker in SENSITIVE_MARKERS)
+    DatabaseManager.reset_instance()
+
+
 def test_dual_read_comparison_reports_mismatched_and_missing_holdings(tmp_path: Path):
     db = _make_db(tmp_path)
     _seed_v1_buy_sell(db)
