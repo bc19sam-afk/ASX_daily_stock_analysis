@@ -85,8 +85,31 @@ facts needed for future planning.
   review thread. Boundary: plan/contract/guard only; no database migration,
   SQLAlchemy table creation, broker integration, real orders/fills, automatic
   execution, alert worker or notification change, or secrets, HIN originals,
-  account, order, or fill detail exposure. Next candidate PR: PR7 ASX ledger v2
-  read-only tables behind the disabled migration flag.
+  account, order, or fill detail exposure.
+- PR7 completed as GitHub PR #196, "Add disabled ASX ledger v2 migration
+  scaffold", merged at `c370055c95382e2763c38793d1c5db4601358433`.
+  Scope: disabled-by-default ledger v2 shadow schema spec, DDL planner, guarded
+  execution scaffold, scaffold tests, and ledger v2 plan update. Verification:
+  GitHub checks passed for backend gate, Docker build, change detection,
+  security, static checks, AI review, and review reporting; desktop gate was
+  skipped by change detection. Local verification covered
+  `tests/test_portfolio_ledger_v2_contract.py`,
+  `tests/test_portfolio_ledger_v2_migration_scaffold.py`,
+  `tests/test_asx_portfolio_import.py`,
+  `tests/test_manual_portfolio_workflows.py`,
+  `tests/test_portfolio_events_api.py`, `tests/test_workbench_api.py`,
+  `git diff --check`, `py_compile` for the new scaffold module, and
+  `./scripts/ci_gate.sh` with the project virtualenv plus bundled Node on
+  `PATH`. Review handling: GitHub AI review and automated review report passed
+  without actionable review threads; the only PR comment was the generated
+  summary report. Boundary: no production migration, no startup v2 table
+  creation, no active `Base.metadata` registration, no storage schema change, no
+  v1 portfolio/import/events/workbench replacement, no runtime endpoint, no
+  worker, no broker integration, no real orders/fills, no notifications, and no
+  secrets, HIN originals, account credentials, account numbers, order details,
+  or fill detail persistence. Next candidate PR: PR8 ledger v2 dry-run backfill
+  transformer and dual-read comparison groundwork, with v1 still authoritative
+  and no production migration.
 
 ## Blocked Or Separately Authorized Areas
 
