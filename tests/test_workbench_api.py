@@ -113,6 +113,7 @@ def test_workbench_summary_answers_daily_operational_questions(tmp_path: Path):
     assert payload["backtest"]["win_rate_pct"] == 57.1
     assert payload["links"]["history"] == "/api/v1/history"
     assert payload["links"]["backtest"] == "/api/v1/backtest/performance"
+    assert payload["links"]["alert_rule_presets"] == "/api/v1/alert-rules/presets"
     backtest_service.return_value.get_summary.assert_called_once_with(
         scope="overall",
         code=None,

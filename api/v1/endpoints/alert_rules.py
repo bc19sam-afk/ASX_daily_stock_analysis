@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import get_database_manager, get_system_config_service
 from api.v1.endpoints.workbench import _load_workbench_context
+from src.services.asx_alert_rule_presets import build_alert_rule_presets_response
 from src.services.asx_alert_rule_service import AlertRuleDryRunService
 from src.services.system_config_service import SystemConfigService
 from src.storage import DatabaseManager
@@ -34,6 +35,15 @@ class AlertRuleDryRunRequest(BaseModel):
     ]
     severity: Literal["info", "warning", "critical"] = "warning"
     parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+@router.get(
+    "/presets",
+    summary="List ASX alert rule presets",
+    description="Return reusable read-only alert-rule dry-run presets without starting workers, notifications, broker calls, or persisted actions.",
+)
+def list_alert_rule_presets() -> Dict[str, Any]:
+    return build_alert_rule_presets_response()
 
 
 @router.post(
