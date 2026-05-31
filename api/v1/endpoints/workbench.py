@@ -483,6 +483,7 @@ def _build_config_status(config_service: SystemConfigService) -> Dict[str, Any]:
             "stock_list_configured": False,
             "secrets_configured": 0,
             "updated_at": None,
+            "provider_status": _build_provider_status({}),
         }
 
     items = list(payload.get("items") or [])
@@ -504,4 +505,104 @@ def _build_config_status(config_service: SystemConfigService) -> Dict[str, Any]:
         "stock_list_configured": bool(stock_list.get("raw_value_exists") or stock_list.get("value")),
         "secrets_configured": secret_count,
         "updated_at": payload.get("updated_at"),
+        "provider_status": _build_provider_status(item_by_key),
     }
+
+
+def _build_provider_status(item_by_key: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]:
+    """Return low-sensitivity provider/cache status without exposing raw credentials."""
+    gemini_model = _config_value(item_by_key, "GEMINI_MODEL", default="gemini-3.5-flash")
+    grounding_model = _config_value(item_by_key, "GEMINI_GROUNDING_MODEL", default=gemini_model)
+    grounding_enabled = _config_bool(item_by_key, "GEMINI_GROUNDING_SEARCH_ENABLED", default=True)
+    tavily_configured = _config_raw_exists(item_by_key, "TAVILY_API_KEYS")
+    gemini_configured = _config_raw_exists(item_by_key, "GEMINI_API_KEYS", "GEMINI_API_KEY")
+    serpapi_configured = _config_raw_exists(item_by_key, "SERPAPI_API_KEYS")
+
+    return {
+        "provider_order": ["Tavily", "Gemini Grounding", "SerpAPI"],
+        "active_provider_order": [
+            name
+            for name, enabled in [
+                ("Tavily", tavily_configured),
+                ("Gemini Grounding", bool(gemini_configured and grounding_enabled)),
+                ("SerpAPI", serpapi_configured),
+            ]
+            if enabled
+        ],
+        "providers": {
+            "tavily": {
+                "label": "Tavily",
+                "configured": tavily_configured,
+            },
+            "gemini": {
+                "label": "Gemini",
+                "configured": gemini_configured,
+                "model": gemini_model,
+                "grounding_enabled": grounding_enabled,
+                "grounding_configured": bool(gemini_configured and grounding_enabled),
+                "grounding_model": grounding_model,
+            },
+            "serpapi": {
+                "label": "SerpAPI",
+                "configured": serpapi_configured,
+            },
+        },
+        "news_intel_cache": {
+            "enabled": _config_bool(item_by_key, "NEWS_INTEL_CACHE_ENABLED", default=True),
+            "days": _config_int(item_by_key, "NEWS_INTEL_CACHE_DAYS", default=1, minimum=1),
+            "min_results": _config_int(item_by_key, "NEWS_INTEL_CACHE_MIN_RESULTS", default=1, minimum=1),
+        },
+        "search_fallback_note": (
+            "news_intel cache is checked before external providers when enabled; "
+            "stock-news fallback order remains Tavily -> Gemini Grounding -> SerpAPI; "
+            "news_intel dimensions may rotate providers across dimensions to spread quota."
+        ),
+        "quota_safe_note": (
+            "Quota-safe status only: this endpoint does not run external search, clear caches, "
+            "change provider order, or expose raw secrets."
+        ),
+    }
+
+
+def _config_raw_exists(item_by_key: Mapping[str, Mapping[str, Any]], *keys: str) -> bool:
+    return any(bool(item_by_key.get(key.upper(), {}).get("raw_value_exists")) for key in keys)
+
+
+def _config_value(
+    item_by_key: Mapping[str, Mapping[str, Any]],
+    key: str,
+    *,
+    default: str,
+) -> str:
+    item = item_by_key.get(key.upper(), {})
+    value = item.get("value")
+    if value is None or str(value).strip() == "":
+        schema = item.get("schema") if isinstance(item.get("schema"), Mapping) else {}
+        value = schema.get("default_value") if schema else None
+    if value is None or str(value).strip() == "" or bool(item.get("is_masked")):
+        return default
+    return str(value).strip()
+
+
+def _config_bool(
+    item_by_key: Mapping[str, Mapping[str, Any]],
+    key: str,
+    *,
+    default: bool,
+) -> bool:
+    value = _config_value(item_by_key, key, default="true" if default else "false")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _config_int(
+    item_by_key: Mapping[str, Mapping[str, Any]],
+    key: str,
+    *,
+    default: int,
+    minimum: int,
+) -> int:
+    value = _config_value(item_by_key, key, default=str(default))
+    try:
+        return max(minimum, int(value))
+    except (TypeError, ValueError):
+        return max(minimum, int(default))
