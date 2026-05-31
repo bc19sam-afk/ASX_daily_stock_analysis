@@ -315,6 +315,11 @@
             <h2>基础配置状态</h2>
             <div id="configBlock" class="empty">正在读取配置状态...</div>
           </section>
+
+          <section class="panel">
+            <h2>Provider & Cache Status</h2>
+            <div id="providerStatusBlock" class="empty">正在读取 provider/cache 状态...</div>
+          </section>
         </div>
       </div>
     </div>
@@ -340,6 +345,7 @@
         riskBlock: document.getElementById('riskBlock'),
         backtestBlock: document.getElementById('backtestBlock'),
         configBlock: document.getElementById('configBlock'),
+        providerStatusBlock: document.getElementById('providerStatusBlock'),
       };
 
       els.tokenInput.value = state.token ? '********' : '';
@@ -776,6 +782,51 @@
         `;
       }
 
+      function renderProviderStatus(data) {
+        const status = data.config_status?.provider_status || {};
+        const providers = status.providers || {};
+        const cache = status.news_intel_cache || {};
+        const providerRows = [
+          ['Tavily', providers.tavily?.configured],
+          ['Gemini', providers.gemini?.configured],
+          ['SerpAPI', providers.serpapi?.configured],
+        ];
+        els.providerStatusBlock.innerHTML = `
+          <div class="toolbar" style="margin-bottom:10px;">
+            ${pill('Quota-safe status only', 'good')}
+            ${pill(`Order ${fmt((status.provider_order || []).join(' -> '))}`)}
+            ${pill(`Active ${fmt((status.active_provider_order || []).join(' -> ') || 'None')}`)}
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Configured</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${providerRows.map(([label, configured]) => `
+                <tr>
+                  <td>${escapeHtml(label)}</td>
+                  <td>${pill(configured ? 'yes' : 'no', configured ? 'good' : 'warn')}</td>
+                  <td>${label === 'Gemini'
+                    ? escapeHtml(`model ${fmt(providers.gemini?.model)} · grounding ${providers.gemini?.grounding_enabled ? 'enabled' : 'disabled'} · grounding model ${fmt(providers.gemini?.grounding_model)}`)
+                    : escapeHtml('configured boolean only; raw keys are never shown')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="toolbar" style="margin:10px 0;">
+            ${pill(`news_intel cache ${cache.enabled ? 'enabled' : 'disabled'}`, cache.enabled ? 'good' : 'warn')}
+            ${pill(`days ${fmt(cache.days)}`)}
+            ${pill(`min results ${fmt(cache.min_results)}`)}
+          </div>
+          <div class="statusline">${escapeHtml(status.search_fallback_note || '')}</div>
+          <div class="statusline">${escapeHtml(status.quota_safe_note || '')}</div>
+        `;
+      }
+
       async function loadSummary() {
         els.headerMeta.textContent = '正在读取工作台信息...';
         try {
@@ -789,6 +840,7 @@
           renderPortfolio(data);
           renderBacktest(data);
           renderConfig(data);
+          renderProviderStatus(data);
           els.headerMeta.textContent = '已连接到本地工作台。';
         } catch (error) {
           const message = error?.message || '无法读取工作台信息。';
@@ -802,6 +854,7 @@
           els.riskBlock.innerHTML = '<div class="empty error">风险信息暂时不可用。</div>';
           els.backtestBlock.innerHTML = '<div class="empty error">回测汇总暂时不可用。</div>';
           els.configBlock.innerHTML = '<div class="empty error">配置状态暂时不可用。</div>';
+          els.providerStatusBlock.innerHTML = '<div class="empty error">provider/cache 状态暂时不可用。</div>';
         }
       }
 
