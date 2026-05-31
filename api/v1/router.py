@@ -16,6 +16,7 @@ from api.v1.endpoints import (
     analysis,
     history,
     stocks,
+    alert_rules,
     backtest,
     system_config,
     paper_portfolio,
@@ -42,6 +43,12 @@ router.include_router(
     stocks.router,
     prefix="/stocks",
     tags=["Stocks"]
+)
+
+router.include_router(
+    alert_rules.router,
+    prefix="/alert-rules",
+    tags=["AlertRules"]
 )
 
 router.include_router(
