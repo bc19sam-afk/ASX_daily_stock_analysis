@@ -41,6 +41,10 @@ def get_workbench_summary(
     portfolio_summary = _build_portfolio_summary(db_manager)
     risk_summary = _build_risk_summary(latest_detail=latest_detail, history_items=history_items)
     alert_center = _build_alert_center(context)
+    alert_rule_dry_run = _build_alert_rule_dry_run_ui_config(
+        context=context,
+        portfolio_summary=portfolio_summary,
+    )
     config_status = _build_config_status(config_service)
     backtest_summary = _build_backtest_summary(db_manager)
 
@@ -56,6 +60,7 @@ def get_workbench_summary(
         "recent_actions": portfolio_summary.get("today_actions", []),
         "risk": risk_summary,
         "alert_center": alert_center,
+        "alert_rule_dry_run": alert_rule_dry_run,
         "backtest": backtest_summary,
         "config_status": config_status,
         "links": {
@@ -66,6 +71,7 @@ def get_workbench_summary(
             "backtest": "/api/v1/backtest/performance",
             "config": "/api/v1/system/config",
             "alerts": "/api/v1/workbench/alerts",
+            "alert_rule_dry_run": "/api/v1/alert-rules/dry-run",
         },
     }
 
@@ -135,6 +141,125 @@ def _build_alert_center(context: Mapping[str, Any], *, item_limit: Optional[int]
         portfolio_import_result=context.get("portfolio_alert_context"),
         item_limit=item_limit,
     )
+
+
+def _build_alert_rule_dry_run_ui_config(
+    *,
+    context: Mapping[str, Any],
+    portfolio_summary: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Return minimal static-workbench config for temporary alert-rule dry-runs."""
+    latest_detail = context.get("latest_detail") if isinstance(context.get("latest_detail"), Mapping) else {}
+    latest_item = context.get("latest_item") if isinstance(context.get("latest_item"), Mapping) else {}
+    latest_code = str(
+        latest_detail.get("stock_code")
+        or latest_detail.get("code")
+        or latest_item.get("stock_code")
+        or ""
+    ).strip()
+    portfolio = portfolio_summary.get("portfolio") if isinstance(portfolio_summary.get("portfolio"), Mapping) else {}
+    holdings = list(portfolio.get("holdings") or []) if isinstance(portfolio, Mapping) else []
+    has_holdings = bool(holdings)
+
+    latest_disabled_reason = None if latest_code else "No latest report symbol is available for this dry-run."
+    templates = [
+        {
+            "id": "latest_report_data_gap",
+            "label": "Latest report data gap",
+            "description": "Dry-run the latest report data-quality rule for the current symbol.",
+            "enabled": bool(latest_code),
+            "disabled_reason": latest_disabled_reason,
+            "payload": {
+                "name": "Latest report data gap dry-run",
+                "target_scope": "single_symbol",
+                "target": latest_code or "all",
+                "alert_type": "data_gap",
+                "severity": "warning",
+                "parameters": {},
+            },
+        },
+        {
+            "id": "latest_report_price_basis",
+            "label": "Latest report price basis",
+            "description": "Dry-run stale or degraded price-basis review for the current symbol.",
+            "enabled": bool(latest_code),
+            "disabled_reason": latest_disabled_reason,
+            "payload": {
+                "name": "Latest report price basis dry-run",
+                "target_scope": "single_symbol",
+                "target": latest_code or "all",
+                "alert_type": "stale_price",
+                "severity": "warning",
+                "parameters": {},
+            },
+        },
+        {
+            "id": "latest_report_announcement",
+            "label": "Latest report announcement risk",
+            "description": "Dry-run the ASX announcement review rule for the current symbol.",
+            "enabled": bool(latest_code),
+            "disabled_reason": latest_disabled_reason,
+            "payload": {
+                "name": "Latest report announcement dry-run",
+                "target_scope": "single_symbol",
+                "target": latest_code or "all",
+                "alert_type": "announcement_risk",
+                "severity": "warning",
+                "parameters": {},
+            },
+        },
+        {
+            "id": "portfolio_holding_concentration",
+            "label": "Portfolio holding concentration",
+            "description": "Dry-run a portfolio holding concentration review if holdings exist.",
+            "enabled": has_holdings,
+            "disabled_reason": None if has_holdings else "No portfolio holdings are available for this dry-run.",
+            "payload": {
+                "name": "Portfolio holding concentration dry-run",
+                "target_scope": "portfolio_holdings",
+                "target": "all",
+                "alert_type": "portfolio_concentration",
+                "severity": "warning",
+                "parameters": {"max_weight": 0.25},
+            },
+        },
+    ]
+
+    return {
+        "mode": "dry_run_manual_review",
+        "endpoint": "/api/v1/alert-rules/dry-run",
+        "method": "POST",
+        "is_trade_instruction": False,
+        "manual_review_required": True,
+        "side_effects": [],
+        "forbidden_side_effects": [
+            "db_write",
+            "background_worker",
+            "notification",
+            "broker_execution",
+            "paper_simulation",
+        ],
+        "result_fields": [
+            "status",
+            "triggered_count",
+            "degraded_count",
+            "skipped_count",
+            "target_results",
+            "market_context",
+            "is_trade_instruction",
+        ],
+        "basis_values_requiring_manual_review": ["close_only", "delayed", "unavailable"],
+        "copy": {
+            "title": "Alert Rule Dry-Run",
+            "boundary": "dry-run / manual review only; not a trade instruction",
+            "degraded": "close_only, delayed, or unavailable data cannot be inferred as clear.",
+        },
+        "links": {
+            "dry_run": "/api/v1/alert-rules/dry-run",
+            "workbench": "/api/v1/workbench/summary",
+        },
+        "templates": templates,
+    }
 
 
 def _load_latest_detail(history_service: HistoryService, latest_item: Optional[Dict[str, Any]]) -> Dict[str, Any]:
