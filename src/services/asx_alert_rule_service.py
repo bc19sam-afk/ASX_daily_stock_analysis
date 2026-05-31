@@ -38,10 +38,25 @@ class AlertRuleDryRunService:
             item_limit=None,
         )
         targets, capped_skipped = self._expand_targets(rule)
-        if not targets:
-            targets = ["portfolio_account" if rule.get("target_scope") == "portfolio_account" else str(rule.get("target") or "all")]
+        scope = _clean_text(rule.get("target_scope"))
 
         results: List[Dict[str, Any]] = []
+        if not targets and scope == "watchlist":
+            results.append(
+                _target_result(
+                    target="watchlist",
+                    status=STATUS_SKIPPED,
+                    observed_value="empty",
+                    threshold="configured STOCK_LIST",
+                    message="未配置自选股 STOCK_LIST，跳过 watchlist dry-run。",
+                    source="system_config.STOCK_LIST",
+                    as_of=_market_as_of(alert_center),
+                    action_hint="先配置自选股列表或改用单标的 dry-run 后人工复核。",
+                )
+            )
+        elif not targets:
+            targets = ["portfolio_account" if rule.get("target_scope") == "portfolio_account" else str(rule.get("target") or "all")]
+
         for target in targets:
             try:
                 results.append(self._evaluate_target(rule, target, context, alert_center))

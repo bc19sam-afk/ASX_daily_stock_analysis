@@ -146,6 +146,7 @@ def build_workbench_alert_rule_presets(
     *,
     context: Mapping[str, Any],
     portfolio_summary: Mapping[str, Any],
+    has_watchlist: bool,
 ) -> List[Dict[str, Any]]:
     """Return context-aware workbench presets with dry-run payloads."""
     latest_code = _latest_symbol(context)
@@ -159,6 +160,7 @@ def build_workbench_alert_rule_presets(
             preset,
             latest_code=latest_code,
             has_holdings=has_holdings,
+            has_watchlist=has_watchlist,
         )
         item = {
             **preset,
@@ -175,10 +177,13 @@ def _availability_for_preset(
     *,
     latest_code: Optional[str],
     has_holdings: bool,
+    has_watchlist: bool,
 ) -> tuple[bool, Optional[str]]:
     target_scope = str(preset.get("target_scope") or "")
     if target_scope == "single_symbol" and not latest_code:
         return False, "No latest report symbol is available for this dry-run."
+    if target_scope == "watchlist" and not has_watchlist:
+        return False, "No configured STOCK_LIST watchlist is available for this dry-run."
     if target_scope == "portfolio_holdings" and not has_holdings:
         return False, "No portfolio holdings are available for this dry-run."
     return True, None

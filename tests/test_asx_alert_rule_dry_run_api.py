@@ -244,6 +244,35 @@ def test_watchlist_expansion_is_capped(tmp_path: Path):
     app.dependency_overrides.clear()
 
 
+def test_watchlist_dry_run_without_configured_targets_is_skipped(tmp_path: Path):
+    client, app = _client(tmp_path, config_service=_ConfigService(""))
+
+    response = _post_with_context(
+        client,
+        _context(),
+        {
+            "target_scope": "watchlist",
+            "target": "all",
+            "alert_type": "stale_price",
+            "severity": "warning",
+            "parameters": {},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "not_triggered"
+    assert payload["evaluated_count"] == 1
+    assert payload["skipped_count"] == 1
+    result = payload["target_results"][0]
+    assert result["target"] == "watchlist"
+    assert result["status"] == "skipped"
+    assert result["source"] == "system_config.STOCK_LIST"
+    assert "人工复核" in result["action_hint"]
+    assert result["is_trade_instruction"] is False
+    app.dependency_overrides.clear()
+
+
 def test_portfolio_holdings_and_account_rules_are_read_only(tmp_path: Path):
     DatabaseManager.reset_instance()
     db = DatabaseManager(db_url=f"sqlite:///{tmp_path / 'alert_rules.db'}")

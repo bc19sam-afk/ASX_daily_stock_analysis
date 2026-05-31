@@ -49,11 +49,12 @@ def get_workbench_summary(
     portfolio_summary = _build_portfolio_summary(db_manager)
     risk_summary = _build_risk_summary(latest_detail=latest_detail, history_items=history_items)
     alert_center = _build_alert_center(context)
+    config_status = _build_config_status(config_service)
     alert_rule_dry_run = _build_alert_rule_dry_run_ui_config(
         context=context,
         portfolio_summary=portfolio_summary,
+        config_status=config_status,
     )
-    config_status = _build_config_status(config_service)
     backtest_summary = _build_backtest_summary(db_manager)
 
     return {
@@ -156,11 +157,13 @@ def _build_alert_rule_dry_run_ui_config(
     *,
     context: Mapping[str, Any],
     portfolio_summary: Mapping[str, Any],
+    config_status: Mapping[str, Any],
 ) -> Dict[str, Any]:
     """Return minimal static-workbench config for temporary alert-rule dry-runs."""
     presets = build_workbench_alert_rule_presets(
         context=context,
         portfolio_summary=portfolio_summary,
+        has_watchlist=bool(config_status.get("stock_list_configured")),
     )
 
     return {
