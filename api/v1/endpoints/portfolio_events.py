@@ -55,3 +55,18 @@ def get_ledger_v2_dry_run(
     db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> Dict[str, Any]:
     return AsxLedgerV2DryRunService(db_manager).build_dry_run()
+
+
+@router.get(
+    "/ledger-v2/diagnostics",
+    summary="Group ledger v2 shadow-read diagnostics",
+    description=(
+        "Read-only operator diagnostics for ledger v2 dry-run comparison. "
+        "This groups mismatches, missing rows, unsupported placeholders, and warnings "
+        "without writing ledger v2 storage or changing v1 portfolio reads."
+    ),
+)
+def get_ledger_v2_diagnostics(
+    db_manager: DatabaseManager = Depends(get_database_manager),
+) -> Dict[str, Any]:
+    return AsxLedgerV2DryRunService(db_manager).build_diagnostics()

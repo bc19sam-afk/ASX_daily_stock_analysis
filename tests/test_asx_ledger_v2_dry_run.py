@@ -244,6 +244,60 @@ def test_dual_read_comparison_reports_mismatched_and_missing_holdings(tmp_path: 
     DatabaseManager.reset_instance()
 
 
+def test_shadow_read_diagnostics_groups_mismatches_missing_unsupported_and_warnings(tmp_path: Path):
+    db = _make_db(tmp_path)
+    _seed_v1_buy_sell(db)
+    db.upsert_portfolio_position(
+        code="BHP.AX",
+        name="BHP Group",
+        quantity=5.0,
+        avg_cost=25.0,
+        current_price=25.0,
+        weight=0.1,
+        market_value=125.0,
+    )
+    db.upsert_portfolio_position(
+        code="CBA.AX",
+        name="CBA",
+        quantity=2.0,
+        avg_cost=100.0,
+        current_price=100.0,
+        weight=0.2,
+        market_value=200.0,
+    )
+    before = _table_counts(db)
+
+    diagnostics = AsxLedgerV2DryRunService(db).build_diagnostics()
+
+    assert diagnostics["status"] == "available"
+    assert diagnostics["mode"] == "ledger_v2_shadow_read_diagnostics"
+    assert diagnostics["is_dry_run"] is True
+    assert diagnostics["will_write"] is False
+    assert diagnostics["summary"]["v1_authoritative"] is True
+    assert diagnostics["summary"]["requires_manual_review"] is True
+    assert diagnostics["summary"]["mismatched_count"] == 1
+    assert diagnostics["summary"]["missing_count"] == 1
+    assert diagnostics["summary"]["unsupported_count"] >= 1
+    assert diagnostics["summary"]["warning_count"] >= 2
+    groups = {item["group"]: item for item in diagnostics["summary"]["groups"]}
+    assert groups["mismatched"]["count"] == 1
+    assert groups["missing"]["count"] == 1
+    assert groups["unsupported"]["count"] >= 1
+    assert groups["warnings"]["count"] >= 2
+    assert groups["unsupported"]["severity"] == "manual_review"
+    assert any(item["symbol"] == "BHP.AX" for item in diagnostics["details"]["mismatched"])
+    assert any(item["symbol"] == "CBA.AX" for item in diagnostics["details"]["missing"])
+    assert diagnostics["details"]["unsupported"][0]["event_type"] == "unsupported"
+    assert diagnostics["details"]["unsupported"][0]["reason"] == "unsupported_or_cash_only_placeholder"
+    assert any("v1 remains authoritative" in item["message"] for item in diagnostics["details"]["warnings"])
+    assert diagnostics["boundaries"]["v1_authoritative"] is True
+    assert diagnostics["links"]["dry_run"] == "/api/v1/portfolio-events/ledger-v2/dry-run"
+    assert _table_counts(db) == before
+    serialized = str(diagnostics)
+    assert not any(marker in serialized for marker in SENSITIVE_MARKERS)
+    DatabaseManager.reset_instance()
+
+
 def test_dual_read_comparison_reports_dry_run_only_holdings(tmp_path: Path):
     db = _make_db(tmp_path)
     with db.get_session() as session:
@@ -360,5 +414,28 @@ def test_ledger_v2_dry_run_endpoint_is_read_only(tmp_path: Path):
     assert payload["comparison"]["matched_count"] == 2
     assert payload["candidates"][0]["source_event_id"].startswith("trade_journal:")
     assert _table_counts(db) == before
+    app.dependency_overrides.clear()
+    DatabaseManager.reset_instance()
+
+
+def test_ledger_v2_diagnostics_endpoint_is_read_only_and_redacted(tmp_path: Path):
+    db = _make_db(tmp_path)
+    _seed_v1_buy_sell(db)
+    before = _table_counts(db)
+    app = create_app(static_dir=tmp_path / "empty-static")
+    app.dependency_overrides[get_database_manager] = lambda: db
+
+    response = TestClient(app).get("/api/v1/portfolio-events/ledger-v2/diagnostics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "ledger_v2_shadow_read_diagnostics"
+    assert payload["is_dry_run"] is True
+    assert payload["will_write"] is False
+    assert payload["summary"]["unsupported_count"] >= 1
+    assert payload["details"]["unsupported"]
+    assert _table_counts(db) == before
+    serialized = str(payload)
+    assert not any(marker in serialized for marker in SENSITIVE_MARKERS)
     app.dependency_overrides.clear()
     DatabaseManager.reset_instance()

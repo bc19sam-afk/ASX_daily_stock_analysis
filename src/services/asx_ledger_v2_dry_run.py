@@ -139,6 +139,54 @@ class AsxLedgerV2DryRunService:
             },
         }
 
+    def build_diagnostics(self) -> Dict[str, Any]:
+        """Return operator-facing shadow-read diagnostics grouped for manual review."""
+        dry_run = self.build_dry_run()
+        comparison = dict(dry_run.get("comparison") or {})
+        mismatched = _diagnostic_items(comparison.get("mismatched"))
+        missing = _diagnostic_items(comparison.get("missing"))
+        unsupported = _unsupported_diagnostic_items(dry_run.get("candidates") or [])
+        warnings = _warning_diagnostic_items(dry_run.get("warnings") or [])
+        summary = {
+            "matched_count": int(comparison.get("matched_count") or 0),
+            "mismatched_count": len(mismatched),
+            "missing_count": len(missing),
+            "unsupported_count": len(unsupported),
+            "warning_count": len(warnings),
+            "requires_manual_review": bool(mismatched or missing or unsupported or warnings),
+            "v1_authoritative": True,
+        }
+        summary["groups"] = [
+            _diagnostic_group("mismatched", "V1 / ledger v2 mismatch", len(mismatched), "manual_review"),
+            _diagnostic_group("missing", "Missing from ledger v2 dry-run", len(missing), "manual_review"),
+            _diagnostic_group(
+                "unsupported",
+                "Unsupported or cash-only placeholder",
+                len(unsupported),
+                "manual_review",
+            ),
+            _diagnostic_group("warnings", "Dry-run warning", len(warnings), "info"),
+        ]
+        return {
+            "status": dry_run.get("status") or "available",
+            "mode": "ledger_v2_shadow_read_diagnostics",
+            "is_dry_run": True,
+            "will_write": False,
+            "summary": summary,
+            "details": {
+                "mismatched": mismatched,
+                "missing": missing,
+                "unsupported": unsupported,
+                "warnings": warnings,
+            },
+            "warnings": [item["message"] for item in warnings],
+            "boundaries": dict(dry_run.get("boundaries") or {}),
+            "links": {
+                "dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
+                "workbench": "/api/v1/workbench/summary",
+            },
+        }
+
     def _candidate_from_trade_journal(self, row: TradeJournal) -> _TradeCandidate:
         metadata = _safe_reason_metadata(row.reason)
         source_event_id = f"trade_journal:{_stable_trade_source_key(row)}"
@@ -550,6 +598,94 @@ def _dedupe_strings(values: Iterable[str]) -> List[str]:
         seen.add(text)
         result.append(text)
     return result
+
+
+def _diagnostic_group(group: str, label: str, count: int, severity: str) -> Dict[str, Any]:
+    return {
+        "group": group,
+        "label": label,
+        "count": int(count),
+        "severity": severity,
+    }
+
+
+def _diagnostic_items(values: Any) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for value in values or []:
+        if not isinstance(value, Mapping):
+            continue
+        item = {
+            key: _redacted_diagnostic_value(value.get(key))
+            for key in (
+                "type",
+                "symbol",
+                "v1_quantity",
+                "dry_run_quantity",
+                "v1_cash",
+                "dry_run_cash",
+            )
+            if key in value
+        }
+        if item:
+            items.append(item)
+    return items
+
+
+def _unsupported_diagnostic_items(candidates: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for candidate in candidates:
+        if str(candidate.get("event_type") or "") != "unsupported":
+            continue
+        items.append(
+            {
+                "source_event_id": _safe_diagnostic_text(candidate.get("source_event_id")),
+                "event_type": "unsupported",
+                "reason": "unsupported_or_cash_only_placeholder",
+                "symbol": _redacted_diagnostic_value(candidate.get("symbol")),
+                "trade_date": _redacted_diagnostic_value(candidate.get("trade_date")),
+                "currency": _redacted_diagnostic_value(candidate.get("currency")),
+                "warning_count": len(list(candidate.get("warnings") or [])),
+                "warnings": _dedupe_strings(
+                    _safe_diagnostic_text(warning)
+                    for warning in candidate.get("warnings") or []
+                ),
+                "is_dry_run": True,
+            }
+        )
+    return items
+
+
+def _warning_diagnostic_items(warnings: Iterable[str]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "severity": "manual_review" if _warning_requires_manual_review(warning) else "info",
+            "source": "ledger_v2_dry_run",
+            "message": _safe_diagnostic_text(warning),
+        }
+        for warning in _dedupe_strings(warnings)
+    ]
+
+
+def _warning_requires_manual_review(warning: Any) -> bool:
+    text = str(warning or "").lower()
+    return any(marker in text for marker in ("differs", "unsupported", "missing", "mismatch"))
+
+
+def _redacted_diagnostic_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (int, float, bool)):
+        return value
+    return _safe_diagnostic_text(value)
+
+
+def _safe_diagnostic_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if _is_sensitive(text):
+        return "[redacted]"
+    return text
 
 
 __all__ = ["AsxLedgerV2DryRunService"]
