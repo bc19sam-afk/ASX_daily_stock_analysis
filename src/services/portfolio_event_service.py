@@ -233,7 +233,7 @@ class PortfolioEventService:
         if filters.event_type and event.get("event_type") != filters.event_type:
             return False
         if filters.code:
-            aliases = set(stock_code_aliases(_canonical_event_filter_code(filters.code)))
+            aliases = set(_event_filter_code_aliases(filters.code))
             if not aliases:
                 return False
             if event.get("code") not in aliases:
@@ -289,11 +289,15 @@ def _clean_optional(value: Optional[str]) -> Optional[str]:
     return cleaned or None
 
 
-def _canonical_event_filter_code(value: str) -> str:
+def _event_filter_code_aliases(value: str) -> Tuple[str, ...]:
     code = str(value or "").strip().upper()
-    if code and "." not in code:
-        code = f"{code}.AX"
-    return canonical_stock_code(code)
+    canonical = canonical_stock_code(code)
+    if not canonical:
+        return ()
+    aliases = list(stock_code_aliases(canonical))
+    if "." not in canonical:
+        aliases.extend(stock_code_aliases(f"{canonical}.AX"))
+    return tuple(dict.fromkeys(aliases))
 
 
 def _event_sort_key(event: Dict[str, Any]) -> Tuple[datetime, str]:

@@ -192,3 +192,31 @@ def test_portfolio_events_filters_paginates_and_handles_empty_state(tmp_path: Pa
     assert empty.json()["total"] == 0
     assert empty.json()["events"] == []
     app.dependency_overrides.clear()
+
+
+def test_portfolio_events_code_filter_preserves_bare_us_symbols(tmp_path: Path):
+    client, db, app = _make_client(tmp_path)
+    with db.get_session() as session:
+        session.add(
+            PortfolioPosition(
+                code="AAPL",
+                name="Apple Inc.",
+                quantity=2.0,
+                avg_cost=180.0,
+                market_value=370.0,
+                current_price=185.0,
+                status="OPEN",
+                opened_at=datetime(2026, 5, 23, 8, 0, tzinfo=timezone.utc),
+                updated_at=datetime(2026, 5, 23, 9, 0, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+    response = client.get("/api/v1/portfolio-events", params={"code": "AAPL"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["events"][0]["code"] == "AAPL"
+    assert payload["events"][0]["symbol"] == "AAPL"
+    app.dependency_overrides.clear()
