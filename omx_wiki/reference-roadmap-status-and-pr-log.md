@@ -54,8 +54,23 @@ facts needed for future planning.
   `tests/test_portfolio_events_api.py`, and `./scripts/ci_gate.sh` with the
   project virtualenv plus bundled Node on `PATH`. Boundary: dry-run only; no
   background worker, notification delivery, broker integration, real order
-  submission, or persisted execution state. Next candidate PR: PR5 Workbench
-  alert rule UI / smoke path.
+  submission, or persisted execution state.
+- PR5 completed as GitHub PR #192, "Add workbench alert rule dry-run UI smoke
+  path", merged at `816fbbafed45cb0be479745ee418f67cdf85ac53`. Scope:
+  workbench summary exposes minimal alert-rule dry-run UI schema/templates, and
+  the static ASX Workbench can run dry-run rules while rendering `status`,
+  `triggered_count`, `degraded_count`, `skipped_count`, `target_results`, and
+  `market_context` with manual-review wording. Verification: GitHub checks
+  passed for backend gate, Docker build, change detection, security, static
+  checks, AI review, and review reporting; local verification covered
+  `tests/test_workbench_alert_rule_ui.py`, `tests/test_workbench_api.py`,
+  `tests/test_asx_alert_rule_dry_run_api.py`, `tests/test_alert_center.py`,
+  `tests/test_portfolio_events_api.py`, `./scripts/ci_gate.sh`, and a
+  Playwright/Chrome local workbench smoke. Boundary: UI smoke only, dry-run
+  only; no background worker, notification delivery, broker integration, real
+  order submission, paper simulation, DB write, secrets, HIN, account, order, or
+  fill detail exposure. Next candidate PR: PR6 ASX ledger v2 schema plan or the
+  next wiki-listed candidate.
 
 ## Blocked Or Separately Authorized Areas
 
