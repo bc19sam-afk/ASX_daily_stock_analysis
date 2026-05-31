@@ -28,7 +28,20 @@ facts needed for future planning.
   workbench API, AnalysisContextPack prompt tests, and `ci_gate.sh` with the
   project virtualenv plus bundled Node on `PATH`. Boundary: no broker
   connection, real execution, ledger v2 schema change, alert worker change, or
-  PR3 behavior. Next candidate PR: read-only portfolio event facade.
+  PR3 behavior.
+- PR3 completed as GitHub PR #188, "Add read-only portfolio event facade",
+  merged at `e2b9bc36d45c07c979b964d98306092a9fb73c5b`.
+  Scope: read-only `/api/v1/portfolio-events` facade over current portfolio
+  positions, trade journal rows, import traces, account snapshots, and paper
+  portfolio trades. Verification: GitHub checks passed for backend gate, Docker
+  build, change detection, security, static checks, AI review, and review
+  reporting; local verification covered `tests/test_portfolio_events_api.py`,
+  `tests/test_manual_portfolio_workflows.py`,
+  `tests/test_asx_portfolio_import.py`, `tests/test_workbench_api.py`, and
+  `./scripts/ci_gate.sh`. Boundary: no ledger v2 schema, broker integration,
+  real orders/fills, automatic execution, alert worker change, or HIN, account,
+  or secrets exposure expansion. Next candidate PR: PR4 ASX alert rule dry-run
+  API.
 
 ## Blocked Or Separately Authorized Areas
 
