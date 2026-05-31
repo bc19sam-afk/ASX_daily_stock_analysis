@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -37,6 +37,17 @@ class AlertRuleDryRunRequest(BaseModel):
     parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
+class AlertRuleBatchDryRunRequest(BaseModel):
+    """Temporary alert rules to evaluate together without persistence."""
+
+    name: Optional[str] = Field(default=None, description="Optional display name for this temporary diagnostic batch")
+    rules: List[AlertRuleDryRunRequest] = Field(
+        min_length=1,
+        max_length=20,
+        description="Temporary dry-run rules to evaluate as one read-only diagnostic batch",
+    )
+
+
 @router.get(
     "/presets",
     summary="List ASX alert rule presets",
@@ -59,5 +70,27 @@ def dry_run_alert_rule(
     context = _load_workbench_context(db_manager)
     return AlertRuleDryRunService(db_manager, config_service).dry_run(
         payload.model_dump(),
+        context=context,
+    )
+
+
+@router.post(
+    "/dry-run/batch",
+    summary="Batch dry-run ASX alert rules",
+    description=(
+        "Evaluate temporary read-only alert rules as one diagnostics batch without starting workers, "
+        "notifications, broker calls, persisted execution state, or account writes."
+    ),
+)
+def batch_dry_run_alert_rules(
+    payload: AlertRuleBatchDryRunRequest,
+    db_manager: DatabaseManager = Depends(get_database_manager),
+    config_service: SystemConfigService = Depends(get_system_config_service),
+) -> Dict[str, Any]:
+    context = _load_workbench_context(db_manager)
+    rules = [rule.model_dump() for rule in payload.rules]
+    return AlertRuleDryRunService(db_manager, config_service).batch_dry_run(
+        name=payload.name,
+        rules=rules,
         context=context,
     )

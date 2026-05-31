@@ -30,6 +30,74 @@ class AlertRuleDryRunService:
         self.db = db_manager
         self.config_service = config_service
 
+    def batch_dry_run(
+        self,
+        *,
+        rules: Iterable[Mapping[str, Any]],
+        context: Mapping[str, Any],
+        name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Evaluate temporary alert rules as one read-only diagnostic batch."""
+        results: List[Dict[str, Any]] = []
+        for index, rule in enumerate(rules, start=1):
+            result = self.dry_run(rule, context=context)
+            result.update(
+                {
+                    "rule_index": index,
+                    "target_scope": _clean_text(rule.get("target_scope")),
+                    "alert_type": _clean_text(rule.get("alert_type")),
+                    "severity": _clean_text(rule.get("severity")) or "warning",
+                }
+            )
+            results.append(result)
+
+        summary = {
+            "evaluated_target_count": sum(int(item.get("evaluated_count") or 0) for item in results),
+            "triggered_count": sum(int(item.get("triggered_count") or 0) for item in results),
+            "degraded_count": sum(int(item.get("degraded_count") or 0) for item in results),
+            "skipped_count": sum(int(item.get("skipped_count") or 0) for item in results),
+            "evaluation_error_count": sum(
+                1
+                for item in results
+                for target_result in item.get("target_results") or []
+                if isinstance(target_result, Mapping)
+                and target_result.get("status") == STATUS_EVALUATION_ERROR
+            ),
+        }
+        if summary["evaluation_error_count"]:
+            status = STATUS_EVALUATION_ERROR
+        elif summary["triggered_count"]:
+            status = STATUS_TRIGGERED
+        elif summary["degraded_count"]:
+            status = STATUS_DEGRADED
+        elif summary["skipped_count"]:
+            status = STATUS_SKIPPED
+        else:
+            status = STATUS_NOT_TRIGGERED
+
+        return {
+            "mode": "alert_rule_batch_dry_run_diagnostics",
+            "name": _clean_text(name) or None,
+            "status": status,
+            "is_dry_run": True,
+            "will_write": False,
+            "is_trade_instruction": False,
+            "manual_review_required": True,
+            "side_effects": [],
+            "forbidden_side_effects": [
+                "db_write",
+                "background_worker",
+                "notification",
+                "broker_execution",
+                "paper_simulation",
+                "persisted_execution_state",
+            ],
+            "rule_count": len(results),
+            "evaluated_rule_count": len(results),
+            "summary": summary,
+            "results": results,
+        }
+
     def dry_run(self, rule: Mapping[str, Any], context: Mapping[str, Any]) -> Dict[str, Any]:
         alert_center = build_alert_center_from_workbench_inputs(
             latest_detail=context.get("latest_detail"),
