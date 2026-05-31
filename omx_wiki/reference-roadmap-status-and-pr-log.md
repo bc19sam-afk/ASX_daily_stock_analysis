@@ -69,8 +69,24 @@ facts needed for future planning.
   Playwright/Chrome local workbench smoke. Boundary: UI smoke only, dry-run
   only; no background worker, notification delivery, broker integration, real
   order submission, paper simulation, DB write, secrets, HIN, account, order, or
-  fill detail exposure. Next candidate PR: PR6 ASX ledger v2 schema plan or the
-  next wiki-listed candidate.
+  fill detail exposure.
+- PR6 completed as GitHub PR #194, "Add ASX ledger v2 schema plan and
+  migration guard", merged at `bb5ce666618774adce5211b976e0c2c471360afb`.
+  Scope: ledger v2 design plan, declarative schema contract, default-off
+  migration guard, contract/guard tests, and a short portfolio-ledger wiki
+  cross-reference. Verification: GitHub checks passed for backend gate, Docker
+  build, change detection, security, static checks, AI review, and review
+  reporting; local verification covered `tests/test_portfolio_ledger_v2_contract.py`,
+  `tests/test_asx_portfolio_import.py`, `tests/test_manual_portfolio_workflows.py`,
+  `tests/test_portfolio_events_api.py`, `tests/test_workbench_api.py`, and
+  `./scripts/ci_gate.sh` with the project virtualenv plus bundled Node on
+  `PATH`. Review handling: Codex Review P2 account scoping feedback was fixed
+  by adding `account_uid` to planned corporate-action rows and resolving the
+  review thread. Boundary: plan/contract/guard only; no database migration,
+  SQLAlchemy table creation, broker integration, real orders/fills, automatic
+  execution, alert worker or notification change, or secrets, HIN originals,
+  account, order, or fill detail exposure. Next candidate PR: PR7 ASX ledger v2
+  read-only tables behind the disabled migration flag.
 
 ## Blocked Or Separately Authorized Areas
 
