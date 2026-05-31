@@ -95,7 +95,95 @@ bad-date,2026-05-22,BHP,BUY,4,25,3,AUD,SelfWealth,Main,HIN-001
         self.assertIn("broker=SelfWealth", journal[0].reason)
         self.assertIn("account_label=Main", journal[0].reason)
         self.assertIn("settlement_date=2026-05-22", journal[0].reason)
-        self.assertIn("hin=HIN-001", journal[0].reason)
+        self.assertIn("custody_metadata_present=true", journal[0].reason)
+        self.assertNotIn("HIN-001", journal[0].reason)
+
+    def test_preview_reports_parser_counters_and_dedup_without_mutation(self):
+        init_portfolio(self.db, cash=1000.0, holdings=[])
+        csv_path = self._write_csv(
+            "preview_dedup.csv",
+            """trade_date,settlement_date,code,side,quantity,price,brokerage,currency,broker,account_label,HIN
+2026-05-20,2026-05-22,BHP,BUY,4,25,3,AUD,SelfWealth,Main,HIN-001
+2026-05-20,2026-05-22,BHP,BUY,4,25,3,AUD,SelfWealth,Main,HIN-001
+""",
+        )
+
+        result = self.service.preview_csv(csv_path)
+
+        self.assertEqual(result["status"], "preview")
+        self.assertEqual(result["parser"]["id"], "generic_asx")
+        self.assertIn("fee", result["parser"]["required_fields"])
+        self.assertIn("brokerage", result["parser"]["column_aliases"]["fee"])
+        self.assertEqual(result["counters"]["parsed_count"], 2)
+        self.assertEqual(result["counters"]["valid_count"], 2)
+        self.assertEqual(result["counters"]["duplicate_count"], 1)
+        self.assertEqual(result["counters"]["would_apply_count"], 1)
+        self.assertEqual(result["counters"]["applied_count"], 0)
+        self.assertEqual(result["counters"]["skipped_count"], 1)
+        self.assertEqual(result["dedup"]["file_duplicate_count"], 1)
+        self.assertEqual(result["dedup"]["existing_duplicate_count"], 0)
+        self.assertEqual(len(result["rows"]), 2)
+        duplicate_rows = [row for row in result["rows"] if row["dedup"]["duplicate"]]
+        self.assertEqual(len(duplicate_rows), 1)
+        self.assertEqual(duplicate_rows[0]["dedup"]["reason"], "duplicate_in_file")
+        self.assertEqual(self.db.get_trade_journal(limit=10), [])
+        self.assertIsNone(self.db.get_portfolio_position("BHP.AX"))
+        self.assertAlmostEqual(self.db.get_latest_account_snapshot().cash, 1000.0, places=2)
+
+    def test_apply_skips_same_file_and_previously_imported_duplicate_trades(self):
+        init_portfolio(self.db, cash=1000.0, holdings=[])
+        csv_path = self._write_csv(
+            "apply_dedup.csv",
+            """trade_date,settlement_date,code,side,quantity,price,brokerage,currency,broker,account_label,HIN
+2026-05-20,2026-05-22,BHP,BUY,4,25,3,AUD,SelfWealth,Main,HIN-001
+2026-05-20,2026-05-22,BHP,BUY,4,25,3,AUD,SelfWealth,Main,HIN-001
+""",
+        )
+
+        first = self.service.apply_csv(csv_path)
+
+        self.assertEqual(first["status"], "applied")
+        self.assertEqual(first["applied_count"], 1)
+        self.assertEqual(first["counters"]["applied_count"], 1)
+        self.assertEqual(first["counters"]["duplicate_count"], 1)
+        self.assertEqual(first["dedup"]["file_duplicate_count"], 1)
+        position = self.db.get_portfolio_position("BHP.AX")
+        self.assertAlmostEqual(position.quantity, 4.0, places=6)
+        snapshot = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot.cash, 897.0, places=2)
+        self.assertEqual(len(self.db.get_trade_journal(limit=10)), 1)
+
+        second = self.service.apply_csv(csv_path)
+
+        self.assertEqual(second["status"], "applied")
+        self.assertEqual(second["applied_count"], 0)
+        self.assertEqual(second["counters"]["applied_count"], 0)
+        self.assertEqual(second["counters"]["duplicate_count"], 2)
+        self.assertEqual(second["dedup"]["existing_duplicate_count"], 1)
+        self.assertEqual(second["dedup"]["file_duplicate_count"], 1)
+        self.assertEqual(len(self.db.get_trade_journal(limit=10)), 1)
+        position_after = self.db.get_portfolio_position("BHP.AX")
+        self.assertAlmostEqual(position_after.quantity, 4.0, places=6)
+        snapshot_after = self.db.get_latest_account_snapshot()
+        self.assertAlmostEqual(snapshot_after.cash, 897.0, places=2)
+
+    def test_generic_parser_accepts_registered_column_aliases(self):
+        init_portfolio(self.db, cash=1000.0, holdings=[])
+        csv_path = self._write_csv(
+            "alias_headers.csv",
+            """Trade Date,Settlement Date,Symbol,Buy/Sell,Units,Unit Price,Brokerage,CCY,Broker,Account Label
+2026-05-20,2026-05-22,BHP,B,4,25,3,AUD,SelfWealth,Main
+""",
+        )
+
+        result = self.service.preview_csv(csv_path, parser_id="generic")
+
+        self.assertEqual(result["status"], "preview")
+        self.assertEqual(result["parser"]["id"], "generic_asx")
+        self.assertEqual(result["counters"]["would_apply_count"], 1)
+        self.assertEqual(result["rows"][0]["code"], "BHP.AX")
+        self.assertEqual(result["rows"][0]["side"], "BUY")
+        self.assertEqual(self.db.get_trade_journal(limit=10), [])
 
     def test_apply_rejects_sell_rows_that_exceed_holding_without_mutation(self):
         init_portfolio(
