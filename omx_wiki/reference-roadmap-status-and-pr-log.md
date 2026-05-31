@@ -238,6 +238,31 @@ facts needed for future planning.
   because this Codex App session was not an OMX CLI/tmux runtime. Next
   candidate: PR13 portfolio/watchlist alert dry-run batch diagnostics, only if
   started from clean main and kept read-only with no notification worker.
+- PR13 completed as GitHub PR #208, "Add alert rule batch dry-run
+  diagnostics", merged at `0111f1e63bebede72d4029565c4f4ca66debca9e`.
+  Scope: read-only `POST /api/v1/alert-rules/dry-run/batch` diagnostics for
+  multiple temporary portfolio/watchlist alert-rule dry-runs, target-level
+  summary counts, no parameter echo in batch results, and compact Workbench
+  metadata/link to the batch diagnostics endpoint. Verification: GitHub checks
+  passed for backend gate, Docker build, change detection, security, static
+  checks, AI review, and review reporting; desktop gate was skipped by change
+  detection. Local verification covered targeted batch dry-run and Workbench
+  tests, broader alert/workbench pytest, `git diff --check`, targeted
+  `py_compile`, and `./scripts/ci_gate.sh` with the project virtualenv plus
+  bundled Node on `PATH` (`856` tests plus `5` subtests passing). Review
+  handling: pre-merge sidecar review risk about sensitive rule-parameter echo
+  was fixed with regression coverage, and Codex Review P2 feedback about
+  evaluation-error summary counts was fixed by counting target-level
+  `evaluation_error` results with regression coverage; the review thread was
+  resolved before merge. Boundary: dry-run/manual-review diagnostics only; no
+  notification delivery, background worker, broker integration, order
+  submission, paper simulation write, persisted execution state, secrets, HIN
+  originals, account credentials, account numbers, order details, or fill
+  detail exposure. Subagent note: native Codex PR13 review-risk sidecar found
+  the parameter-echo issue; coordinated OMX runtime was not used because this
+  Codex App session was not an OMX CLI/tmux runtime. Next candidate: no further
+  PR in this chain; leave future alert workers, notification attempts, broker
+  execution, persistence, or live quota telemetry for separate explicit scope.
 
 ## Blocked Or Separately Authorized Areas
 
