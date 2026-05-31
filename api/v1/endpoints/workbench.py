@@ -55,6 +55,7 @@ def get_workbench_summary(
         portfolio_summary=portfolio_summary,
         config_status=config_status,
     )
+    alert_rule_batch_dry_run = _build_alert_rule_batch_dry_run_summary()
     ledger_v2_dry_run = _build_ledger_v2_dry_run_summary()
     ledger_v2_diagnostics = _build_ledger_v2_diagnostics_summary()
     backtest_summary = _build_backtest_summary(db_manager)
@@ -72,6 +73,7 @@ def get_workbench_summary(
         "risk": risk_summary,
         "alert_center": alert_center,
         "alert_rule_dry_run": alert_rule_dry_run,
+        "alert_rule_batch_dry_run": alert_rule_batch_dry_run,
         "ledger_v2_dry_run": ledger_v2_dry_run,
         "ledger_v2_diagnostics": ledger_v2_diagnostics,
         "backtest": backtest_summary,
@@ -85,6 +87,7 @@ def get_workbench_summary(
             "config": "/api/v1/system/config",
             "alerts": "/api/v1/workbench/alerts",
             "alert_rule_dry_run": DRY_RUN_ENDPOINT,
+            "alert_rule_batch_dry_run": "/api/v1/alert-rules/dry-run/batch",
             "alert_rule_presets": PRESETS_ENDPOINT,
             "ledger_v2_dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
             "ledger_v2_diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
@@ -210,6 +213,43 @@ def _build_alert_rule_dry_run_ui_config(
         },
         "presets": presets,
         "templates": presets,
+    }
+
+
+def _build_alert_rule_batch_dry_run_summary() -> Dict[str, Any]:
+    """Return a compact pointer to read-only alert-rule batch diagnostics."""
+    endpoint = "/api/v1/alert-rules/dry-run/batch"
+    return {
+        "mode": "dry_run_manual_review",
+        "endpoint": endpoint,
+        "method": "POST",
+        "is_trade_instruction": False,
+        "manual_review_required": True,
+        "side_effects": [],
+        "forbidden_side_effects": [
+            "db_write",
+            "background_worker",
+            "notification",
+            "broker_execution",
+            "paper_simulation",
+            "persisted_execution_state",
+        ],
+        "result_fields": [
+            "summary",
+            "results",
+            "status",
+            "is_trade_instruction",
+        ],
+        "copy": {
+            "title": "Alert Rule Batch Dry-Run",
+            "boundary": "batch diagnostics only; no workers, notifications, or execution state",
+        },
+        "links": {
+            "batch_dry_run": endpoint,
+            "dry_run": DRY_RUN_ENDPOINT,
+            "presets": PRESETS_ENDPOINT,
+            "workbench": WORKBENCH_ENDPOINT,
+        },
     }
 
 

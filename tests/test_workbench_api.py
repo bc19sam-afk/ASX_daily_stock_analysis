@@ -114,6 +114,15 @@ def test_workbench_summary_answers_daily_operational_questions(tmp_path: Path):
     assert payload["links"]["history"] == "/api/v1/history"
     assert payload["links"]["backtest"] == "/api/v1/backtest/performance"
     assert payload["links"]["alert_rule_presets"] == "/api/v1/alert-rules/presets"
+    assert payload["links"]["alert_rule_batch_dry_run"] == "/api/v1/alert-rules/dry-run/batch"
+    assert payload["alert_rule_batch_dry_run"]["method"] == "POST"
+    assert payload["alert_rule_batch_dry_run"]["is_trade_instruction"] is False
+    assert payload["alert_rule_batch_dry_run"]["side_effects"] == []
+    assert "notification" in payload["alert_rule_batch_dry_run"]["forbidden_side_effects"]
+    assert "background_worker" in payload["alert_rule_batch_dry_run"]["forbidden_side_effects"]
+    assert payload["alert_rule_batch_dry_run"]["links"]["batch_dry_run"] == (
+        "/api/v1/alert-rules/dry-run/batch"
+    )
     assert payload["links"]["ledger_v2_dry_run"] == "/api/v1/portfolio-events/ledger-v2/dry-run"
     assert payload["ledger_v2_dry_run"]["method"] == "GET"
     assert payload["ledger_v2_dry_run"]["is_trade_instruction"] is False

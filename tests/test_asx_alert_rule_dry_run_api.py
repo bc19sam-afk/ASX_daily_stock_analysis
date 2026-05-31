@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -332,6 +333,214 @@ def test_portfolio_holdings_and_account_rules_are_read_only(tmp_path: Path):
     assert _table_counts(db) == before
     app.dependency_overrides.clear()
     DatabaseManager.reset_instance()
+
+
+def test_batch_dry_run_summarizes_watchlist_and_portfolio_rules_without_writes(tmp_path: Path):
+    DatabaseManager.reset_instance()
+    db = DatabaseManager(db_url=f"sqlite:///{tmp_path / 'alert_rule_batch.db'}")
+    init_portfolio(
+        db,
+        cash=700.0,
+        holdings=[HoldingInput(code="BHP.AX", quantity=3.0, avg_cost=100.0)],
+    )
+    before = _table_counts(db)
+    client, app = _client(tmp_path, db=db, config_service=_ConfigService("BHP.AX,CBA.AX"))
+
+    with patch("api.v1.endpoints.alert_rules._load_workbench_context", return_value=_context()):
+        response = client.post(
+            "/api/v1/alert-rules/dry-run/batch",
+            json={
+                "name": "portfolio and watchlist diagnostics",
+                "rules": [
+                    {
+                        "name": "Watchlist basis",
+                        "target_scope": "watchlist",
+                        "target": "all",
+                        "alert_type": "stale_price",
+                        "severity": "warning",
+                        "parameters": {"max_targets": 2},
+                    },
+                    {
+                        "name": "Portfolio concentration",
+                        "target_scope": "portfolio_holdings",
+                        "target": "all",
+                        "alert_type": "portfolio_concentration",
+                        "severity": "warning",
+                        "parameters": {"max_weight": 0.2},
+                    },
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "alert_rule_batch_dry_run_diagnostics"
+    assert payload["is_dry_run"] is True
+    assert payload["will_write"] is False
+    assert payload["is_trade_instruction"] is False
+    assert payload["side_effects"] == []
+    assert {"background_worker", "notification", "broker_execution"}.issubset(
+        set(payload["forbidden_side_effects"])
+    )
+    assert payload["rule_count"] == 2
+    assert payload["evaluated_rule_count"] == 2
+    assert payload["summary"]["evaluated_target_count"] == 3
+    assert payload["summary"]["degraded_count"] == 2
+    assert payload["summary"]["triggered_count"] == 1
+    assert [item["name"] for item in payload["results"]] == ["Watchlist basis", "Portfolio concentration"]
+    assert payload["results"][0]["target_scope"] == "watchlist"
+    assert payload["results"][1]["target_scope"] == "portfolio_holdings"
+    assert all(item["is_trade_instruction"] is False for item in payload["results"])
+    assert _table_counts(db) == before
+    serialized = str(payload)
+    assert "notification" in serialized
+    assert "worker" in serialized
+    assert "order_id" not in serialized
+    assert "fill_id" not in serialized
+    app.dependency_overrides.clear()
+    DatabaseManager.reset_instance()
+
+
+def test_batch_dry_run_skips_missing_watchlist_and_portfolio_inputs(tmp_path: Path):
+    client, app = _client(
+        tmp_path,
+        db=SimpleNamespace(
+            get_portfolio_overview=lambda: {"holdings": []},
+            check_portfolio_account_integrity=lambda: {"is_valid": True, "errors": [], "warnings": []},
+        ),
+        config_service=_ConfigService(""),
+    )
+
+    with patch("api.v1.endpoints.alert_rules._load_workbench_context", return_value=_context()):
+        response = client.post(
+            "/api/v1/alert-rules/dry-run/batch",
+            json={
+                "name": "missing inputs diagnostics",
+                "rules": [
+                    {
+                        "name": "Watchlist basis",
+                        "target_scope": "watchlist",
+                        "target": "all",
+                        "alert_type": "stale_price",
+                        "severity": "warning",
+                        "parameters": {},
+                    },
+                    {
+                        "name": "Portfolio concentration",
+                        "target_scope": "portfolio_holdings",
+                        "target": "all",
+                        "alert_type": "portfolio_concentration",
+                        "severity": "warning",
+                        "parameters": {"max_weight": 0.2},
+                    },
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "skipped"
+    assert payload["summary"]["skipped_count"] == 2
+    assert payload["summary"]["triggered_count"] == 0
+    assert payload["summary"]["degraded_count"] == 0
+    assert [
+        result["target_results"][0]["status"]
+        for result in payload["results"]
+    ] == ["skipped", "skipped"]
+    assert all("人工复核" in result["target_results"][0]["action_hint"] for result in payload["results"])
+    app.dependency_overrides.clear()
+
+
+def test_batch_dry_run_does_not_echo_sensitive_rule_parameters(tmp_path: Path):
+    client, app = _client(tmp_path, config_service=_ConfigService("BHP.AX"))
+
+    with patch("api.v1.endpoints.alert_rules._load_workbench_context", return_value=_context()):
+        response = client.post(
+            "/api/v1/alert-rules/dry-run/batch",
+            json={
+                "name": "sensitive parameter diagnostics",
+                "rules": [
+                    {
+                        "name": "Watchlist basis",
+                        "target_scope": "watchlist",
+                        "target": "all",
+                        "alert_type": "stale_price",
+                        "severity": "warning",
+                        "parameters": {
+                            "max_targets": 1,
+                            "hin": "X123456789",
+                            "account_number": "123456789",
+                            "order_id": "real-order-123",
+                            "fill_id": "real-fill-123",
+                            "api_token": "secret-token-value",
+                        },
+                    },
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "parameters" not in payload["results"][0]
+    serialized = json.dumps(payload, ensure_ascii=False)
+    for marker in (
+        "X123456789",
+        "123456789",
+        "real-order-123",
+        "real-fill-123",
+        "secret-token-value",
+        '"hin"',
+        '"account_number"',
+        '"order_id"',
+        '"fill_id"',
+        '"api_token"',
+    ):
+        assert marker not in serialized
+    app.dependency_overrides.clear()
+
+
+def test_batch_dry_run_counts_evaluation_errors_per_target(tmp_path: Path):
+    client, app = _client(
+        tmp_path,
+        db=SimpleNamespace(
+            get_portfolio_overview=lambda: {
+                "holdings": [
+                    {"code": "BHP.AX", "weight": 0.3, "current_price": 40.0},
+                    {"code": "CBA.AX", "weight": 0.2, "current_price": 100.0},
+                ]
+            },
+            check_portfolio_account_integrity=lambda: {"is_valid": True, "errors": [], "warnings": []},
+        ),
+    )
+
+    with patch("api.v1.endpoints.alert_rules._load_workbench_context", return_value=_context()):
+        response = client.post(
+            "/api/v1/alert-rules/dry-run/batch",
+            json={
+                "name": "target-level error count",
+                "rules": [
+                    {
+                        "name": "Bad concentration parameter",
+                        "target_scope": "portfolio_holdings",
+                        "target": "all",
+                        "alert_type": "portfolio_concentration",
+                        "severity": "warning",
+                        "parameters": {"max_weight": "not-a-number"},
+                    },
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "evaluation_error"
+    assert payload["summary"]["evaluated_target_count"] == 2
+    assert payload["summary"]["evaluation_error_count"] == 2
+    assert [
+        result["status"]
+        for result in payload["results"][0]["target_results"]
+    ] == ["evaluation_error", "evaluation_error"]
+    app.dependency_overrides.clear()
 
 
 def test_close_only_delayed_and_unavailable_price_basis_never_infer_clear(tmp_path: Path):
