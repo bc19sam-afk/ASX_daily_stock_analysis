@@ -40,8 +40,22 @@ facts needed for future planning.
   `tests/test_asx_portfolio_import.py`, `tests/test_workbench_api.py`, and
   `./scripts/ci_gate.sh`. Boundary: no ledger v2 schema, broker integration,
   real orders/fills, automatic execution, alert worker change, or HIN, account,
-  or secrets exposure expansion. Next candidate PR: PR4 ASX alert rule dry-run
-  API.
+  or secrets exposure expansion.
+- PR4 completed as GitHub PR #190, "Add ASX alert rule dry-run API", merged at
+  `9a5d17f39585a4915288d153dfa8736093c1b4ae`. Scope: read-only
+  `/api/v1/alert-rules/dry-run` endpoint for one temporary alert rule across
+  single symbols, configured watchlists, portfolio holdings, and portfolio
+  account checks; responses include per-target status, counts, market context,
+  explicit degraded/skipped handling, and `is_trade_instruction=false`.
+  Verification: GitHub checks passed for backend gate, Docker build, change
+  detection, security, static checks, AI review, and review reporting; local
+  verification covered `tests/test_asx_alert_rule_dry_run_api.py`,
+  `tests/test_alert_center.py`, `tests/test_workbench_api.py`,
+  `tests/test_portfolio_events_api.py`, and `./scripts/ci_gate.sh` with the
+  project virtualenv plus bundled Node on `PATH`. Boundary: dry-run only; no
+  background worker, notification delivery, broker integration, real order
+  submission, or persisted execution state. Next candidate PR: PR5 Workbench
+  alert rule UI / smoke path.
 
 ## Blocked Or Separately Authorized Areas
 
