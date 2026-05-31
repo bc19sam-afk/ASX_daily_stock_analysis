@@ -63,10 +63,10 @@
         gap: 8px;
         align-items: center;
       }
-      button, input {
+      button, input, select {
         font: inherit;
       }
-      input {
+      input, select {
         width: 220px;
         min-height: 44px;
         padding: 10px 12px;
@@ -216,6 +216,10 @@
         gap: 8px;
         margin: 10px 0;
       }
+      .dry-run-actions select {
+        min-width: min(100%, 320px);
+        flex: 1 1 280px;
+      }
       .dry-run-actions button {
         text-align: left;
       }
@@ -244,7 +248,7 @@
         .topbar { flex-direction: column; align-items: flex-start; }
         .stats { grid-template-columns: 1fr; }
         .result-counts { grid-template-columns: 1fr; }
-        input { width: 100%; }
+        input, select { width: 100%; }
         .actions { width: 100%; }
       }
     </style>
@@ -562,13 +566,14 @@
 
       function renderAlertRuleDryRun(data) {
         const config = data.alert_rule_dry_run || {};
-        const templates = config.templates || [];
+        const templates = config.presets || config.templates || [];
         if (!config.endpoint || !templates.length) {
           els.alertRuleDryRunBlock.innerHTML = '<div class="empty">没有可用 dry-run 规则。</div>';
           return;
         }
 
         const boundary = config.copy?.boundary || 'dry-run / manual review only; not a trade instruction';
+        const firstEnabled = templates.find((template) => template.enabled) || templates[0];
         els.alertRuleDryRunBlock.innerHTML = `
           <div class="toolbar" style="margin-bottom:10px;">
             ${pill('dry-run')}
@@ -577,28 +582,53 @@
           </div>
           <div class="statusline">${escapeHtml(boundary)}</div>
           <div class="dry-run-actions">
-            ${templates.map((template) => `
+            <select id="alertRulePresetSelect" aria-label="Alert rule preset selector">
+              ${templates.map((template) => `
+                <option
+                  value="${escapeHtml(template.id)}"
+                  ${template.enabled ? '' : 'disabled'}
+                  ${firstEnabled?.id === template.id ? 'selected' : ''}
+                >
+                  ${escapeHtml(template.label)}
+                </option>
+              `).join('')}
+            </select>
               <button
                 type="button"
-                data-rule-id="${escapeHtml(template.id)}"
-                ${template.enabled ? '' : 'disabled'}
-                title="${escapeHtml(template.disabled_reason || template.description || '')}"
+                class="primary"
+                data-run-selected-preset
+                ${firstEnabled?.enabled ? '' : 'disabled'}
               >
-                ${escapeHtml(template.label)}
+                Dry-run preset
               </button>
-            `).join('')}
+          </div>
+          <div id="alertRulePresetDescription" class="statusline">
+            Preset selector prepares a dry-run request for manual review only.
           </div>
           <div id="alertRuleDryRunResult" class="empty">
             选择一条规则执行本地 dry-run；只展示复核结果，不写库、不发通知、不触发模拟盘或券商动作。
           </div>
         `;
 
-        els.alertRuleDryRunBlock.querySelectorAll('button[data-rule-id]').forEach((button) => {
-          button.addEventListener('click', () => {
-            const template = templates.find((item) => item.id === button.dataset.ruleId);
-            if (template?.enabled) runAlertRuleDryRun(template);
-          });
+        const selector = document.getElementById('alertRulePresetSelect');
+        const runButton = els.alertRuleDryRunBlock.querySelector('button[data-run-selected-preset]');
+        const description = document.getElementById('alertRulePresetDescription');
+        const describeSelection = () => {
+          const template = templates.find((item) => item.id === selector?.value);
+          const note = [
+            template?.description,
+            template?.manual_review_note,
+            template?.disabled_reason,
+          ].filter(Boolean).join(' ');
+          if (description) description.textContent = note || 'Preset selector prepares a dry-run request for manual review only.';
+          if (runButton) runButton.disabled = !template?.enabled;
+        };
+        selector?.addEventListener('change', describeSelection);
+        runButton?.addEventListener('click', () => {
+          const template = templates.find((item) => item.id === selector?.value);
+          if (template?.enabled) runAlertRuleDryRun(template);
         });
+        describeSelection();
       }
 
       async function runAlertRuleDryRun(template) {

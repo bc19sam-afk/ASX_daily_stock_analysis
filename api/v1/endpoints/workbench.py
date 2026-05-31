@@ -13,6 +13,14 @@ from fastapi import APIRouter, Depends
 from api.deps import get_database_manager, get_system_config_service
 from src.alert_center import build_alert_center_from_workbench_inputs
 from src.services.backtest_service import BacktestService
+from src.services.asx_alert_rule_presets import (
+    DRY_RUN_ENDPOINT,
+    FORBIDDEN_SIDE_EFFECTS,
+    PRESETS_ENDPOINT,
+    PRESET_REQUIRED_FIELDS,
+    WORKBENCH_ENDPOINT,
+    build_workbench_alert_rule_presets,
+)
 from src.services.history_service import HistoryService
 from src.services.system_config_service import SystemConfigService
 from src.storage import DatabaseManager
@@ -41,11 +49,12 @@ def get_workbench_summary(
     portfolio_summary = _build_portfolio_summary(db_manager)
     risk_summary = _build_risk_summary(latest_detail=latest_detail, history_items=history_items)
     alert_center = _build_alert_center(context)
+    config_status = _build_config_status(config_service)
     alert_rule_dry_run = _build_alert_rule_dry_run_ui_config(
         context=context,
         portfolio_summary=portfolio_summary,
+        config_status=config_status,
     )
-    config_status = _build_config_status(config_service)
     backtest_summary = _build_backtest_summary(db_manager)
 
     return {
@@ -71,7 +80,8 @@ def get_workbench_summary(
             "backtest": "/api/v1/backtest/performance",
             "config": "/api/v1/system/config",
             "alerts": "/api/v1/workbench/alerts",
-            "alert_rule_dry_run": "/api/v1/alert-rules/dry-run",
+            "alert_rule_dry_run": DRY_RUN_ENDPOINT,
+            "alert_rule_presets": PRESETS_ENDPOINT,
         },
     }
 
@@ -147,98 +157,23 @@ def _build_alert_rule_dry_run_ui_config(
     *,
     context: Mapping[str, Any],
     portfolio_summary: Mapping[str, Any],
+    config_status: Mapping[str, Any],
 ) -> Dict[str, Any]:
     """Return minimal static-workbench config for temporary alert-rule dry-runs."""
-    latest_detail = context.get("latest_detail") if isinstance(context.get("latest_detail"), Mapping) else {}
-    latest_item = context.get("latest_item") if isinstance(context.get("latest_item"), Mapping) else {}
-    latest_code = str(
-        latest_detail.get("stock_code")
-        or latest_detail.get("code")
-        or latest_item.get("stock_code")
-        or ""
-    ).strip()
-    portfolio = portfolio_summary.get("portfolio") if isinstance(portfolio_summary.get("portfolio"), Mapping) else {}
-    holdings = list(portfolio.get("holdings") or []) if isinstance(portfolio, Mapping) else []
-    has_holdings = bool(holdings)
-
-    latest_disabled_reason = None if latest_code else "No latest report symbol is available for this dry-run."
-    templates = [
-        {
-            "id": "latest_report_data_gap",
-            "label": "Latest report data gap",
-            "description": "Dry-run the latest report data-quality rule for the current symbol.",
-            "enabled": bool(latest_code),
-            "disabled_reason": latest_disabled_reason,
-            "payload": {
-                "name": "Latest report data gap dry-run",
-                "target_scope": "single_symbol",
-                "target": latest_code or "all",
-                "alert_type": "data_gap",
-                "severity": "warning",
-                "parameters": {},
-            },
-        },
-        {
-            "id": "latest_report_price_basis",
-            "label": "Latest report price basis",
-            "description": "Dry-run stale or degraded price-basis review for the current symbol.",
-            "enabled": bool(latest_code),
-            "disabled_reason": latest_disabled_reason,
-            "payload": {
-                "name": "Latest report price basis dry-run",
-                "target_scope": "single_symbol",
-                "target": latest_code or "all",
-                "alert_type": "stale_price",
-                "severity": "warning",
-                "parameters": {},
-            },
-        },
-        {
-            "id": "latest_report_announcement",
-            "label": "Latest report announcement risk",
-            "description": "Dry-run the ASX announcement review rule for the current symbol.",
-            "enabled": bool(latest_code),
-            "disabled_reason": latest_disabled_reason,
-            "payload": {
-                "name": "Latest report announcement dry-run",
-                "target_scope": "single_symbol",
-                "target": latest_code or "all",
-                "alert_type": "announcement_risk",
-                "severity": "warning",
-                "parameters": {},
-            },
-        },
-        {
-            "id": "portfolio_holding_concentration",
-            "label": "Portfolio holding concentration",
-            "description": "Dry-run a portfolio holding concentration review if holdings exist.",
-            "enabled": has_holdings,
-            "disabled_reason": None if has_holdings else "No portfolio holdings are available for this dry-run.",
-            "payload": {
-                "name": "Portfolio holding concentration dry-run",
-                "target_scope": "portfolio_holdings",
-                "target": "all",
-                "alert_type": "portfolio_concentration",
-                "severity": "warning",
-                "parameters": {"max_weight": 0.25},
-            },
-        },
-    ]
+    presets = build_workbench_alert_rule_presets(
+        context=context,
+        portfolio_summary=portfolio_summary,
+        has_watchlist=bool(config_status.get("stock_list_configured")),
+    )
 
     return {
         "mode": "dry_run_manual_review",
-        "endpoint": "/api/v1/alert-rules/dry-run",
+        "endpoint": DRY_RUN_ENDPOINT,
         "method": "POST",
         "is_trade_instruction": False,
         "manual_review_required": True,
         "side_effects": [],
-        "forbidden_side_effects": [
-            "db_write",
-            "background_worker",
-            "notification",
-            "broker_execution",
-            "paper_simulation",
-        ],
+        "forbidden_side_effects": list(FORBIDDEN_SIDE_EFFECTS),
         "result_fields": [
             "status",
             "triggered_count",
@@ -254,11 +189,21 @@ def _build_alert_rule_dry_run_ui_config(
             "boundary": "dry-run / manual review only; not a trade instruction",
             "degraded": "close_only, delayed, or unavailable data cannot be inferred as clear.",
         },
-        "links": {
-            "dry_run": "/api/v1/alert-rules/dry-run",
-            "workbench": "/api/v1/workbench/summary",
+        "selector": {
+            "mode": "preset",
+            "label": "Alert rule preset",
+            "options_field": "presets",
         },
-        "templates": templates,
+        "preset_schema": {
+            "required_fields": list(PRESET_REQUIRED_FIELDS),
+        },
+        "links": {
+            "dry_run": DRY_RUN_ENDPOINT,
+            "presets": PRESETS_ENDPOINT,
+            "workbench": WORKBENCH_ENDPOINT,
+        },
+        "presets": presets,
+        "templates": presets,
     }
 
 

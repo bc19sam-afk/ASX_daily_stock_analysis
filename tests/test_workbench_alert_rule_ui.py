@@ -151,6 +151,12 @@ def test_workbench_summary_exposes_alert_rule_dry_run_ui_schema(tmp_path: Path):
     assert config["endpoint"] == "/api/v1/alert-rules/dry-run"
     assert config["method"] == "POST"
     assert config["mode"] == "dry_run_manual_review"
+    assert config["selector"] == {
+        "mode": "preset",
+        "label": "Alert rule preset",
+        "options_field": "presets",
+    }
+    assert config["links"]["presets"] == "/api/v1/alert-rules/presets"
     assert config["is_trade_instruction"] is False
     assert config["manual_review_required"] is True
     assert config["side_effects"] == []
@@ -171,7 +177,17 @@ def test_workbench_summary_exposes_alert_rule_dry_run_ui_schema(tmp_path: Path):
         "is_trade_instruction",
     }.issubset(set(config["result_fields"]))
 
-    data_gap = next(template for template in config["templates"] if template["id"] == "latest_report_data_gap")
+    assert config["presets"] == config["templates"]
+    assert [preset["id"] for preset in config["presets"]] == [
+        "latest_report_validation_block",
+        "latest_report_data_gap",
+        "asx_announcement_risk",
+        "watchlist_data_basis_review",
+        "portfolio_concentration_review",
+        "portfolio_price_stale_review",
+    ]
+
+    data_gap = next(template for template in config["presets"] if template["id"] == "latest_report_data_gap")
     assert data_gap["enabled"] is True
     assert data_gap["payload"] == {
         "name": "Latest report data gap dry-run",
@@ -220,8 +236,12 @@ def test_static_workbench_has_alert_rule_dry_run_controls_and_manual_review_copy
 
     assert "Alert Rule Dry-Run" in html
     assert "alertRuleDryRunBlock" in html
+    assert "alertRulePresetSelect" in html
+    assert "data-run-selected-preset" in html
+    assert "Preset selector" in html
     assert "runAlertRuleDryRun" in html
     assert "/api/v1/alert-rules/dry-run" in html
+    assert "config.presets" in html
     assert "dry-run / manual review only" in html
     assert "not a trade instruction" in html
     assert "target_results" in html
