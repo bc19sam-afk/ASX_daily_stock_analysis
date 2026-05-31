@@ -1,0 +1,555 @@
+# -*- coding: utf-8 -*-
+"""Side-effect-free ledger v2 dry-run backfill diagnostics."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Any, Dict, Iterable, List, Mapping, Optional
+
+from sqlalchemy import select
+
+from src.stock_code import canonical_stock_code
+from src.storage import AccountSnapshot, DatabaseManager, PortfolioPosition, TradeJournal
+
+_SAFE_REASON_KEYS = {
+    "currency",
+    "custody_metadata_present",
+    "dedup_duplicate",
+    "dedup_reason",
+    "dividend",
+    "fee",
+    "franking_credit",
+    "parser",
+    "settlement_date",
+    "trade_date",
+}
+_SENSITIVE_MARKERS = (
+    "hin",
+    "account_number",
+    "account number",
+    "account_no",
+    "account no",
+    "custody_reference",
+    "custody reference",
+    "secret",
+    "token",
+    "password",
+    "broker_token",
+    "order_id",
+    "fill_id",
+    "real_order",
+)
+_QUANTITY_TOLERANCE = 1e-6
+_CASH_TOLERANCE = 0.01
+
+
+@dataclass(frozen=True)
+class _TradeCandidate:
+    payload: Dict[str, Any]
+    supported: bool
+
+
+class AsxLedgerV2DryRunService:
+    """Build ledger v2 candidate rows without touching ledger v2 storage."""
+
+    def __init__(self, db_manager: Optional[DatabaseManager] = None):
+        self.db = db_manager or DatabaseManager.get_instance()
+
+    def build_dry_run(self) -> Dict[str, Any]:
+        """Return dry-run candidate entries and a v1/v2 diagnostic comparison."""
+        with self.db.get_session() as session:
+            journal_rows = (
+                session.execute(
+                    select(TradeJournal).order_by(TradeJournal.action_date, TradeJournal.created_at, TradeJournal.id)
+                )
+                .scalars()
+                .all()
+            )
+            snapshot_rows = (
+                session.execute(
+                    select(AccountSnapshot).order_by(AccountSnapshot.snapshot_date, AccountSnapshot.created_at)
+                )
+                .scalars()
+                .all()
+            )
+            positions = (
+                session.execute(
+                    select(PortfolioPosition).where(PortfolioPosition.status == "OPEN")
+                )
+                .scalars()
+                .all()
+            )
+
+        candidates: List[Dict[str, Any]] = []
+        supported_trade_candidates: List[Dict[str, Any]] = []
+        unsupported_count = 0
+
+        for row in journal_rows:
+            candidate = self._candidate_from_trade_journal(row)
+            candidates.append(candidate.payload)
+            if candidate.supported:
+                supported_trade_candidates.append(candidate.payload)
+            else:
+                unsupported_count += 1
+
+        for row in snapshot_rows:
+            candidates.append(self._candidate_from_account_snapshot(row))
+            unsupported_count += 1
+
+        aggregation = _aggregate_supported_trades(supported_trade_candidates)
+        comparison = self._compare_with_v1(
+            positions=positions,
+            snapshots=snapshot_rows,
+            aggregation=aggregation,
+            unsupported_count=unsupported_count,
+        )
+
+        warnings = _dedupe_strings(
+            [
+                *comparison.get("warnings", []),
+                *[
+                    warning
+                    for candidate in candidates
+                    for warning in candidate.get("warnings", [])
+                ],
+            ]
+        )
+
+        return {
+            "status": "available",
+            "mode": "ledger_v2_dry_run_backfill",
+            "is_dry_run": True,
+            "will_write": False,
+            "candidate_count": len(candidates),
+            "supported_candidate_count": len(supported_trade_candidates),
+            "unsupported_candidate_count": unsupported_count,
+            "candidates": candidates,
+            "aggregation": aggregation,
+            "comparison": comparison,
+            "warnings": warnings,
+            "boundaries": {
+                "v1_authoritative": True,
+                "migration_cutover": False,
+                "writes_ledger_v2": False,
+                "broker_or_order_execution": False,
+            },
+        }
+
+    def _candidate_from_trade_journal(self, row: TradeJournal) -> _TradeCandidate:
+        metadata = _safe_reason_metadata(row.reason)
+        source_event_id = f"trade_journal:{_stable_trade_source_key(row)}"
+        symbol = canonical_stock_code(row.code)
+        trade_date = row.action_date.isoformat() if row.action_date else None
+        settlement_date = _clean_optional(metadata.get("settlement_date"))
+        side = _infer_trade_side(row)
+        quantity_delta = _round_optional(
+            _float_or_zero(row.target_quantity) - _float_or_zero(row.current_quantity),
+            6,
+        )
+        cash_delta = _round_optional(
+            _float_or_zero(row.available_cash_after) - _float_or_zero(row.available_cash_before),
+            2,
+        )
+        fee = _round_optional(_safe_float(metadata.get("fee")), 2)
+        currency = str(metadata.get("currency") or "AUD").strip().upper() or "AUD"
+
+        warnings: List[str] = []
+        supported = side in {"BUY", "SELL"} and abs(float(quantity_delta or 0.0)) > _QUANTITY_TOLERANCE
+        has_dividend_or_franking = (
+            metadata.get("dividend") is not None
+            or metadata.get("franking_credit") is not None
+            or _looks_like_dividend_or_franking(row)
+        )
+        if supported:
+            event_type = "trade_buy" if side == "BUY" else "trade_sell"
+        else:
+            event_type = "unsupported"
+            warnings.append(
+                "unsupported trade journal row: only buy/sell trade rows are converted in this dry-run"
+            )
+
+        if has_dividend_or_franking:
+            warnings.append(
+                "dividend/franking event is explicit unsupported groundwork; ledger v2 dry-run "
+                "does not backfill cash, tax, or franking rows yet"
+            )
+            if supported:
+                warnings.append(
+                    "trade candidate keeps dividend/franking as placeholders instead of synthesizing cash or tax rows"
+                )
+
+        signed_quantity = _signed_quantity(side=side, quantity_delta=quantity_delta)
+        payload = {
+            "source_event_id": source_event_id,
+            "source_hash": "",
+            "event_type": event_type,
+            "trade_date": trade_date,
+            "settlement_date": settlement_date,
+            "symbol": symbol,
+            "quantity_delta": signed_quantity,
+            "cash_delta": cash_delta,
+            "cash_balance_after": _round_optional(row.available_cash_after, 2),
+            "currency": currency,
+            "fees": {
+                "total": fee,
+                "brokerage": fee,
+                "gst": None,
+                "other": None,
+                "status": "placeholder",
+            },
+            "tax": {
+                "status": "placeholder" if supported else "unsupported",
+                "amount": None,
+            },
+            "franking": {
+                "status": "placeholder" if supported else "unsupported",
+                "amount": _round_optional(_safe_float(metadata.get("franking_credit")), 2),
+            },
+            "confidence": "high" if supported and settlement_date else ("medium" if supported else "low"),
+            "warnings": _dedupe_strings(warnings),
+            "is_dry_run": True,
+        }
+        payload["source_hash"] = _trade_source_hash(row=row, metadata=metadata)
+        return _TradeCandidate(payload=payload, supported=supported)
+
+    def _candidate_from_account_snapshot(self, row: AccountSnapshot) -> Dict[str, Any]:
+        source_hash = _snapshot_source_hash(row)
+        snapshot_date = row.snapshot_date.isoformat() if row.snapshot_date else "unknown"
+        payload = {
+            "source_event_id": f"account_snapshot:{snapshot_date}:{source_hash[:16]}",
+            "source_hash": source_hash,
+            "event_type": "unsupported",
+            "trade_date": row.snapshot_date.isoformat() if row.snapshot_date else None,
+            "settlement_date": None,
+            "symbol": None,
+            "quantity_delta": None,
+            "cash_delta": _round_optional(row.cash, 2),
+            "currency": "AUD",
+            "fees": {
+                "total": None,
+                "brokerage": None,
+                "gst": None,
+                "other": None,
+                "status": "unsupported",
+            },
+            "tax": {
+                "status": "unsupported",
+                "amount": None,
+            },
+            "franking": {
+                "status": "unsupported",
+                "amount": None,
+            },
+            "confidence": "low",
+            "warnings": [
+                "cash-only account snapshot is included for comparison but not transformed "
+                "into ledger v2 cash events yet"
+            ],
+            "is_dry_run": True,
+        }
+        return payload
+
+    def _compare_with_v1(
+        self,
+        *,
+        positions: Iterable[PortfolioPosition],
+        snapshots: Iterable[AccountSnapshot],
+        aggregation: Mapping[str, Any],
+        unsupported_count: int,
+    ) -> Dict[str, Any]:
+        latest_snapshot = _latest_snapshot(snapshots)
+        existing_cash = _round_optional(latest_snapshot.cash, 2) if latest_snapshot else 0.0
+        dry_run_cash = _round_optional(aggregation.get("cash_balance"), 2)
+        matched: List[Dict[str, Any]] = []
+        mismatched: List[Dict[str, Any]] = []
+        missing: List[Dict[str, Any]] = []
+        warnings: List[str] = []
+
+        if dry_run_cash is None:
+            missing.append({"type": "cash", "v1_cash": existing_cash, "dry_run_cash": None})
+            warnings.append("dry-run ledger v2 aggregation could not derive a cash balance from supported trades")
+        elif abs(float(existing_cash or 0.0) - float(dry_run_cash or 0.0)) <= _CASH_TOLERANCE:
+            matched.append({"type": "cash", "symbol": None, "v1_cash": existing_cash, "dry_run_cash": dry_run_cash})
+        else:
+            mismatched.append({"type": "cash", "symbol": None, "v1_cash": existing_cash, "dry_run_cash": dry_run_cash})
+
+        dry_run_positions = {
+            str(symbol): payload
+            for symbol, payload in dict(aggregation.get("positions") or {}).items()
+        }
+        seen_symbols: set[str] = set()
+        for row in positions:
+            symbol = canonical_stock_code(row.code)
+            seen_symbols.add(symbol)
+            existing_quantity = _round_optional(row.quantity, 6)
+            dry_run_position = dry_run_positions.get(symbol)
+            if dry_run_position is None:
+                missing.append(
+                    {
+                        "type": "holding",
+                        "symbol": symbol,
+                        "v1_quantity": existing_quantity,
+                        "dry_run_quantity": None,
+                    }
+                )
+                continue
+            dry_run_quantity = _round_optional(dry_run_position.get("quantity"), 6)
+            if abs(float(existing_quantity or 0.0) - float(dry_run_quantity or 0.0)) <= _QUANTITY_TOLERANCE:
+                matched.append(
+                    {
+                        "type": "holding",
+                        "symbol": symbol,
+                        "v1_quantity": existing_quantity,
+                        "dry_run_quantity": dry_run_quantity,
+                    }
+                )
+            else:
+                mismatched.append(
+                    {
+                        "type": "holding",
+                        "symbol": symbol,
+                        "v1_quantity": existing_quantity,
+                        "dry_run_quantity": dry_run_quantity,
+                    }
+                )
+
+        for symbol, dry_run_position in sorted(dry_run_positions.items()):
+            if symbol in seen_symbols:
+                continue
+            dry_run_quantity = _round_optional(dry_run_position.get("quantity"), 6)
+            if abs(float(dry_run_quantity or 0.0)) <= _QUANTITY_TOLERANCE:
+                continue
+            mismatched.append(
+                {
+                    "type": "dry_run_only_holding",
+                    "symbol": symbol,
+                    "v1_quantity": None,
+                    "dry_run_quantity": dry_run_quantity,
+                }
+            )
+
+        if unsupported_count:
+            warnings.append(
+                f"{unsupported_count} v1 row(s) are explicit unsupported/cash-only placeholders in ledger v2 dry-run"
+            )
+        if mismatched or missing:
+            warnings.append("v1 portfolio summary differs from ledger v2 dry-run aggregation; v1 remains authoritative")
+
+        return {
+            "matched_count": len(matched),
+            "mismatched_count": len(mismatched),
+            "missing_count": len(missing),
+            "unsupported_count": unsupported_count,
+            "matched": matched,
+            "mismatched": mismatched,
+            "missing": missing,
+            "warnings": _dedupe_strings(warnings),
+            "v1_authoritative": True,
+        }
+
+
+def _aggregate_supported_trades(candidates: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:
+    positions: Dict[str, Dict[str, Any]] = {}
+    cash_balance: Optional[float] = None
+    trade_count = 0
+    ordered = list(candidates)
+    for candidate in ordered:
+        trade_count += 1
+        cash_delta = _round_optional(candidate.get("cash_delta"), 2) or 0.0
+        cash_after = _round_optional(candidate.get("cash_balance_after"), 2)
+        if cash_after is not None:
+            cash_balance = cash_after
+        elif cash_balance is None:
+            cash_balance = round(cash_delta, 2)
+        else:
+            cash_balance = round(cash_balance + cash_delta, 2)
+        symbol = str(candidate.get("symbol") or "").strip()
+        if not symbol:
+            continue
+        row = positions.setdefault(
+            symbol,
+            {
+                "symbol": symbol,
+                "quantity": 0.0,
+                "cash_delta": 0.0,
+                "currency": candidate.get("currency") or "AUD",
+            },
+        )
+        row["quantity"] = round(float(row["quantity"] or 0.0) + float(candidate.get("quantity_delta") or 0.0), 6)
+        row["cash_delta"] = round(float(row["cash_delta"] or 0.0) + cash_delta, 2)
+
+    return {
+        "trade_count": trade_count,
+        "cash_balance": cash_balance,
+        "starting_cash": None,
+        "positions": positions,
+    }
+
+
+def _infer_trade_side(row: TradeJournal) -> Optional[str]:
+    final_decision = str(row.final_decision or "").strip().upper()
+    if final_decision in {"BUY", "SELL"}:
+        return final_decision
+    action = str(row.action or "").strip().upper()
+    if action in {"OPEN", "ADD"}:
+        return "BUY"
+    if action in {"REDUCE", "CLOSE"}:
+        return "SELL"
+    return None
+
+
+def _looks_like_dividend_or_franking(row: TradeJournal) -> bool:
+    text = " ".join(
+        str(value or "").strip().lower()
+        for value in (row.action, row.final_decision, row.reason)
+    )
+    return "dividend" in text or "franking" in text
+
+
+def _signed_quantity(*, side: Optional[str], quantity_delta: Optional[float]) -> Optional[float]:
+    if quantity_delta is None:
+        return None
+    value = abs(float(quantity_delta or 0.0))
+    if side == "SELL":
+        return round(-value, 6)
+    if side == "BUY":
+        return round(value, 6)
+    return _round_optional(quantity_delta, 6)
+
+
+def _latest_snapshot(rows: Iterable[AccountSnapshot]) -> Optional[AccountSnapshot]:
+    values = list(rows)
+    if not values:
+        return None
+    return max(
+        values,
+        key=lambda row: (
+            row.snapshot_date or date.min,
+            row.created_at or datetime.min,
+            row.id or 0,
+        ),
+    )
+
+
+def _safe_reason_metadata(reason: Any) -> Dict[str, Any]:
+    text = str(reason or "")
+    metadata: Dict[str, Any] = {}
+    segments = re.split(r"[;\n]", text)
+    for segment in segments:
+        for key, value in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)=([^\s;]+)", segment):
+            lowered = key.lower()
+            cleaned = str(value or "").strip().strip(",;")
+            if lowered not in _SAFE_REASON_KEYS:
+                continue
+            if _is_sensitive(lowered) or _is_sensitive(cleaned):
+                continue
+            metadata[lowered] = _coerce_metadata_value(cleaned)
+    return metadata
+
+
+def _stable_trade_source_key(row: TradeJournal) -> str:
+    source_hash = _trade_source_hash(row=row, metadata=_safe_reason_metadata(row.reason))[:16]
+    query_id = str(row.query_id or "").strip()
+    if query_id and not _is_sensitive(query_id):
+        return f"{_safe_source_key(query_id)}:{source_hash}"
+    return source_hash
+
+
+def _safe_source_key(value: Any) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.:-]+", "-", str(value or "").strip())
+    text = text.strip("-._:")
+    return text[:64] or "unknown"
+
+
+def _trade_source_hash(*, row: TradeJournal, metadata: Mapping[str, Any]) -> str:
+    source_material = {
+        "source": "trade_journal",
+        "query_id": None if _is_sensitive(row.query_id) else str(row.query_id or "").strip() or None,
+        "code": canonical_stock_code(row.code),
+        "action_date": row.action_date.isoformat() if row.action_date else None,
+        "action": str(row.action or "").strip().upper() or None,
+        "final_decision": str(row.final_decision or "").strip().upper() or None,
+        "current_quantity": _round_optional(row.current_quantity, 6),
+        "target_quantity": _round_optional(row.target_quantity, 6),
+        "current_price": _round_optional(row.current_price, 6),
+        "available_cash_before": _round_optional(row.available_cash_before, 2),
+        "available_cash_after": _round_optional(row.available_cash_after, 2),
+        "settlement_date": _clean_optional(metadata.get("settlement_date")),
+        "currency": _clean_optional(metadata.get("currency")) or "AUD",
+        "fee": _round_optional(metadata.get("fee"), 2),
+    }
+    serialized = json.dumps(source_material, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _snapshot_source_hash(row: AccountSnapshot) -> str:
+    source_material = {
+        "source": "account_snapshot",
+        "snapshot_date": row.snapshot_date.isoformat() if row.snapshot_date else None,
+        "cash": _round_optional(row.cash, 2),
+        "equity_value": _round_optional(row.equity_value, 2),
+        "total_value": _round_optional(row.total_value, 2),
+        "daily_pnl": _round_optional(row.daily_pnl, 2),
+    }
+    serialized = json.dumps(source_material, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_zero(value: Any) -> float:
+    parsed = _safe_float(value)
+    return float(parsed or 0.0)
+
+
+def _round_optional(value: Any, places: int) -> Optional[float]:
+    parsed = _safe_float(value)
+    if parsed is None:
+        return None
+    return round(float(parsed), places)
+
+
+def _clean_optional(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _coerce_metadata_value(value: str) -> Any:
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    parsed = _safe_float(value)
+    return parsed if parsed is not None else value
+
+
+def _is_sensitive(value: Any) -> bool:
+    text = str(value or "").lower()
+    return any(marker in text for marker in _SENSITIVE_MARKERS)
+
+
+def _dedupe_strings(values: Iterable[str]) -> List[str]:
+    seen: set[str] = set()
+    result: List[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+__all__ = ["AsxLedgerV2DryRunService"]
