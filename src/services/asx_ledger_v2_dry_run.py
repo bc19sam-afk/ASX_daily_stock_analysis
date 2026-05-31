@@ -16,14 +16,24 @@ from src.stock_code import canonical_stock_code
 from src.storage import AccountSnapshot, DatabaseManager, PortfolioPosition, TradeJournal
 
 _SAFE_REASON_KEYS = {
+    "action_type",
+    "cash_amount",
+    "corporate_action",
+    "corporate_action_type",
     "currency",
     "custody_metadata_present",
     "dedup_duplicate",
     "dedup_reason",
     "dividend",
+    "event_type",
     "fee",
     "franking_credit",
+    "franking_percent",
+    "income_type",
     "parser",
+    "payment_date",
+    "quantity_ratio",
+    "ratio",
     "settlement_date",
     "trade_date",
 }
@@ -45,6 +55,8 @@ _SENSITIVE_MARKERS = (
 )
 _QUANTITY_TOLERANCE = 1e-6
 _CASH_TOLERANCE = 0.01
+_INCOME_EVENT_TYPES = {"dividend", "franking_credit"}
+_CORPORATE_ACTION_EVENT_TYPES = {"drp", "split", "consolidation", "return_of_capital"}
 
 
 @dataclass(frozen=True)
@@ -204,12 +216,16 @@ class AsxLedgerV2DryRunService:
         )
         fee = _round_optional(_safe_float(metadata.get("fee")), 2)
         currency = str(metadata.get("currency") or "AUD").strip().upper() or "AUD"
+        income, corporate_action, event_warnings = _ledger_v2_event_placeholders(
+            row=row,
+            metadata=metadata,
+            currency=currency,
+        )
 
-        warnings: List[str] = []
+        warnings: List[str] = list(event_warnings)
         supported = side in {"BUY", "SELL"} and abs(float(quantity_delta or 0.0)) > _QUANTITY_TOLERANCE
         has_dividend_or_franking = (
-            metadata.get("dividend") is not None
-            or metadata.get("franking_credit") is not None
+            income.get("status") == "partial_placeholder"
             or _looks_like_dividend_or_franking(row)
         )
         if supported:
@@ -231,6 +247,7 @@ class AsxLedgerV2DryRunService:
                 )
 
         signed_quantity = _signed_quantity(side=side, quantity_delta=quantity_delta)
+        franking_amount = _round_optional(_safe_float(metadata.get("franking_credit")), 2)
         payload = {
             "source_event_id": source_event_id,
             "source_hash": "",
@@ -253,10 +270,16 @@ class AsxLedgerV2DryRunService:
                 "status": "placeholder" if supported else "unsupported",
                 "amount": None,
             },
+            "income": income,
             "franking": {
-                "status": "placeholder" if supported else "unsupported",
-                "amount": _round_optional(_safe_float(metadata.get("franking_credit")), 2),
+                "status": "placeholder" if supported or franking_amount is not None else "unsupported",
+                "amount": franking_amount,
+                "currency": currency,
+                "supported_in_dry_run": False,
+                "will_create_tax_event": False,
+                "requires_manual_review": franking_amount is not None,
             },
+            "corporate_action": corporate_action,
             "confidence": "high" if supported and settlement_date else ("medium" if supported else "low"),
             "warnings": _dedupe_strings(warnings),
             "is_dry_run": True,
@@ -288,10 +311,16 @@ class AsxLedgerV2DryRunService:
                 "status": "unsupported",
                 "amount": None,
             },
+            "income": _empty_income_placeholder(currency="AUD"),
             "franking": {
                 "status": "unsupported",
                 "amount": None,
+                "currency": "AUD",
+                "supported_in_dry_run": False,
+                "will_create_tax_event": False,
+                "requires_manual_review": False,
             },
+            "corporate_action": _empty_corporate_action_placeholder(currency="AUD"),
             "confidence": "low",
             "warnings": [
                 "cash-only account snapshot is included for comparison but not transformed "
@@ -458,6 +487,197 @@ def _looks_like_dividend_or_franking(row: TradeJournal) -> bool:
     return "dividend" in text or "franking" in text
 
 
+def _ledger_v2_event_placeholders(
+    *,
+    row: TradeJournal,
+    metadata: Mapping[str, Any],
+    currency: str,
+) -> tuple[Dict[str, Any], Dict[str, Any], List[str]]:
+    event_markers = _event_markers(row=row, metadata=metadata)
+    income_type = _first_known_event_type(event_markers, _INCOME_EVENT_TYPES)
+    corporate_action_type = _first_known_event_type(event_markers, _CORPORATE_ACTION_EVENT_TYPES)
+    has_income_amount = metadata.get("dividend") is not None or metadata.get("franking_credit") is not None
+    has_income_text = _looks_like_dividend_or_franking(row)
+    unknown_event = _has_unknown_event_marker(row=row, metadata=metadata, markers=event_markers)
+    warnings: List[str] = []
+
+    if income_type is None and has_income_amount:
+        income_type = "dividend" if metadata.get("dividend") is not None else "franking_credit"
+    if income_type is None and has_income_text:
+        income_type = "dividend"
+
+    if income_type is not None:
+        income = {
+            "status": "partial_placeholder",
+            "income_type": income_type,
+            "cash_amount": _round_optional(metadata.get("dividend") or metadata.get("cash_amount"), 2),
+            "franking_credit_amount": _round_optional(metadata.get("franking_credit"), 2),
+            "franking_percent": _round_optional(metadata.get("franking_percent"), 6),
+            "currency": currency,
+            "supported_in_dry_run": False,
+            "will_create_cash_event": False,
+            "will_create_tax_event": False,
+            "requires_manual_review": True,
+        }
+        warnings.append(
+            "ASX dividend/franking income placeholder is partial only; ledger v2 dry-run "
+            "does not create cash events or calculate tax return values"
+        )
+    elif unknown_event:
+        income = _unsupported_income_placeholder(currency=currency)
+    else:
+        income = _empty_income_placeholder(currency=currency)
+
+    if corporate_action_type is not None:
+        corporate_action = {
+            "status": "unsupported_placeholder",
+            "action_type": corporate_action_type,
+            "quantity_ratio": _round_optional(metadata.get("quantity_ratio") or metadata.get("ratio"), 6),
+            "cash_amount": _round_optional(metadata.get("cash_amount"), 2),
+            "currency": currency,
+            "supported_in_dry_run": False,
+            "will_adjust_quantity": False,
+            "will_adjust_cost_base": False,
+            "requires_manual_review": True,
+        }
+        warnings.append(
+            "ASX corporate action placeholder is explicit unsupported groundwork; ledger v2 dry-run "
+            "does not adjust quantity, cash, or cost base"
+        )
+    elif unknown_event:
+        corporate_action = _unsupported_corporate_action_placeholder(currency=currency)
+    else:
+        corporate_action = _empty_corporate_action_placeholder(currency=currency)
+
+    if unknown_event and income_type is None and corporate_action_type is None:
+        warnings.append(
+            "unknown income/corporate-action event is explicit unsupported groundwork; "
+            "ledger v2 dry-run does not treat it as supported"
+        )
+
+    return income, corporate_action, warnings
+
+
+def _event_markers(*, row: TradeJournal, metadata: Mapping[str, Any]) -> List[str]:
+    raw_values = [
+        metadata.get("event_type"),
+        metadata.get("income_type"),
+        metadata.get("corporate_action_type"),
+        metadata.get("corporate_action"),
+        metadata.get("action_type"),
+        row.action,
+        row.final_decision,
+    ]
+    return [
+        marker
+        for marker in (_normalize_event_marker(value) for value in raw_values)
+        if marker
+    ]
+
+
+def _normalize_event_marker(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    aliases = {
+        "franking": "franking_credit",
+        "frankingcredit": "franking_credit",
+        "franking_credit_amount": "franking_credit",
+        "returnofcapital": "return_of_capital",
+        "return_capital": "return_of_capital",
+        "roc": "return_of_capital",
+        "dividend_reinvestment_plan": "drp",
+        "dividend_reinvestment": "drp",
+        "consolidate": "consolidation",
+    }
+    return aliases.get(text, text)
+
+
+def _first_known_event_type(markers: Iterable[str], allowed: set[str]) -> Optional[str]:
+    for marker in markers:
+        if marker in allowed:
+            return marker
+    return None
+
+
+def _has_unknown_event_marker(
+    *,
+    row: TradeJournal,
+    metadata: Mapping[str, Any],
+    markers: Iterable[str],
+) -> bool:
+    explicit_metadata_keys = {
+        "event_type",
+        "income_type",
+        "corporate_action_type",
+        "corporate_action",
+        "action_type",
+    }
+    allowed_trade_actions = {"", "open", "add", "reduce", "close", "buy", "sell", "hold"}
+    known_events = _INCOME_EVENT_TYPES | _CORPORATE_ACTION_EVENT_TYPES
+    explicit_markers = [
+        _normalize_event_marker(metadata.get(key))
+        for key in explicit_metadata_keys
+        if key in metadata
+    ]
+    values = explicit_markers or list(markers)
+    return any(marker and marker not in allowed_trade_actions and marker not in known_events for marker in values)
+
+
+def _empty_income_placeholder(*, currency: str) -> Dict[str, Any]:
+    return {
+        "status": "none",
+        "income_type": None,
+        "cash_amount": None,
+        "franking_credit_amount": None,
+        "franking_percent": None,
+        "currency": currency,
+        "supported_in_dry_run": False,
+        "will_create_cash_event": False,
+        "will_create_tax_event": False,
+        "requires_manual_review": False,
+    }
+
+
+def _unsupported_income_placeholder(*, currency: str) -> Dict[str, Any]:
+    placeholder = _empty_income_placeholder(currency=currency)
+    placeholder.update(
+        {
+            "status": "unsupported",
+            "income_type": "unknown",
+            "requires_manual_review": True,
+        }
+    )
+    return placeholder
+
+
+def _empty_corporate_action_placeholder(*, currency: str) -> Dict[str, Any]:
+    return {
+        "status": "none",
+        "action_type": None,
+        "quantity_ratio": None,
+        "cash_amount": None,
+        "currency": currency,
+        "supported_in_dry_run": False,
+        "will_adjust_quantity": False,
+        "will_adjust_cost_base": False,
+        "requires_manual_review": False,
+    }
+
+
+def _unsupported_corporate_action_placeholder(*, currency: str) -> Dict[str, Any]:
+    placeholder = _empty_corporate_action_placeholder(currency=currency)
+    placeholder.update(
+        {
+            "status": "unsupported",
+            "action_type": "unknown",
+            "requires_manual_review": True,
+        }
+    )
+    return placeholder
+
+
 def _signed_quantity(*, side: Optional[str], quantity_delta: Optional[float]) -> Optional[float]:
     if quantity_delta is None:
         return None
@@ -529,6 +749,16 @@ def _trade_source_hash(*, row: TradeJournal, metadata: Mapping[str, Any]) -> str
         "settlement_date": _clean_optional(metadata.get("settlement_date")),
         "currency": _clean_optional(metadata.get("currency")) or "AUD",
         "fee": _round_optional(metadata.get("fee"), 2),
+        "event_type": _clean_optional(metadata.get("event_type")),
+        "income_type": _clean_optional(metadata.get("income_type")),
+        "corporate_action_type": _clean_optional(metadata.get("corporate_action_type")),
+        "corporate_action": _clean_optional(metadata.get("corporate_action")),
+        "action_type": _clean_optional(metadata.get("action_type")),
+        "dividend": _round_optional(metadata.get("dividend"), 2),
+        "franking_credit": _round_optional(metadata.get("franking_credit"), 2),
+        "franking_percent": _round_optional(metadata.get("franking_percent"), 6),
+        "cash_amount": _round_optional(metadata.get("cash_amount"), 2),
+        "quantity_ratio": _round_optional(metadata.get("quantity_ratio") or metadata.get("ratio"), 6),
     }
     serialized = json.dumps(source_material, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()

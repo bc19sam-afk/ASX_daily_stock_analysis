@@ -174,6 +174,20 @@ isolation, and unchanged v1 storage behavior. Passing those checks proves only
 that the plan/contract/guard/scaffold are present and current behavior remains
 unchanged; it does not prove ledger v2 storage or migration readiness.
 
+## PR12 Income And Corporate-Action Placeholders
+
+PR12 extends the dry-run candidate contract with explicit ASX-aware placeholder
+metadata for dividend, franking credit, DRP, split, consolidation, return of
+capital, and unknown income or corporate-action rows. It can normalize safe
+metadata already present on manual/import journal rows into review-only
+`income`, `franking`, and `corporate_action` placeholder objects.
+
+PR12 still does not create cash events, franking-credit rows, tax-return
+calculations, lot/cost-base adjustments, broker-statement imports, ledger v2
+storage rows, migrations, or cutover behavior. Unknown income or
+corporate-action rows must remain explicit unsupported placeholders instead of
+being treated as supported ledger events.
+
 ## Related Control-Plane Pages
 
 - `omx_wiki/architecture-portfolio-ledger-review-journal.md`
