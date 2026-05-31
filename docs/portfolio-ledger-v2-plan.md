@@ -97,9 +97,11 @@ effective dates.
 
 1. **Plan and guard**: ship this document, the declarative contract, and a
    default-off guard. No data changes.
-2. **Read-only tables behind disabled migration flag**: introduce table models
-   and migration scaffolding that cannot run unless the guard is explicitly
-   enabled.
+2. **Disabled shadow migration scaffold**: introduce a side-effect-free shadow
+   schema spec and DDL planner that returns a blocked/dry-run plan by default.
+   The scaffold must not register ledger v2 models on active storage metadata,
+   create tables during normal startup, or run without the explicit migration
+   guard.
 3. **Backfill dry run**: build a dry-run transformer from current
    `portfolio_positions`, `trade_journal`, `account_snapshots`, and paper
    rows into ledger v2 candidate rows.
@@ -130,20 +132,47 @@ until an explicit cutover. A rollback should:
   explicitly purges them.
 - Record rollback status in the audit table if the table exists.
 
+## PR7 Disabled Migration Scaffold
+
+PR7 adds `src/services/portfolio_ledger_v2_migration.py` as a disabled
+migration scaffold for future shadow tables. It can:
+
+- Build a side-effect-free shadow schema spec from the ledger v2 contract.
+- Render `CREATE TABLE IF NOT EXISTS` DDL for review and future migration
+  tooling.
+- Return a blocked/dry-run migration plan when the migration flag is absent.
+- Require both explicit execution parameters and the default-off migration guard
+  before any future caller can write database state.
+
+PR7 still does not run a production migration, create ledger v2 tables during
+startup, attach v2 models to `src.storage.Base.metadata`, expose a runtime
+endpoint, replace current portfolio overview/import/events/workbench behavior,
+connect a broker, or store raw HIN/account/order/fill details.
+
+The PR7 shadow schema follows the contract tables for accounts, trades, cash
+events, corporate actions, lots, snapshots, franking credits, settlements,
+audit, and idempotency. Corporate actions remain account-scoped via
+`account_uid`. Account custody metadata is represented only as presence or
+one-way reference fields, not raw identifiers.
+
 ## Migration Guard
 
 `src/services/portfolio_ledger_migration_guard.py` defines the default-off
 guard. Future migration code must call `PortfolioLedgerMigrationGuard.require_enabled()`
 before touching database state. The enabling flag is
-`ASX_LEDGER_V2_MIGRATION_ENABLED=true`. PR6 does not add a migration runner.
+`ASX_LEDGER_V2_MIGRATION_ENABLED=true`. PR6 does not add a migration runner;
+PR7 adds only a disabled scaffold and DDL planner.
 
 ## Verification Scope
 
 PR6 is verified by tests for the declarative contract and guard plus regression
 tests for ASX CSV import, manual portfolio workflows, portfolio event API,
-workbench API, and the existing CI gate. Passing those checks proves only that
-the plan/contract/guard are present and current behavior remains unchanged; it
-does not prove ledger v2 storage or migration readiness.
+workbench API, and the existing CI gate. PR7 adds scaffold tests for blocked
+default execution, dry-run non-mutation, contract-aligned shadow schema,
+account-scoped corporate actions, sensitive-field exclusion, active metadata
+isolation, and unchanged v1 storage behavior. Passing those checks proves only
+that the plan/contract/guard/scaffold are present and current behavior remains
+unchanged; it does not prove ledger v2 storage or migration readiness.
 
 ## Related Control-Plane Pages
 
