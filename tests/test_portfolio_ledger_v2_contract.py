@@ -14,6 +14,7 @@ from src.services.portfolio_ledger_migration_guard import (
 from src.services.portfolio_ledger_v2_contract import (
     LEDGER_V2_CONTRACT_VERSION,
     PLANNED_LEDGER_V2_TABLES,
+    PlannedLedgerTable,
     planned_field_names,
     planned_table_names,
 )
@@ -50,6 +51,12 @@ def test_v2_contract_names_core_tables_and_field_plans():
         "idempotency_key_hash",
     ):
         assert expected in field_names
+
+
+def test_corporate_actions_are_account_scoped_for_multi_account_replay():
+    corporate_actions = _planned_table("portfolio_ledger_corporate_actions")
+
+    assert "account_uid" in {field.name for field in corporate_actions.fields}
 
 
 def test_migration_guard_defaults_to_disabled():
@@ -100,3 +107,10 @@ def test_contract_does_not_plan_secret_or_real_execution_detail_fields():
         "real_order",
     }
     assert not any(marker in serialized for marker in forbidden_markers)
+
+
+def _planned_table(name: str) -> PlannedLedgerTable:
+    for table in PLANNED_LEDGER_V2_TABLES:
+        if table.name == name:
+            return table
+    raise AssertionError(f"Missing planned table: {name}")

@@ -53,8 +53,8 @@ The executable contract lives in
   fees, source-row digest, and manual review status.
 - `portfolio_ledger_cash_events`: deposits, withdrawals, dividends, fees, tax,
   and settlement cash movements.
-- `portfolio_ledger_corporate_actions`: splits, DRP, return of capital, and
-  manual adjustments.
+- `portfolio_ledger_corporate_actions`: account-scoped splits, DRP, return of
+  capital, and manual adjustments.
 - `portfolio_ledger_lots`: tax-lot and cost-base slices derived from reviewed
   events.
 - `portfolio_ledger_snapshots`: read-optimized account snapshots generated from

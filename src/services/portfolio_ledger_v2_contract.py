@@ -103,6 +103,7 @@ PLANNED_LEDGER_V2_TABLES: Tuple[PlannedLedgerTable, ...] = (
         purpose="Splits, DRP, return of capital, and manual adjustment events.",
         fields=(
             _field("corporate_action_uid", "string", "Internal stable corporate-action id."),
+            _field("account_uid", "string", "Account row foreign key."),
             _field("symbol", "string", "Canonical symbol affected by the action."),
             _field("market", "string", "Market code."),
             _field("corporate_action_type", "string", "Split, DRP, return of capital, or adjustment."),
