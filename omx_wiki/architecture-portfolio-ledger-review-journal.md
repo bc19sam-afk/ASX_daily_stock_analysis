@@ -40,9 +40,13 @@ version should adapt the shape rather than directly copy the business logic:
 - Corporate actions such as splits, DRP, return of capital, and adjustments.
 - Dual-read migration path before any destructive schema change.
 
+PR6 planning artifact: `docs/portfolio-ledger-v2-plan.md`.
+The PR6 scope is plan/contract/guard only: no database migration, no broker or
+execution integration, and no replacement of current portfolio overview/import,
+paper portfolio, workbench, alert, or review-journal behavior.
+
 ## Related Pages
 
 - [[pattern-broker-execution-scope-gate]]
 - [[reference-upstream-diff-evidence-2026-05-29]]
 - [[decision-asx-upstream-diff-roadmap-2026-05-29]]
-
