@@ -208,6 +208,36 @@ facts needed for future planning.
   candidate: PR12 ASX dividend/franking/corporate-action event placeholders,
   still explicit unsupported/partial where needed and still outside tax advice,
   broker statements, migration, or cutover scope.
+- PR12 completed as GitHub PR #206, "Add ledger v2 income action placeholders",
+  merged at `f626993d5f70ed6d32c8c07adfbaf306efb43485`.
+  Scope: ASX-aware ledger v2 dry-run placeholder normalization for
+  dividend/franking income and corporate-action groundwork, including dividend,
+  franking credit, DRP, split, consolidation, return of capital, and unknown
+  income/corporate-action rows as explicit partial or unsupported manual-review
+  placeholders. Verification: GitHub checks passed for backend gate, Docker
+  build, change detection, security, static checks, AI review, and review
+  reporting; desktop gate was skipped by change detection. Local verification
+  covered `tests/test_asx_ledger_v2_dry_run.py`,
+  `tests/test_asx_portfolio_import.py`,
+  `tests/test_portfolio_ledger_v2_contract.py`,
+  `tests/test_portfolio_ledger_v2_migration_scaffold.py`,
+  `tests/test_portfolio_events_api.py`, `tests/test_workbench_api.py`,
+  `git diff --check`, targeted `py_compile`, and `./scripts/ci_gate.sh` with
+  the project virtualenv plus bundled Node on `PATH` (`852` tests plus `5`
+  subtests passing). Review handling: Codex Review P2 feedback was fixed by
+  preventing known income/corporate-action aliases from creating unrelated
+  unknown placeholders and by including parsed event aliases in dry-run source
+  identity; both review threads were resolved before merge. Boundary:
+  placeholder contract only; v1 remains authoritative; no tax-return
+  calculation, cash-event creation, quantity/cost-base adjustment, broker
+  statement import, real ledger v2 write, production migration, cutover,
+  broker connection, real orders/fills, worker, notification delivery, secrets,
+  HIN originals, account credentials, account numbers, order details, or fill
+  detail exposure. Subagent note: a native Codex code-review lane checked the
+  patched PR12 workspace and found no blocking issues; OMX team was not used
+  because this Codex App session was not an OMX CLI/tmux runtime. Next
+  candidate: PR13 portfolio/watchlist alert dry-run batch diagnostics, only if
+  started from clean main and kept read-only with no notification worker.
 
 ## Blocked Or Separately Authorized Areas
 
