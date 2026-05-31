@@ -150,7 +150,7 @@ def _report_freshness_alerts(
                 message=f"未找到 {expected_text} 的日报数据，工作台提醒不能视为今日最新。",
                 source="history.latest_report",
                 as_of=_as_of_text(as_of),
-                action_hint="先确认每日分析是否生成并推送，再使用工作台提醒。",
+                action_hint="先人工复核每日分析是否生成并推送，再使用工作台提醒。",
             )
         )
         return alerts
@@ -166,7 +166,7 @@ def _report_freshness_alerts(
                 message=f"当前提醒来自 {data_report_date} 日报；今日应查看 {expected_text} 日报。",
                 source="history.latest_report.report_date",
                 as_of=_as_of_text(as_of),
-                action_hint="先检查今日日报生成/通知状态，避免用旧报告做今日复核。",
+                action_hint="先人工复核今日日报生成/通知状态，避免用旧报告做今日复核。",
             )
         )
 
@@ -182,7 +182,7 @@ def _report_freshness_alerts(
                 message=f"{data_report_date} 的 daily_decision_summary 文件状态为 {artifact_status}。",
                 source="reports.daily_decision_summary",
                 as_of=_as_of_text(as_of),
-                action_hint="打开日报文件或重新生成摘要后，再确认提醒完整性。",
+                action_hint="打开日报文件或重新生成摘要后，再人工复核提醒完整性。",
             )
         )
     return alerts

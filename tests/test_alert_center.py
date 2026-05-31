@@ -421,6 +421,7 @@ def test_workbench_summary_exposes_alert_center_summary(tmp_path: Path):
     with (
         patch("api.v1.endpoints.workbench.HistoryService") as history_service,
         patch("api.v1.endpoints.workbench.BacktestService") as backtest_service,
+        patch("src.alert_center._market_now", return_value=AS_OF),
     ):
         history_service.return_value.get_history_list.return_value = history_list
         history_service.return_value.get_history_detail.return_value = _latest_detail(
@@ -468,6 +469,7 @@ def test_workbench_alert_routes_expose_summary_and_detail(tmp_path: Path):
     with (
         patch("api.v1.endpoints.workbench.HistoryService") as history_service,
         patch("api.v1.endpoints.workbench.BacktestService") as backtest_service,
+        patch("src.alert_center._market_now", return_value=AS_OF),
     ):
         history_service.return_value.get_history_list.return_value = history_list
         history_service.return_value.get_history_detail.return_value = _latest_detail(
