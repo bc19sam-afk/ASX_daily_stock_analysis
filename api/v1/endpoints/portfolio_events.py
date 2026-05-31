@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, Query
 
 from api.deps import get_database_manager
+from src.services.asx_ledger_v2_dry_run import AsxLedgerV2DryRunService
 from src.services.portfolio_event_service import PortfolioEventFilters, PortfolioEventService
 from src.storage import DatabaseManager
 
@@ -40,3 +41,17 @@ def list_portfolio_events(
         page_size=page_size,
     )
     return PortfolioEventService(db_manager).list_events(filters)
+
+
+@router.get(
+    "/ledger-v2/dry-run",
+    summary="Build ledger v2 dry-run candidates",
+    description=(
+        "Read-only ledger v2 candidate rows and dual-read diagnostics. "
+        "This does not write ledger v2 storage or change v1 portfolio reads."
+    ),
+)
+def get_ledger_v2_dry_run(
+    db_manager: DatabaseManager = Depends(get_database_manager),
+) -> Dict[str, Any]:
+    return AsxLedgerV2DryRunService(db_manager).build_dry_run()
