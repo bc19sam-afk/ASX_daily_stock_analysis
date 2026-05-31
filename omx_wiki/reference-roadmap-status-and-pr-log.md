@@ -110,6 +110,28 @@ facts needed for future planning.
   or fill detail persistence. Next candidate PR: PR8 ledger v2 dry-run backfill
   transformer and dual-read comparison groundwork, with v1 still authoritative
   and no production migration.
+- Parallel provider/status dashboard completed as GitHub PR #198, "Add provider
+  quota status to ASX workbench", merged at
+  `0c8a9cfc59aa067fb1b85fd787bc41491a463e07`. Scope: read-only ASX Workbench
+  provider/cache status in the workbench summary and static UI, including
+  low-sensitive configured booleans for Tavily, Gemini, and SerpAPI; Gemini
+  grounding/model status; provider order; `news_intel` cache
+  enabled/days/min_results; and quota-safe/search-fallback notes. Verification:
+  GitHub checks passed for backend gate, Docker build, change detection,
+  security, static checks, AI review, and review reporting; desktop gate was
+  skipped by change detection. Local verification covered
+  `tests/test_workbench_api.py`, `tests/test_search_asx_localisation.py`,
+  `tests/test_news_intel_cache_reuse.py`, `./scripts/ci_gate.sh` with the
+  project virtualenv plus bundled Node on `PATH`, and a local Workbench browser
+  smoke. Review handling: Codex Review P2 copy feedback on fallback/rotation
+  wording was fixed before merge, with the thread outdated/resolved and final
+  review checks passing. Boundary: no broker connection, real orders/fills,
+  automatic execution, notifications, external search calls, provider order
+  changes, cache clearing, secrets/raw key/token exposure, ledger v2,
+  `portfolio_ledger_*`, or `docs/portfolio-ledger-v2-plan.md` changes. Next
+  candidate remains PR8 ledger v2 dry-run backfill transformer and dual-read
+  comparison groundwork; provider/cache counters or live quota telemetry require
+  explicit separate scope.
 
 ## Blocked Or Separately Authorized Areas
 
