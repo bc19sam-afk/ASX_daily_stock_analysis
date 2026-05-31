@@ -132,6 +132,31 @@ facts needed for future planning.
   candidate remains PR8 ledger v2 dry-run backfill transformer and dual-read
   comparison groundwork; provider/cache counters or live quota telemetry require
   explicit separate scope.
+- Alert-rule preset selector completed as GitHub PR #200, "Add ASX alert rule
+  presets to workbench", merged at
+  `3fb1b9e89d4591cbc65351f9cc8fcbcb662db49f`. Scope: reusable read-only
+  alert-rule preset catalog, `/api/v1/alert-rules/presets`, context-aware
+  workbench preset selector, one-click dry-run result rendering, empty-watchlist
+  skip handling, and manual-review/no-trade-instruction preset contracts.
+  Verification: GitHub checks passed for backend gate, Docker build, change
+  detection, security, static checks, AI review, and review reporting; desktop
+  gate was skipped by change detection. Local verification covered
+  `tests/test_asx_alert_rule_presets.py`,
+  `tests/test_asx_alert_rule_dry_run_api.py`, `tests/test_workbench_api.py`,
+  `tests/test_workbench_alert_rule_ui.py`, `tests/test_alert_center.py`,
+  `git diff --check`, `./scripts/ci_gate.sh` with the project virtualenv plus
+  bundled Node on `PATH`, and a local Workbench browser smoke for selector,
+  dry-run result rendering, `is_trade_instruction=false`, and narrow-viewport
+  overflow. Review handling: Codex Review P2 watchlist gating feedback was
+  fixed by disabling watchlist presets without configured `STOCK_LIST`, adding
+  direct dry-run skip behavior for empty watchlists, rerunning checks, and
+  resolving the review thread. Boundary: dry-run/manual review only; no
+  background worker, notification delivery, broker integration, real order
+  submission, paper simulation, DB write from presets, secrets, HIN originals,
+  account credentials, account numbers, order details, or fill detail exposure.
+  Next candidate remains PR8 ledger v2 dry-run backfill transformer and
+  dual-read comparison groundwork; alert-rule workers, notification attempts,
+  broker execution, or live quota telemetry require explicit separate scope.
 
 ## Blocked Or Separately Authorized Areas
 
