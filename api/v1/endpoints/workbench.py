@@ -56,6 +56,7 @@ def get_workbench_summary(
         config_status=config_status,
     )
     ledger_v2_dry_run = _build_ledger_v2_dry_run_summary()
+    ledger_v2_diagnostics = _build_ledger_v2_diagnostics_summary()
     backtest_summary = _build_backtest_summary(db_manager)
 
     return {
@@ -72,6 +73,7 @@ def get_workbench_summary(
         "alert_center": alert_center,
         "alert_rule_dry_run": alert_rule_dry_run,
         "ledger_v2_dry_run": ledger_v2_dry_run,
+        "ledger_v2_diagnostics": ledger_v2_diagnostics,
         "backtest": backtest_summary,
         "config_status": config_status,
         "links": {
@@ -85,6 +87,7 @@ def get_workbench_summary(
             "alert_rule_dry_run": DRY_RUN_ENDPOINT,
             "alert_rule_presets": PRESETS_ENDPOINT,
             "ledger_v2_dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
+            "ledger_v2_diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
         },
     }
 
@@ -242,6 +245,43 @@ def _build_ledger_v2_dry_run_summary() -> Dict[str, Any]:
         },
         "links": {
             "dry_run": endpoint,
+            "workbench": WORKBENCH_ENDPOINT,
+        },
+    }
+
+
+def _build_ledger_v2_diagnostics_summary() -> Dict[str, Any]:
+    """Return a compact pointer to grouped ledger v2 shadow-read diagnostics."""
+    diagnostics_endpoint = "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    dry_run_endpoint = "/api/v1/portfolio-events/ledger-v2/dry-run"
+    return {
+        "mode": "dry_run_manual_review",
+        "endpoint": diagnostics_endpoint,
+        "method": "GET",
+        "is_trade_instruction": False,
+        "manual_review_required": True,
+        "side_effects": [],
+        "forbidden_side_effects": [
+            "ledger_v2_storage_write",
+            "migration_cutover",
+            "broker_connection",
+            "order_submission",
+            "paper_simulation_write",
+            "notification_delivery",
+        ],
+        "result_fields": [
+            "summary",
+            "details",
+            "warnings",
+            "boundaries",
+        ],
+        "copy": {
+            "title": "Ledger v2 Diagnostics",
+            "boundary": "shadow-read diagnostics only; v1 portfolio summary remains authoritative",
+        },
+        "links": {
+            "diagnostics": diagnostics_endpoint,
+            "dry_run": dry_run_endpoint,
             "workbench": WORKBENCH_ENDPOINT,
         },
     }

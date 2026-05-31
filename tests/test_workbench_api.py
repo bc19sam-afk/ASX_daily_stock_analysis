@@ -120,6 +120,22 @@ def test_workbench_summary_answers_daily_operational_questions(tmp_path: Path):
     assert payload["ledger_v2_dry_run"]["side_effects"] == []
     assert "migration_cutover" in payload["ledger_v2_dry_run"]["forbidden_side_effects"]
     assert payload["ledger_v2_dry_run"]["links"]["dry_run"] == "/api/v1/portfolio-events/ledger-v2/dry-run"
+    assert payload["links"]["ledger_v2_diagnostics"] == "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    assert payload["ledger_v2_diagnostics"]["method"] == "GET"
+    assert payload["ledger_v2_diagnostics"]["is_trade_instruction"] is False
+    assert payload["ledger_v2_diagnostics"]["side_effects"] == []
+    assert payload["ledger_v2_diagnostics"]["result_fields"] == [
+        "summary",
+        "details",
+        "warnings",
+        "boundaries",
+    ]
+    assert payload["ledger_v2_diagnostics"]["links"]["diagnostics"] == (
+        "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    )
+    assert payload["ledger_v2_diagnostics"]["links"]["dry_run"] == (
+        "/api/v1/portfolio-events/ledger-v2/dry-run"
+    )
     backtest_service.return_value.get_summary.assert_called_once_with(
         scope="overall",
         code=None,
