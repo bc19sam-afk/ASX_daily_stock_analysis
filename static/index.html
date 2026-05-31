@@ -210,15 +210,40 @@
         background: rgba(180, 35, 24, 0.06);
         color: var(--bad);
       }
+      .dry-run-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 10px 0;
+      }
+      .dry-run-actions button {
+        text-align: left;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.58;
+      }
+      .result-counts {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        margin: 10px 0;
+      }
+      .result-counts .stat {
+        min-height: 68px;
+        padding: 10px;
+      }
       @media (max-width: 1040px) {
         .grid { grid-template-columns: 1fr; }
         .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .result-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .actions { flex-wrap: wrap; justify-content: flex-start; }
       }
       @media (max-width: 720px) {
         .shell { padding: 14px; }
         .topbar { flex-direction: column; align-items: flex-start; }
         .stats { grid-template-columns: 1fr; }
+        .result-counts { grid-template-columns: 1fr; }
         input { width: 100%; }
         .actions { width: 100%; }
       }
@@ -259,6 +284,11 @@
           </section>
 
           <section class="panel">
+            <h2>Alert Rule Dry-Run</h2>
+            <div id="alertRuleDryRunBlock" class="empty">正在读取 dry-run 规则...</div>
+          </section>
+
+          <section class="panel">
             <h2>最新日报</h2>
             <div id="latestReport" class="empty">正在读取最新报告...</div>
           </section>
@@ -293,6 +323,7 @@
       const state = {
         token: localStorage.getItem('asx.workbench.token') || '',
         data: null,
+        alertRuleDryRunResult: null,
       };
 
       const els = {
@@ -302,6 +333,7 @@
         refreshBtn: document.getElementById('refreshBtn'),
         stats: document.getElementById('stats'),
         alertCenterBlock: document.getElementById('alertCenterBlock'),
+        alertRuleDryRunBlock: document.getElementById('alertRuleDryRunBlock'),
         latestReport: document.getElementById('latestReport'),
         historyList: document.getElementById('historyList'),
         portfolioBlock: document.getElementById('portfolioBlock'),
@@ -321,10 +353,11 @@
 
       els.refreshBtn.addEventListener('click', loadSummary);
 
-      async function fetchJson(url) {
-        const headers = {};
+      async function fetchJson(url, options = {}) {
+        const headers = { ...(options.headers || {}) };
         if (state.token) headers.Authorization = `Bearer ${state.token}`;
-        const response = await fetch(url, { headers });
+        if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+        const response = await fetch(url, { ...options, headers });
         const text = await response.text();
         let payload = {};
         try { payload = text ? JSON.parse(text) : {}; } catch (_error) { payload = { raw: text }; }
@@ -495,6 +528,152 @@
         `;
       }
 
+      function basisNeedsManualReview(value) {
+        return ['close_only', 'delayed', 'unavailable'].includes(String(value || '').toLowerCase());
+      }
+
+      function dryRunStatusTone(status) {
+        const value = String(status || '');
+        if (value === 'triggered' || value === 'evaluation_error') return 'bad';
+        if (value === 'degraded' || value === 'skipped') return 'warn';
+        return 'good';
+      }
+
+      function dryRunNeedsManualReview(payload) {
+        const context = payload.market_context || {};
+        const targetResults = payload.target_results || [];
+        return (
+          payload.status === 'degraded' ||
+          payload.status === 'evaluation_error' ||
+          Number(payload.degraded_count || 0) > 0 ||
+          basisNeedsManualReview(context.data_basis) ||
+          targetResults.some((result) => (
+            ['degraded', 'evaluation_error', 'skipped'].includes(String(result.status || '')) ||
+            basisNeedsManualReview(result.observed_value)
+          ))
+        );
+      }
+
+      function renderAlertRuleDryRun(data) {
+        const config = data.alert_rule_dry_run || {};
+        const templates = config.templates || [];
+        if (!config.endpoint || !templates.length) {
+          els.alertRuleDryRunBlock.innerHTML = '<div class="empty">没有可用 dry-run 规则。</div>';
+          return;
+        }
+
+        const boundary = config.copy?.boundary || 'dry-run / manual review only; not a trade instruction';
+        els.alertRuleDryRunBlock.innerHTML = `
+          <div class="toolbar" style="margin-bottom:10px;">
+            ${pill('dry-run')}
+            ${pill('manual review')}
+            ${pill('not a trade instruction')}
+          </div>
+          <div class="statusline">${escapeHtml(boundary)}</div>
+          <div class="dry-run-actions">
+            ${templates.map((template) => `
+              <button
+                type="button"
+                data-rule-id="${escapeHtml(template.id)}"
+                ${template.enabled ? '' : 'disabled'}
+                title="${escapeHtml(template.disabled_reason || template.description || '')}"
+              >
+                ${escapeHtml(template.label)}
+              </button>
+            `).join('')}
+          </div>
+          <div id="alertRuleDryRunResult" class="empty">
+            选择一条规则执行本地 dry-run；只展示复核结果，不写库、不发通知、不触发模拟盘或券商动作。
+          </div>
+        `;
+
+        els.alertRuleDryRunBlock.querySelectorAll('button[data-rule-id]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const template = templates.find((item) => item.id === button.dataset.ruleId);
+            if (template?.enabled) runAlertRuleDryRun(template);
+          });
+        });
+      }
+
+      async function runAlertRuleDryRun(template) {
+        const config = state.data?.alert_rule_dry_run || {};
+        const resultEl = document.getElementById('alertRuleDryRunResult');
+        if (!resultEl) return;
+        resultEl.className = 'empty';
+        resultEl.textContent = `正在 dry-run：${template.label}...`;
+        try {
+          const payload = await fetchJson(config.endpoint || '/api/v1/alert-rules/dry-run', {
+            method: config.method || 'POST',
+            body: JSON.stringify(template.payload || {}),
+          });
+          state.alertRuleDryRunResult = payload;
+          resultEl.className = '';
+          resultEl.innerHTML = renderAlertRuleDryRunResult(payload);
+        } catch (error) {
+          const message = error?.message || 'dry-run 失败。';
+          resultEl.className = 'empty error';
+          resultEl.textContent = message;
+        }
+      }
+
+      function renderAlertRuleDryRunResult(payload) {
+        const targetResults = payload.target_results || [];
+        const context = payload.market_context || {};
+        const reviewNotice = dryRunNeedsManualReview(payload)
+          ? '<div class="empty error" style="margin:10px 0;">close_only/delayed/unavailable 或 degraded 结果不能推断为 clear，先人工复核。</div>'
+          : '<div class="empty" style="margin:10px 0;">dry-run 未发现降级口径；仍仅作为人工复核输入。</div>';
+        const rows = targetResults.length
+          ? `
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Target</th>
+                  <th>Status</th>
+                  <th>Observed</th>
+                  <th>Review note</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${targetResults.map((result) => `
+                  <tr>
+                    <td>${escapeHtml(fmt(result.target))}</td>
+                    <td>${pill(fmt(result.status), dryRunStatusTone(result.status))}</td>
+                    <td>${escapeHtml(fmt(result.observed_value))}</td>
+                    <td>
+                      ${escapeHtml(fmt(result.message))}
+                      <div class="statusline">${escapeHtml(fmt(result.action_hint))}</div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `
+          : '<div class="empty">没有 target_results。</div>';
+
+        return `
+          <div class="toolbar" style="margin-bottom:10px;">
+            ${pill(`status ${fmt(payload.status)}`, dryRunStatusTone(payload.status))}
+            ${pill(`triggered ${fmt(payload.triggered_count || 0)}`)}
+            ${pill(`degraded ${fmt(payload.degraded_count || 0)}`)}
+            ${pill(`skipped ${fmt(payload.skipped_count || 0)}`)}
+          </div>
+          <div class="result-counts">
+            <div class="stat"><span class="label">Status</span><div class="value">${escapeHtml(fmt(payload.status))}</div></div>
+            <div class="stat"><span class="label">Triggered</span><div class="value">${escapeHtml(fmt(payload.triggered_count || 0))}</div></div>
+            <div class="stat"><span class="label">Degraded</span><div class="value">${escapeHtml(fmt(payload.degraded_count || 0))}</div></div>
+            <div class="stat"><span class="label">Skipped</span><div class="value">${escapeHtml(fmt(payload.skipped_count || 0))}</div></div>
+          </div>
+          ${reviewNotice}
+          <div class="toolbar" style="margin-bottom:10px;">
+            ${pill(`ASX ${fmt(context.report_date)}`)}
+            ${pill(`basis ${fmt(context.data_basis)}`, basisNeedsManualReview(context.data_basis) ? 'warn' : '')}
+            ${pill(`as of ${fmt(context.as_of)}`)}
+          </div>
+          ${rows}
+          <div class="statusline">market_context is shown for time-basis review; is_trade_instruction=${escapeHtml(fmt(payload.is_trade_instruction))}</div>
+        `;
+      }
+
       function renderHistory(data) {
         const items = data.history?.items || [];
         if (!items.length) {
@@ -604,6 +783,7 @@
           state.data = data;
           renderStats(data);
           renderAlertCenter(data);
+          renderAlertRuleDryRun(data);
           renderLatest(data);
           renderHistory(data);
           renderPortfolio(data);
@@ -615,6 +795,7 @@
           els.headerMeta.textContent = message;
           els.stats.innerHTML = '';
           els.alertCenterBlock.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
+          els.alertRuleDryRunBlock.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
           els.latestReport.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
           els.historyList.innerHTML = '<div class="empty error">历史报告暂时不可用。</div>';
           els.portfolioBlock.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
