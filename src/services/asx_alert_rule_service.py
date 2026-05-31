@@ -156,6 +156,17 @@ class AlertRuleDryRunService:
         if alert_type == "portfolio_concentration":
             return self._evaluate_portfolio_concentration(target, rule)
         if alert_type == "portfolio_drawdown":
+            if _clean_text(rule.get("target_scope")) != "portfolio_account":
+                return _target_result(
+                    target=target,
+                    status=STATUS_EVALUATION_ERROR,
+                    observed_value="invalid_scope",
+                    threshold="portfolio_account",
+                    message="portfolio_drawdown 是账户级规则，target_scope 必须为 portfolio_account。",
+                    source="alert_rules.dry_run",
+                    as_of=_market_as_of(alert_center),
+                    action_hint="把规则改为 portfolio_account 后再 dry-run。",
+                )
             return self._evaluate_portfolio_drawdown(target, rule)
         if alert_type == "portfolio_price_stale":
             return self._evaluate_portfolio_price_stale(target)

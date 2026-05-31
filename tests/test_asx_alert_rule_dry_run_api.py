@@ -407,3 +407,27 @@ def test_invalid_rule_returns_validation_error_or_evaluation_error(tmp_path: Pat
     assert bad_parameter.json()["status"] == "evaluation_error"
     assert bad_parameter.json()["target_results"][0]["status"] == "evaluation_error"
     app.dependency_overrides.clear()
+
+
+def test_portfolio_drawdown_rejects_non_account_scope(tmp_path: Path):
+    client, app = _client(tmp_path)
+
+    response = _post_with_context(
+        client,
+        _context(),
+        {
+            "target_scope": "single_symbol",
+            "target": "BHP.AX",
+            "alert_type": "portfolio_drawdown",
+            "severity": "critical",
+            "parameters": {"drawdown_pct": 1.0},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "evaluation_error"
+    assert payload["target_results"][0]["target"] == "BHP.AX"
+    assert payload["target_results"][0]["observed_value"] == "invalid_scope"
+    assert "portfolio_account" in payload["target_results"][0]["message"]
+    app.dependency_overrides.clear()
