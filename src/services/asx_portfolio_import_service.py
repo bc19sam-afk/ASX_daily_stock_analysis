@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
+import json
 import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -15,7 +17,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from sqlalchemy import desc, select
 
 from src.stock_code import canonical_stock_code
-from src.storage import AccountSnapshot, DatabaseManager, PortfolioPosition
+from src.storage import AccountSnapshot, DatabaseManager, PortfolioPosition, TradeJournal
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,20 @@ FEE_COLUMNS = ("brokerage", "fees", "fee", "brokerage_fees")
 HIN_COLUMNS = ("hin", "custody", "custody_metadata", "account_hin", "custody_reference")
 DIVIDEND_COLUMNS = ("dividend", "dividend_amount")
 FRANKING_COLUMNS = ("franking", "franking_credit", "franking_credit_amount")
+DEFAULT_PARSER_ID = "generic_asx"
+DEDUP_HASH_FIELDS = (
+    "parser_id",
+    "trade_date",
+    "settlement_date",
+    "code",
+    "side",
+    "quantity",
+    "price",
+    "fee",
+    "currency",
+    "broker",
+    "account_label",
+)
 
 
 def _normalize_header(value: str) -> str:
@@ -47,6 +63,67 @@ def _normalize_header(value: str) -> str:
         .replace("-", "_")
         .replace(" ", "_")
     )
+
+
+@dataclass(frozen=True)
+class CsvParserSpec:
+    id: str
+    display_name: str
+    aliases: Tuple[str, ...]
+    required_fields: Tuple[str, ...]
+    column_aliases: Dict[str, Tuple[str, ...]]
+
+    def alias_map(self) -> Dict[str, str]:
+        aliases: Dict[str, str] = {}
+        for canonical, values in self.column_aliases.items():
+            aliases[_normalize_header(canonical)] = canonical
+            for value in values:
+                aliases[_normalize_header(value)] = canonical
+        return aliases
+
+    def canonical_field(self, header: str) -> str:
+        normalized = _normalize_header(header)
+        return self.alias_map().get(normalized, normalized)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "display_name": self.display_name,
+            "aliases": list(self.aliases),
+            "required_fields": list(self.required_fields),
+            "column_aliases": {
+                field_name: list(aliases)
+                for field_name, aliases in self.column_aliases.items()
+            },
+        }
+
+
+GENERIC_ASX_PARSER = CsvParserSpec(
+    id=DEFAULT_PARSER_ID,
+    display_name="Generic ASX CSV",
+    aliases=("generic", "asx", "generic-asx", "generic asx"),
+    required_fields=tuple(sorted(REQUIRED_COLUMNS)) + ("fee",),
+    column_aliases={
+        "trade_date": ("trade_date", "trade date", "transaction_date", "transaction date", "date"),
+        "settlement_date": ("settlement_date", "settlement date", "settle_date", "settle date"),
+        "code": ("code", "symbol", "ticker", "asx_code", "asx code"),
+        "side": ("side", "buy_sell", "buy/sell", "transaction_type", "transaction type", "action"),
+        "quantity": ("quantity", "qty", "units", "shares"),
+        "price": ("price", "unit_price", "unit price", "trade_price", "trade price"),
+        "fee": FEE_COLUMNS,
+        "currency": ("currency", "ccy"),
+        "broker": ("broker", "broker_name", "broker name"),
+        "account_label": ("account_label", "account label", "account", "portfolio", "portfolio_name"),
+        "custody_metadata": HIN_COLUMNS,
+        "dividend": DIVIDEND_COLUMNS,
+        "franking_credit": FRANKING_COLUMNS,
+    },
+)
+PARSER_REGISTRY = {GENERIC_ASX_PARSER.id: GENERIC_ASX_PARSER}
+PARSER_ALIAS_MAP = {
+    _normalize_header(alias): GENERIC_ASX_PARSER.id
+    for alias in (GENERIC_ASX_PARSER.id, *GENERIC_ASX_PARSER.aliases)
+}
 
 
 def _parse_date(raw: str, *, field_name: str) -> date:
@@ -106,9 +183,13 @@ class ImportedTradeRow:
     currency: str
     broker: str
     account_label: str
+    parser_id: str
     custody_metadata: str = ""
     dividend: Optional[float] = None
     franking_credit: Optional[float] = None
+    dedup_hash: str = ""
+    duplicate: bool = False
+    duplicate_reason: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
 
@@ -137,6 +218,14 @@ class ImportedTradeRow:
             "dividend": self.dividend,
             "franking_credit": self.franking_credit,
             "gross_amount": self.gross_amount,
+            "parser_id": self.parser_id,
+            "dedup_hash": self.dedup_hash or None,
+            "dedup": {
+                "hash": self.dedup_hash or None,
+                "duplicate": bool(self.duplicate),
+                "reason": self.duplicate_reason,
+            },
+            "skipped": bool(self.duplicate),
             "warnings": list(self.warnings),
             "errors": list(self.errors),
         }
@@ -252,77 +341,97 @@ class AsxPortfolioImportService:
     def __init__(self, db_manager: Optional[DatabaseManager] = None):
         self.db = db_manager or DatabaseManager.get_instance()
 
-    def preview_csv(self, csv_path: str | Path) -> Dict[str, Any]:
-        return self._run(csv_path=csv_path, apply=False)
+    def preview_csv(self, csv_path: str | Path, parser_id: str = DEFAULT_PARSER_ID) -> Dict[str, Any]:
+        return self._run(csv_path=csv_path, apply=False, parser_id=parser_id)
 
-    def apply_csv(self, csv_path: str | Path) -> Dict[str, Any]:
-        return self._run(csv_path=csv_path, apply=True)
+    def apply_csv(self, csv_path: str | Path, parser_id: str = DEFAULT_PARSER_ID) -> Dict[str, Any]:
+        return self._run(csv_path=csv_path, apply=True, parser_id=parser_id)
 
-    def _run(self, *, csv_path: str | Path, apply: bool) -> Dict[str, Any]:
+    def _run(self, *, csv_path: str | Path, apply: bool, parser_id: str) -> Dict[str, Any]:
+        parser_spec = self._resolve_parser_spec(parser_id)
         path = Path(csv_path)
-        rows, parse_errors, parse_warnings = self._parse_rows(path)
-
-        base_result = {
-            "source_path": str(path),
-            "row_count": len(rows),
-            "valid_row_count": sum(1 for row in rows if not row.errors),
-            "invalid_row_count": sum(1 for row in rows if row.errors),
-            "rows": [row.to_preview_dict() for row in rows],
-            "warnings": parse_warnings + [warning for row in rows for warning in row.warnings],
-            "errors": parse_errors + [error for row in rows for error in row.errors],
-            "totals": self._build_totals(rows),
-            "can_apply": False,
-            "status": "preview" if not apply else "invalid",
-            "applied_count": 0,
-            "integrity": {"is_valid": False, "errors": [], "warnings": []},
-        }
+        rows, parse_errors, parse_warnings = self._parse_rows(path, parser_spec)
+        self._mark_file_duplicates(rows)
+        base_result = self._build_base_result(
+            path=path,
+            parser_spec=parser_spec,
+            rows=rows,
+            parse_errors=parse_errors,
+            parse_warnings=parse_warnings,
+            apply=apply,
+        )
 
         if base_result["errors"]:
             base_result["status"] = "invalid"
             return base_result
 
         try:
-            state = self._load_state()
+            state, existing_hashes = self._load_state_and_existing_hashes(
+                row.dedup_hash for row in rows if row.dedup_hash and not row.duplicate
+            )
         except ValueError as exc:
             base_result["errors"].append(str(exc))
+            self._refresh_result_counts(base_result, rows)
             return base_result
+
+        self._mark_existing_duplicates(rows, existing_hashes)
+        base_result = self._build_base_result(
+            path=path,
+            parser_spec=parser_spec,
+            rows=rows,
+            parse_errors=parse_errors,
+            parse_warnings=parse_warnings,
+            apply=apply,
+        )
+        active_count = len(self._active_rows(rows))
 
         try:
             simulated_state, simulation_rows, integrity_hint = self._simulate_rows(state.clone(), rows)
         except Exception as exc:
-            return {
+            result = {
                 **base_result,
                 "status": "invalid",
                 "errors": base_result["errors"] + [str(exc)],
             }
+            self._refresh_result_counts(result, rows, would_apply_count=active_count)
+            return result
         base_result["rows"] = simulation_rows
         base_result["totals"] = self._build_totals(rows, state=state, simulated_state=simulated_state)
         base_result["can_apply"] = True
         base_result["warnings"] = self._dedupe_strings(base_result["warnings"] + integrity_hint["warnings"])
+        self._refresh_result_counts(base_result, rows, would_apply_count=active_count)
 
         if not apply:
             base_result["status"] = "preview"
             return base_result
 
         try:
-            integrity = self._apply_rows(rows)
+            integrity, applied_count = self._apply_rows(rows)
         except Exception as exc:
             logger.warning("ASX CSV import failed: %s", exc)
-            return {
+            result = {
                 **base_result,
                 "status": "invalid",
                 "errors": base_result["errors"] + [str(exc)],
                 "integrity": {"is_valid": False, "errors": [str(exc)], "warnings": []},
             }
+            self._refresh_result_counts(result, rows, would_apply_count=active_count)
+            return result
 
-        return {
+        result = {
             **base_result,
             "status": "applied",
-            "applied_count": len(rows),
+            "applied_count": applied_count,
             "integrity": integrity,
         }
+        self._refresh_result_counts(result, rows, applied_count=applied_count)
+        return result
 
-    def _parse_rows(self, path: Path) -> Tuple[List[ImportedTradeRow], List[str], List[str]]:
+    def _parse_rows(
+        self,
+        path: Path,
+        parser_spec: CsvParserSpec,
+    ) -> Tuple[List[ImportedTradeRow], List[str], List[str]]:
         if not path.exists():
             raise FileNotFoundError(f"CSV file not found: {path}")
 
@@ -333,13 +442,14 @@ class AsxPortfolioImportService:
 
         normalized_headers = [_normalize_header(field) for field in reader.fieldnames]
         header_map = {
-            normalized_headers[index]: reader.fieldnames[index]
+            parser_spec.canonical_field(normalized_headers[index]): reader.fieldnames[index]
             for index in range(len(reader.fieldnames))
         }
         missing_required = sorted(
-            column for column in REQUIRED_COLUMNS if column not in header_map
+            column for column in parser_spec.required_fields
+            if column != "fee" and column not in header_map
         )
-        fee_header_present = any(alias in header_map for alias in FEE_COLUMNS)
+        fee_header_present = "fee" in header_map
         if missing_required:
             errors = [f"Missing required column: {column}" for column in missing_required]
             return [], errors, []
@@ -351,15 +461,19 @@ class AsxPortfolioImportService:
         warnings: List[str] = []
         for line_number, raw_row in enumerate(reader, start=2):
             normalized_row = {
-                _normalize_header(key): str(value or "").strip()
+                parser_spec.canonical_field(_normalize_header(key)): str(value or "").strip()
                 for key, value in raw_row.items()
             }
-            row = self._parse_row(normalized_row, line_number=line_number)
+            row = self._parse_row(
+                normalized_row,
+                line_number=line_number,
+                parser_id=parser_spec.id,
+            )
             rows.append(row)
             warnings.extend(row.warnings)
         return rows, [], self._dedupe_strings(warnings)
 
-    def _parse_row(self, row: Dict[str, str], *, line_number: int) -> ImportedTradeRow:
+    def _parse_row(self, row: Dict[str, str], *, line_number: int, parser_id: str) -> ImportedTradeRow:
         errors: List[str] = []
         warnings: List[str] = []
 
@@ -453,7 +567,7 @@ class AsxPortfolioImportService:
         if not errors and price <= 0:
             errors.append(f"line {line_number}: price must be > 0")
 
-        return ImportedTradeRow(
+        imported = ImportedTradeRow(
             line_number=line_number,
             trade_date=trade_date,
             settlement_date=settlement_date,
@@ -465,16 +579,38 @@ class AsxPortfolioImportService:
             currency=currency or "AUD",
             broker=broker,
             account_label=account_label,
+            parser_id=parser_id,
             custody_metadata=custody_metadata,
             dividend=dividend,
             franking_credit=franking_credit,
             warnings=self._dedupe_strings(warnings),
             errors=self._dedupe_strings(errors),
         )
+        if not imported.errors:
+            imported.dedup_hash = self._build_dedup_hash(imported)
+        return imported
 
     def _load_state(self) -> LedgerState:
         with self.db.get_session() as session:
             return LedgerState.from_session(session)
+
+    def _load_state_and_existing_hashes(
+        self,
+        hashes: Iterable[str],
+    ) -> Tuple[LedgerState, set[str]]:
+        with self.db.get_session() as session:
+            state = LedgerState.from_session(session)
+            existing_hashes = self._existing_dedup_hashes_in_session(session, hashes)
+            return state, existing_hashes
+
+    def _existing_dedup_hashes_in_session(self, session, hashes: Iterable[str]) -> set[str]:
+        values = sorted({str(value or "").strip() for value in hashes if str(value or "").strip()})
+        if not values:
+            return set()
+        rows = session.execute(
+            select(TradeJournal.query_id).where(TradeJournal.query_id.in_(values))
+        ).scalars().all()
+        return {str(value) for value in rows if value}
 
     def _simulate_rows(
         self,
@@ -484,18 +620,25 @@ class AsxPortfolioImportService:
         simulated_rows: List[Dict[str, Any]] = []
         warnings: List[str] = []
         for row in sorted(rows, key=lambda item: (item.trade_date, item.settlement_date, item.line_number)):
+            if row.duplicate:
+                row_result = self._build_skipped_row_result(row)
+                simulated_rows.append(row_result)
+                warnings.extend(row_result.get("warnings", []))
+                continue
             row_result, _ = self._apply_trade(state, row, write=False)
             simulated_rows.append(row_result)
             warnings.extend(row_result.get("warnings", []))
         return state, simulated_rows, {"warnings": self._dedupe_strings(warnings)}
 
-    def _apply_rows(self, rows: List[ImportedTradeRow]) -> Dict[str, Any]:
+    def _apply_rows(self, rows: List[ImportedTradeRow]) -> Tuple[Dict[str, Any], int]:
         with self.db.get_portfolio_write_lock():
             with self.db.get_session() as session:
                 self.db.begin_portfolio_write_transaction(session)
                 state = LedgerState.from_session(session)
                 applied_rows: List[Dict[str, Any]] = []
                 for row in sorted(rows, key=lambda item: (item.trade_date, item.settlement_date, item.line_number)):
+                    if row.duplicate:
+                        continue
                     row_result, _ = self._apply_trade(state, row, write=True, session=session)
                     applied_rows.append(row_result)
 
@@ -505,7 +648,7 @@ class AsxPortfolioImportService:
                     raise ValueError(f"Import aborted by integrity check: {detail}")
 
                 session.commit()
-                return integrity
+                return integrity, len(applied_rows)
 
     def _apply_trade(
         self,
@@ -600,6 +743,14 @@ class AsxPortfolioImportService:
             "current_weight": current_weight,
             "target_weight": target_weight,
             "delta_amount": delta_amount,
+            "parser_id": row.parser_id,
+            "dedup_hash": row.dedup_hash or None,
+            "dedup": {
+                "hash": row.dedup_hash or None,
+                "duplicate": False,
+                "reason": None,
+            },
+            "skipped": False,
             "warnings": list(row.warnings),
             "errors": list(row.errors),
         }
@@ -627,7 +778,7 @@ class AsxPortfolioImportService:
             state.recompute_weights()
             self.db.save_trade_journal_in_session(
                 session=session,
-                query_id=f"csv_import_{row.line_number}",
+                query_id=row.dedup_hash or f"csv_import_{row.line_number}",
                 code=row.code,
                 action_date=trade_date,
                 action=action,
@@ -658,6 +809,183 @@ class AsxPortfolioImportService:
         return row_result, state
 
     @staticmethod
+    def _resolve_parser_spec(parser_id: str) -> CsvParserSpec:
+        normalized = _normalize_header(parser_id or DEFAULT_PARSER_ID)
+        resolved_id = PARSER_ALIAS_MAP.get(normalized, normalized)
+        parser_spec = PARSER_REGISTRY.get(resolved_id)
+        if parser_spec is None:
+            supported = ", ".join(sorted(PARSER_ALIAS_MAP))
+            raise ValueError(f"Unsupported ASX CSV parser_id '{parser_id}'. Supported values: {supported}")
+        return parser_spec
+
+    def _build_base_result(
+        self,
+        *,
+        path: Path,
+        parser_spec: CsvParserSpec,
+        rows: List[ImportedTradeRow],
+        parse_errors: List[str],
+        parse_warnings: List[str],
+        apply: bool,
+    ) -> Dict[str, Any]:
+        warnings = self._dedupe_strings(parse_warnings + [warning for row in rows for warning in row.warnings])
+        errors = self._dedupe_strings(parse_errors + [error for row in rows for error in row.errors])
+        result = {
+            "source_path": str(path),
+            "parser": parser_spec.to_dict(),
+            "row_count": len(rows),
+            "valid_row_count": sum(1 for row in rows if not row.errors),
+            "invalid_row_count": sum(1 for row in rows if row.errors),
+            "rows": [row.to_preview_dict() for row in rows],
+            "warnings": warnings,
+            "errors": errors,
+            "totals": self._build_totals(rows),
+            "can_apply": False,
+            "status": "preview" if not apply else "invalid",
+            "applied_count": 0,
+            "integrity": {"is_valid": False, "errors": [], "warnings": []},
+        }
+        self._refresh_result_counts(result, rows)
+        return result
+
+    def _refresh_result_counts(
+        self,
+        result: Dict[str, Any],
+        rows: List[ImportedTradeRow],
+        *,
+        applied_count: int = 0,
+        would_apply_count: int = 0,
+    ) -> None:
+        result["warnings"] = self._dedupe_strings(result.get("warnings", []))
+        result["errors"] = self._dedupe_strings(result.get("errors", []))
+        result["row_count"] = len(rows)
+        result["valid_row_count"] = sum(1 for row in rows if not row.errors)
+        result["invalid_row_count"] = sum(1 for row in rows if row.errors)
+        result["applied_count"] = applied_count
+        result["dedup"] = self._build_dedup_info(rows)
+        result["counters"] = self._build_counters(
+            rows,
+            warnings=result["warnings"],
+            errors=result["errors"],
+            applied_count=applied_count,
+            would_apply_count=would_apply_count,
+        )
+
+    @staticmethod
+    def _build_counters(
+        rows: List[ImportedTradeRow],
+        *,
+        warnings: List[str],
+        errors: List[str],
+        applied_count: int,
+        would_apply_count: int,
+    ) -> Dict[str, int]:
+        duplicate_count = sum(1 for row in rows if row.duplicate)
+        invalid_count = sum(1 for row in rows if row.errors)
+        return {
+            "parsed_count": len(rows),
+            "valid_count": sum(1 for row in rows if not row.errors),
+            "error_count": len(errors),
+            "warning_count": len(warnings),
+            "duplicate_count": duplicate_count,
+            "applied_count": applied_count,
+            "would_apply_count": would_apply_count,
+            "skipped_count": duplicate_count + invalid_count,
+        }
+
+    def _build_dedup_info(self, rows: List[ImportedTradeRow]) -> Dict[str, Any]:
+        duplicate_rows = [row for row in rows if row.duplicate]
+        return {
+            "hash_algorithm": "sha256",
+            "hash_fields": list(DEDUP_HASH_FIELDS),
+            "duplicate_count": len(duplicate_rows),
+            "file_duplicate_count": sum(
+                1 for row in duplicate_rows if row.duplicate_reason == "duplicate_in_file"
+            ),
+            "existing_duplicate_count": sum(
+                1 for row in duplicate_rows if row.duplicate_reason == "already_imported"
+            ),
+            "skipped_hashes": self._dedupe_strings(row.dedup_hash for row in duplicate_rows),
+        }
+
+    @staticmethod
+    def _active_rows(rows: List[ImportedTradeRow]) -> List[ImportedTradeRow]:
+        return [row for row in rows if not row.errors and not row.duplicate]
+
+    def _mark_file_duplicates(self, rows: List[ImportedTradeRow]) -> None:
+        first_line_by_hash: Dict[str, int] = {}
+        for row in rows:
+            if row.errors or not row.dedup_hash:
+                continue
+            first_line = first_line_by_hash.get(row.dedup_hash)
+            if first_line is None:
+                first_line_by_hash[row.dedup_hash] = row.line_number
+                continue
+            row.duplicate = True
+            row.duplicate_reason = "duplicate_in_file"
+            row.warnings = self._dedupe_strings(
+                [
+                    *row.warnings,
+                    f"line {row.line_number}: duplicate trade row skipped; matches line {first_line}",
+                ]
+            )
+
+    def _mark_existing_duplicates(
+        self,
+        rows: List[ImportedTradeRow],
+        existing_hashes: set[str],
+    ) -> None:
+        for row in rows:
+            if row.errors or row.duplicate or not row.dedup_hash:
+                continue
+            if row.dedup_hash not in existing_hashes:
+                continue
+            row.duplicate = True
+            row.duplicate_reason = "already_imported"
+            row.warnings = self._dedupe_strings(
+                [
+                    *row.warnings,
+                    f"line {row.line_number}: duplicate imported trade skipped; dedup hash already exists",
+                ]
+            )
+
+    @staticmethod
+    def _build_skipped_row_result(row: ImportedTradeRow) -> Dict[str, Any]:
+        result = row.to_preview_dict()
+        result.update(
+            {
+                "action": "SKIP",
+                "final_decision": "SKIP",
+                "skipped": True,
+            }
+        )
+        return result
+
+    @classmethod
+    def _build_dedup_hash(cls, row: ImportedTradeRow) -> str:
+        trade_date = row.trade_date.isoformat() if row.trade_date else ""
+        settlement_date = row.settlement_date.isoformat() if row.settlement_date else trade_date
+        payload = {
+            "parser_id": row.parser_id,
+            "trade_date": trade_date,
+            "settlement_date": settlement_date,
+            "code": row.code,
+            "side": row.side,
+            "quantity": cls._format_hash_float(row.quantity),
+            "price": cls._format_hash_float(row.price),
+            "fee": cls._format_hash_float(row.fee),
+            "currency": row.currency,
+            "broker": row.broker.strip().lower(),
+            "account_label": row.account_label.strip().lower(),
+        }
+        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _format_hash_float(value: float) -> str:
+        return f"{round(float(value or 0.0), 6):.6f}"
+
+    @staticmethod
     def _build_reason(row: ImportedTradeRow) -> str:
         trade_date = row.trade_date or date.min
         settlement_date = row.settlement_date or trade_date
@@ -671,7 +999,7 @@ class AsxPortfolioImportService:
             f"fee={row.fee:.2f}",
         ]
         if row.custody_metadata:
-            parts.append(f"hin={row.custody_metadata}")
+            parts.append("custody_metadata_present=true")
         if row.dividend is not None:
             parts.append(f"dividend={row.dividend:.2f}")
         if row.franking_credit is not None:
@@ -693,9 +1021,10 @@ class AsxPortfolioImportService:
         state: Optional[LedgerState] = None,
         simulated_state: Optional[LedgerState] = None,
     ) -> Dict[str, Any]:
-        buy_notional = round(sum(row.gross_amount for row in rows if not row.errors and row.side == "BUY"), 2)
-        sell_notional = round(sum(row.gross_amount for row in rows if not row.errors and row.side == "SELL"), 2)
-        fees = round(sum(row.fee for row in rows if not row.errors), 2)
+        active_rows = [row for row in rows if not row.errors and not row.duplicate]
+        buy_notional = round(sum(row.gross_amount for row in active_rows if row.side == "BUY"), 2)
+        sell_notional = round(sum(row.gross_amount for row in active_rows if row.side == "SELL"), 2)
+        fees = round(sum(row.fee for row in active_rows), 2)
         net_cash_impact = round(sell_notional - buy_notional - fees, 2)
         return {
             "buy_notional": buy_notional,
