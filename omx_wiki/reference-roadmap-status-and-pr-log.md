@@ -107,7 +107,7 @@ facts needed for future planning.
   v1 portfolio/import/events/workbench replacement, no runtime endpoint, no
   worker, no broker integration, no real orders/fills, no notifications, and no
   secrets, HIN originals, account credentials, account numbers, order details,
-  or fill detail persistence. Next candidate PR: PR8 ledger v2 dry-run backfill
+  or fill detail persistence. Next candidate PR: PR10 ledger v2 dry-run backfill
   transformer and dual-read comparison groundwork, with v1 still authoritative
   and no production migration.
 - Parallel provider/status dashboard completed as GitHub PR #198, "Add provider
@@ -129,7 +129,7 @@ facts needed for future planning.
   automatic execution, notifications, external search calls, provider order
   changes, cache clearing, secrets/raw key/token exposure, ledger v2,
   `portfolio_ledger_*`, or `docs/portfolio-ledger-v2-plan.md` changes. Next
-  candidate remains PR8 ledger v2 dry-run backfill transformer and dual-read
+  candidate remains PR10 ledger v2 dry-run backfill transformer and dual-read
   comparison groundwork; provider/cache counters or live quota telemetry require
   explicit separate scope.
 - Alert-rule preset selector completed as GitHub PR #200, "Add ASX alert rule
@@ -154,9 +154,35 @@ facts needed for future planning.
   background worker, notification delivery, broker integration, real order
   submission, paper simulation, DB write from presets, secrets, HIN originals,
   account credentials, account numbers, order details, or fill detail exposure.
-  Next candidate remains PR8 ledger v2 dry-run backfill transformer and
+  Next candidate remains PR10 ledger v2 dry-run backfill transformer and
   dual-read comparison groundwork; alert-rule workers, notification attempts,
   broker execution, or live quota telemetry require explicit separate scope.
+- PR10 completed as GitHub PR #202, "Add ASX ledger v2 dry-run backfill
+  comparison", merged at `c3e7979ea7ec6a203bf176664e0d99dc5a7f6dbf`.
+  Scope: side-effect-free ASX ledger v2 dry-run transformer over existing
+  portfolio journal/snapshot state, stable source hashes and source event IDs,
+  explicit unsupported placeholders for corporate action/dividend/franking and
+  cash-only rows, dual-read comparison counts and warnings, read-only
+  `/api/v1/portfolio-events/ledger-v2/dry-run`, and compact Workbench summary
+  metadata/link. Verification: GitHub checks passed for backend gate, Docker
+  build, change detection, security, static checks, AI review, and review
+  reporting; desktop gate was skipped by change detection. Local verification
+  covered `tests/test_asx_ledger_v2_dry_run.py`,
+  `tests/test_asx_portfolio_import.py`, `tests/test_portfolio_events_api.py`,
+  `tests/test_workbench_api.py`, `tests/test_portfolio_ledger_v2_contract.py`,
+  `tests/test_portfolio_ledger_v2_migration_scaffold.py`, `git diff --check`,
+  and `./scripts/ci_gate.sh` with 846 tests plus 5 subtests passing. Review
+  handling: Codex Review P2 feedback about repeated manual
+  `query_id="manual_trade_workflow"` source IDs was fixed by appending a stable
+  source-hash suffix and adding a regression test; the original thread became
+  outdated before merge. Boundary: dry-run/comparison groundwork only; no
+  production ledger v2 writes, migration cutover, v1 portfolio authority change,
+  broker connection, real orders/fills, paper simulation writes, worker,
+  notification, secrets, HIN originals, account credentials, account numbers,
+  order details, or fill detail exposure. Next candidate: a separately scoped
+  follow-up can add operator-facing ledger v2 shadow-read diagnostics after
+  manual review of dry-run mismatches; v1 remains authoritative until a future
+  migration/cutover PR is explicitly authorized.
 
 ## Blocked Or Separately Authorized Areas
 
