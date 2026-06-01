@@ -35,6 +35,10 @@ read:
 1. `omx_wiki/pattern-broker-execution-scope-gate.md`
 2. `omx_wiki/architecture-portfolio-ledger-review-journal.md`
 
+For Phase 2 work after PR18, also read:
+
+1. `omx_wiki/pattern-phase2-selection-gate.md`
+
 ## Operating Procedure
 
 1. Classify the current task mode:
@@ -46,12 +50,15 @@ read:
    files or not to implement, stop at drafts and file lists.
 3. For wiki work, update durable decisions, references, and runbooks instead
    of copying raw chat logs.
-4. For code work, keep changes small, tested, and scoped to the authorized
+4. Before any Phase 2 implementation PR starts, fill the Phase 2 selection gate
+   and keep the chosen lane, side-effect class, tests, wiki updates, non-goals,
+   and stop/rollback rule explicit.
+5. For code work, keep changes small, tested, and scoped to the authorized
    request.
-5. For daily maintenance, follow `runbook-daily-asx-maintenance`.
-6. For upstream diff work, re-check current local and upstream heads before
+6. For daily maintenance, follow `runbook-daily-asx-maintenance`.
+7. For upstream diff work, re-check current local and upstream heads before
    relying on old baselines.
-7. For broker/execution-adjacent work, require explicit scope and enforce the
+8. For broker/execution-adjacent work, require explicit scope and enforce the
    broker execution gate.
 
 ## Prohibited
@@ -94,4 +101,3 @@ When a durable project decision changes, update the wiki first. When the
 repeatable operating process changes, update this skill. When the user's
 personal preference or cross-thread boundary changes, use agent memory only
 when explicitly asked. When a periodic reminder is needed, use automation.
-

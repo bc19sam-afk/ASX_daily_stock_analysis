@@ -25,7 +25,8 @@ evidence; the skill should tell future agents what to read and where to stop.
   report reliability, AnalysisContextPack, ASX official announcement evidence,
   CSV import/parser dedup, read-only portfolio events, alert-rule dry-runs and
   presets, the Workbench diagnostics hub, ASX portfolio import,
-  paper/simulated portfolio surfaces, manual review journal, and Alert Center.
+  Workbench diagnostics productization, paper/simulated portfolio surfaces,
+  manual review journal, and Alert Center.
 - Ledger v2 work is still pre-cutover: plan/contract/guard, disabled scaffold,
   dry-run backfill comparison, shadow diagnostics, and dividend/franking plus
   corporate-action placeholders are available for manual review only.
@@ -39,8 +40,8 @@ evidence; the skill should tell future agents what to read and where to stop.
 ## Phase 1 Completed / Phase 2 Options
 
 The upstream catch-up and infrastructure phase is now substantially complete
-through PR16 and status PR #217, with #210 and #211 closing the final
-alert-center audit/status gap. Treat PR0-PR16 as a completed foundation, not as
+through PR18 and status PR #220, with #210 and #211 closing the final
+alert-center audit/status gap. Treat PR0-PR18 as a completed foundation, not as
 permission to keep extending the same chain automatically.
 
 Completed capability groups:
@@ -50,11 +51,16 @@ Completed capability groups:
 - Read-only portfolio events and manual portfolio review surfaces.
 - Alert-rule dry-run API, presets, batch diagnostics, and manual-review UI.
 - Workbench evolution through diagnostics hub, smoke coverage, provider/cache
-  status, and provider-cache telemetry v0.
+  status, provider-cache telemetry v0, and PR18 diagnostics productization.
 - Ledger v2 plan, guarded scaffold, dry-run backfill comparison, shadow
   diagnostics, and dividend/franking/corporate-action placeholders.
 
-Phase 2 should be selected by direction, one small PR at a time:
+Phase 2 should be selected by direction, one small PR at a time. Before any
+Phase 2 implementation PR starts, fill [[pattern-phase2-selection-gate]] so the
+chosen lane, side-effect class, review boundary, tests, wiki updates, non-goals,
+and stop/rollback rules are explicit.
+
+Current options:
 
 A. Workbench productization: improve navigation, operator copy, or diagnostics
 surfacing without new side effects.
@@ -67,10 +73,10 @@ real broker connection.
 E. Live provider quota telemetry: only with explicit external-call scope and no
 secret exposure.
 
-Do not start PR18 implicitly. The lowest-risk PR18 candidates are Workbench
-productization or a docs-backed selection gate that chooses the next direction.
-Do not combine broker/execution, worker/notification, migration/cutover, or live
-provider-call work into that same PR.
+PR18 used the lowest-risk Workbench productization lane. Do not start PR20
+implicitly. PR20 must be selected through the Phase 2 selection gate, and it
+must not combine broker/execution, worker/notification, migration/cutover, or
+live provider-call work into the same PR.
 
 Phase 2 non-goals without separate authorization:
 
@@ -95,6 +101,8 @@ Phase 2 non-goals without separate authorization:
 
 Future implementation work should split from wiki decisions into small PRs.
 Each PR should have a narrow scope, targeted tests, and explicit non-goals.
+Each Phase 2 PR should cite [[pattern-phase2-selection-gate]] before
+implementation starts.
 If a PR touches broker/execution behavior, it must cite
 [[pattern-broker-execution-scope-gate]] and meet the gate before implementation.
 
