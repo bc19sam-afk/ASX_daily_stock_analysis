@@ -23,11 +23,63 @@ evidence; the skill should tell future agents what to read and where to stop.
 - Product default: ASX/AU/US analysis assistant, human-in-the-loop.
 - Current completed surfaces include report safety contracts, evidence matrix,
   report reliability, AnalysisContextPack, ASX official announcement evidence,
-  minimal workbench, ASX portfolio import, paper/simulated portfolio surfaces,
-  manual review journal, and Alert Center.
+  CSV import/parser dedup, read-only portfolio events, alert-rule dry-runs and
+  presets, the Workbench diagnostics hub, ASX portfolio import,
+  paper/simulated portfolio surfaces, manual review journal, and Alert Center.
+- Ledger v2 work is still pre-cutover: plan/contract/guard, disabled scaffold,
+  dry-run backfill comparison, shadow diagnostics, and dividend/franking plus
+  corporate-action placeholders are available for manual review only.
+- Provider/cache visibility is local-status only: status dashboard and
+  provider-cache usage telemetry v0 are present without live quota probes or
+  external provider calls.
 - Broker integration, automatic trading, realtime quote adapters, workflow
   changes, `close_only` default changes, and database migrations require
   separate authorization.
+
+## Phase 1 Completed / Phase 2 Options
+
+The upstream catch-up and infrastructure phase is now substantially complete
+through PR16 and status PR #217, with #210 and #211 closing the final
+alert-center audit/status gap. Treat PR0-PR16 as a completed foundation, not as
+permission to keep extending the same chain automatically.
+
+Completed capability groups:
+
+- AnalysisContextPack and low-sensitive prompt context.
+- ASX CSV import, parser registry, and dedup counters.
+- Read-only portfolio events and manual portfolio review surfaces.
+- Alert-rule dry-run API, presets, batch diagnostics, and manual-review UI.
+- Workbench evolution through diagnostics hub, smoke coverage, provider/cache
+  status, and provider-cache telemetry v0.
+- Ledger v2 plan, guarded scaffold, dry-run backfill comparison, shadow
+  diagnostics, and dividend/franking/corporate-action placeholders.
+
+Phase 2 should be selected by direction, one small PR at a time:
+
+A. Workbench productization: improve navigation, operator copy, or diagnostics
+surfacing without new side effects.
+B. Ledger v2 migration rehearsal or deeper shadow-read: keep v1 authoritative
+and stay outside production cutover.
+C. Alert worker or notification attempt: default-off, dry-run/manual-review
+only, and separately authorized before any worker or delivery side effect.
+D. Broker-ready draft/paper boundary: draft or paper contracts only, with no
+real broker connection.
+E. Live provider quota telemetry: only with explicit external-call scope and no
+secret exposure.
+
+Do not start PR18 implicitly. The lowest-risk PR18 candidates are Workbench
+productization or a docs-backed selection gate that chooses the next direction.
+Do not combine broker/execution, worker/notification, migration/cutover, or live
+provider-call work into that same PR.
+
+Phase 2 non-goals without separate authorization:
+
+- Real broker order submission or automatic trading.
+- Default alert worker or production notification delivery.
+- Production ledger v2 migration or cutover.
+- Realtime paid-data baseline.
+- Secrets, HIN originals, account identifiers, real order details, or fill
+  persistence.
 
 ## Control Plane Rules
 
@@ -50,4 +102,3 @@ If a PR touches broker/execution behavior, it must cite
 
 - `codex://threads/019e73a9-65d6-79f0-a84f-153d49079eed`:
   upstream diff, ASX roadmap, and original wiki control-plane proposal.
-
