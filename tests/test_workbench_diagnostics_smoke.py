@@ -28,9 +28,17 @@ def test_static_workbench_page_opens_with_diagnostics_smoke_hooks():
     assert 'data-smoke-id="panel-diagnostics-hub"' in html
     assert 'data-smoke-id="panel-provider-cache-status"' in html
     assert 'data-smoke-id="diagnostics-hub-card-list"' in html
+    assert 'data-smoke-id="diagnostics-operator-flow"' in html
+    assert 'data-smoke-id="operator-diagnostics-actions"' in html
+    assert 'data-smoke-id="provider-cache-action-group"' in html
+    assert 'data-smoke-id="alert-diagnostics-action-group"' in html
+    assert 'data-smoke-id="ledger-diagnostics-action-group"' in html
+    assert 'data-smoke-id="manual-review-boundary"' in html
     assert "/api/v1/workbench/diagnostics" in html
     assert "/api/v1/alert-rules/dry-run/batch" in html
     assert "/api/v1/portfolio-events/ledger-v2/diagnostics" in html
+    assert "not a trade instruction" in html
+    assert "manual review only" in html
 
 
 def test_static_workbench_mobile_layout_has_overflow_guards():
@@ -42,6 +50,7 @@ def test_static_workbench_mobile_layout_has_overflow_guards():
     assert "min-width: 0;" in html
     assert "table-layout: fixed;" in html
     assert "max-width: 100%" in html
+    assert ".operator-actions { grid-template-columns: 1fr; }" in html
 
 
 def test_diagnostics_smoke_payload_uses_low_sensitive_fields(tmp_path: Path):

@@ -417,6 +417,98 @@ def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path
     app.dependency_overrides.clear()
 
 
+def test_workbench_diagnostics_hub_exposes_operator_flow_schema(tmp_path: Path):
+    app = create_app(static_dir=tmp_path / "empty-static")
+    fake_db = SimpleNamespace(
+        get_portfolio_overview=lambda: {},
+        get_trade_journal=lambda limit=20: [],
+        get_paper_portfolio_overview=lambda: {},
+    )
+    app.dependency_overrides[get_database_manager] = lambda: fake_db
+    app.dependency_overrides[get_system_config_service] = lambda: SimpleNamespace(
+        get_config=lambda include_schema=False: {
+            "items": [
+                {"key": "STOCK_LIST", "value": "BHP.AX", "raw_value_exists": True},
+                {"key": "TAVILY_API_KEYS", "value": "secret-tavily", "raw_value_exists": True},
+                {"key": "GEMINI_API_KEYS", "value": "secret-gemini", "raw_value_exists": True},
+                {"key": "SERPAPI_API_KEYS", "value": "secret-serpapi", "raw_value_exists": True},
+                {"key": "API_AUTH_TOKEN", "value": "secret-token", "raw_value_exists": True},
+            ],
+            "updated_at": "2026-06-01T08:00:00+10:00",
+        }
+    )
+
+    with (
+        patch("api.v1.endpoints.workbench.HistoryService") as history_service,
+        patch("api.v1.endpoints.workbench.BacktestService") as backtest_service,
+    ):
+        history_service.return_value.get_history_list.return_value = {"total": 0, "items": []}
+        backtest_service.return_value.get_summary.return_value = None
+
+        response = TestClient(app).get("/api/v1/workbench/summary")
+
+    assert response.status_code == 200
+    payload = response.json()
+    hub = payload["diagnostics_hub"]
+
+    assert hub["schema"]["productization_fields"] == [
+        "nav",
+        "quick_links",
+        "status_badges",
+        "action_groups",
+    ]
+    assert [item["id"] for item in hub["nav"]] == [
+        "summary",
+        "provider_cache_status",
+        "alert_diagnostics",
+        "ledger_diagnostics",
+        "diagnostics_schema",
+    ]
+    assert {item["id"] for item in hub["quick_links"]} == {
+        "provider_status",
+        "alert_rule_batch_dry_run",
+        "ledger_v2_diagnostics",
+    }
+    assert {badge["id"] for badge in hub["status_badges"]} == {
+        "read_only",
+        "manual_review",
+        "not_trade_instruction",
+        "no_workers",
+        "no_broker",
+    }
+    assert [group["id"] for group in hub["action_groups"]] == [
+        "provider_cache_status",
+        "alert_diagnostics",
+        "ledger_diagnostics",
+        "review_boundary",
+    ]
+    assert hub["action_groups"][0]["links"] == {
+        "provider_status": "/api/v1/workbench/summary#config_status.provider_status",
+    }
+    assert hub["action_groups"][1]["links"]["alert_rule_presets"] == "/api/v1/alert-rules/presets"
+    assert hub["action_groups"][1]["links"]["alert_rule_batch_dry_run"] == (
+        "/api/v1/alert-rules/dry-run/batch"
+    )
+    assert hub["action_groups"][2]["links"]["ledger_v2_diagnostics"] == (
+        "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    )
+    assert hub["action_groups"][3]["is_trade_instruction"] is False
+    assert hub["action_groups"][3]["manual_review_required"] is True
+    assert all(group["side_effects"] == [] for group in hub["action_groups"])
+
+    serialized = str(hub)
+    assert "secret-tavily" not in serialized
+    assert "secret-gemini" not in serialized
+    assert "secret-serpapi" not in serialized
+    assert "secret-token" not in serialized
+    assert "account_number" not in serialized
+    assert "HIN" not in serialized
+    assert "order_detail" not in serialized
+    assert "fill_detail" not in serialized
+
+    app.dependency_overrides.clear()
+
+
 def test_static_workbench_renders_provider_cache_status_copy():
     html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text(encoding="utf-8")
 

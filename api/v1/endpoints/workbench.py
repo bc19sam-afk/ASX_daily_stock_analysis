@@ -410,6 +410,128 @@ def _build_workbench_diagnostics_hub(
         "external_provider_call",
         "cache_clear",
     ]
+    nav = [
+        {
+            "id": "summary",
+            "label": "Workbench summary",
+            "href": links["summary"],
+        },
+        {
+            "id": "provider_cache_status",
+            "label": "Provider/cache status",
+            "href": links["provider_status"],
+        },
+        {
+            "id": "alert_diagnostics",
+            "label": "Alert diagnostics",
+            "href": links["alert_rule_batch_dry_run"],
+        },
+        {
+            "id": "ledger_diagnostics",
+            "label": "Ledger diagnostics",
+            "href": links["ledger_v2_diagnostics"],
+        },
+        {
+            "id": "diagnostics_schema",
+            "label": "Diagnostics schema",
+            "href": links["self"],
+        },
+    ]
+    quick_links = [
+        {
+            "id": "provider_status",
+            "label": "Provider/cache status",
+            "href": links["provider_status"],
+            "status": config_status.get("status") or "unknown",
+        },
+        {
+            "id": "alert_rule_batch_dry_run",
+            "label": "Alert batch dry-run",
+            "href": links["alert_rule_batch_dry_run"],
+            "status": "available",
+        },
+        {
+            "id": "ledger_v2_diagnostics",
+            "label": "Ledger v2 diagnostics",
+            "href": links["ledger_v2_diagnostics"],
+            "status": "available",
+        },
+    ]
+    status_badges = [
+        {"id": "read_only", "label": "read-only", "tone": "good"},
+        {"id": "manual_review", "label": "manual review", "tone": "warn"},
+        {"id": "not_trade_instruction", "label": "not a trade instruction", "tone": "good"},
+        {"id": "no_workers", "label": "no workers", "tone": "good"},
+        {"id": "no_broker", "label": "no broker", "tone": "good"},
+    ]
+    action_groups = [
+        {
+            "id": "provider_cache_status",
+            "title": "Provider/cache status",
+            "summary": "Local provider booleans, cache settings, and cache-observation telemetry.",
+            "status": config_status.get("status") or "unknown",
+            "status_badges": ["read_only"],
+            "side_effects": [],
+            "forbidden_side_effects": ["external_provider_call", "secret_read", "cache_clear", "db_write"],
+            "links": {
+                "provider_status": links["provider_status"],
+            },
+        },
+        {
+            "id": "alert_diagnostics",
+            "title": "Alert diagnostics",
+            "summary": "Preset and batch dry-run diagnostics for manual review.",
+            "status": "available",
+            "status_badges": ["read_only", "manual_review", "not_trade_instruction", "no_workers"],
+            "side_effects": [],
+            "forbidden_side_effects": [
+                "db_write",
+                "background_worker",
+                "notification",
+                "broker_execution",
+                "persisted_execution_state",
+            ],
+            "links": {
+                "alert_rule_presets": links["alert_rule_presets"],
+                "alert_rule_batch_dry_run": links["alert_rule_batch_dry_run"],
+            },
+        },
+        {
+            "id": "ledger_diagnostics",
+            "title": "Ledger diagnostics",
+            "summary": "Ledger v2 dry-run and shadow diagnostics with v1 still authoritative.",
+            "status": "available",
+            "status_badges": ["read_only", "manual_review", "no_broker"],
+            "side_effects": [],
+            "forbidden_side_effects": [
+                "ledger_v2_storage_write",
+                "migration_cutover",
+                "broker_connection",
+                "order_submission",
+                "paper_simulation_write",
+                "notification_delivery",
+            ],
+            "links": {
+                "ledger_v2_dry_run": links["ledger_v2_dry_run"],
+                "ledger_v2_diagnostics": links["ledger_v2_diagnostics"],
+            },
+        },
+        {
+            "id": "review_boundary",
+            "title": "Review boundary",
+            "summary": "Diagnostics are review inputs only and cannot instruct a trade.",
+            "status": "manual_review_required",
+            "status_badges": ["read_only", "manual_review", "not_trade_instruction"],
+            "is_trade_instruction": False,
+            "manual_review_required": True,
+            "side_effects": [],
+            "forbidden_side_effects": forbidden_side_effects,
+            "links": {
+                "summary": links["summary"],
+                "diagnostics_schema": links["self"],
+            },
+        },
+    ]
 
     return {
         "mode": "read_only_diagnostics_hub",
@@ -422,6 +544,12 @@ def _build_workbench_diagnostics_hub(
         "sections": sections,
         "schema": {
             "card_fields": ["id", "title", "status", "summary", "link"],
+            "productization_fields": [
+                "nav",
+                "quick_links",
+                "status_badges",
+                "action_groups",
+            ],
             "low_sensitive_only": True,
             "raw_secret_fields": [],
             "side_effects": [],
@@ -431,6 +559,10 @@ def _build_workbench_diagnostics_hub(
             "boundary": "summary only; links to existing read-only diagnostics and dry-run endpoints",
         },
         "links": links,
+        "nav": nav,
+        "quick_links": quick_links,
+        "status_badges": status_badges,
+        "action_groups": action_groups,
         "cards": [
             {
                 "id": "provider_status",
