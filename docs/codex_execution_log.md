@@ -82,6 +82,17 @@ Process notes:
 - Do not apply old patches wholesale; inspect and migrate only the still-relevant hunks.
 - Keep future stabilization PRs scoped: one task per PR, no automatic trading, no broker writes, no ASX `close_only` default changes, and no scheduling changes unless separately authorized.
 
+## 2026-06-01 PR22 Morning Review Card
+
+- Status: merged via GitHub PR #225, "Add Morning Review Card to daily email/report".
+- Merge commit: `acc8033d6cd159e1bfc9bfe3f9fc486a60a3c863`.
+- Scope: display-only Morning Review Card in the dashboard and legacy daily report bodies, reusing existing `daily_decision_summary` artifacts for conclusion, first symbols to review, reasons, key risks, report reliability, data-quality reminders, risk-sizing trial notes, and human-review wording.
+- Changed files: `src/daily_decision_summary.py`, `src/notification.py`, and `tests/test_morning_review_card.py`.
+- Local verification: `tests/test_morning_review_card.py`, report-body projection tests, daily-decision dashboard/archive tests, evidence integration tests, risk-sizing comparison/shadow tests, report readability guardrails, notification summary/validation tests, score bucket tests, `git diff --check`, targeted `py_compile`, and `./scripts/ci_gate.sh` with the project venv plus bundled Node on `PATH` (`870` tests plus `5` subtests passing).
+- GitHub verification: backend gate, Docker build, change detection, security, static checks, AI review, and review report passed; desktop gate skipped by change detection.
+- Boundary: no deterministic final action, position action, target weight, sizing write-back, notification send timing, default worker, Workbench/API expansion, provider order/cache change, live provider call, broker/execution, database migration, ledger v2 production write/cutover, secrets, HIN originals, account credentials, account numbers, order details, or fill detail exposure.
+- Next candidate: review the next real daily email/report with Morning Review Card before choosing another small PR. Any follow-up should select one lane only, such as report readability, alert notification dry-run/default-off gate, broker-ready draft/paper boundary, explicit live provider telemetry, or ledger v2 follow-up after manual review.
+
 ## Run Log
 
 ### 2026-05-05 - Roadmap Initialization
