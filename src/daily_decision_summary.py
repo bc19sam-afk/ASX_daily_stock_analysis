@@ -1155,6 +1155,136 @@ def _compact_reason(value: str) -> str:
     return text[:51].rstrip() + "..."
 
 
+def render_morning_review_card_lines(summary: Dict[str, Any]) -> List[str]:
+    """Render a compact display-only card from the existing daily summary."""
+    if not summary:
+        return []
+
+    actionable_items = summary.get("actionable_items") or []
+    current_holding_actions = [item for item in actionable_items if item.get("is_current_holding")]
+    blocked_items = summary.get("blocked_items") or []
+    risk_lines = _top_risk_lines(
+        blocked_items=blocked_items,
+        flags=summary.get("data_quality_flags") or [],
+        report_reliability=summary.get("report_reliability") or {},
+        risk_sizing_comparison=summary.get("risk_sizing_comparison") or {},
+        evidence_summary=summary.get("evidence_summary") or {},
+    )
+    if not risk_lines:
+        risk_lines = ["未发现验证阻断或数据质量风险。"]
+
+    rows = [
+        (
+            "今日总判断",
+            (
+                f"{_today_conclusion(actionable_items=actionable_items, current_holding_actions=current_holding_actions, blocked_items=blocked_items)} "
+                f"动作数量：{_format_action_counts_inline(summary.get('action_counts') or {})}。"
+            ),
+        ),
+        ("先看这几只", _morning_review_focus_text(summary)),
+        ("为什么", _morning_review_reason_text(summary.get("triage_card") or {})),
+        ("关键风险", "；".join(_compact_reason(line) for line in risk_lines[:3])),
+        ("数据可靠性", _morning_review_reliability_text(summary)),
+        ("风险仓位试算", _morning_review_risk_sizing_text(summary)),
+        (
+            "人工复核",
+            (
+                f"{_execution_checklist_inline(summary.get('execution_checklist', EXECUTION_CHECKLIST))} "
+                "本卡只作人工复核辅助，系统不自动下单。"
+            ),
+        ),
+    ]
+
+    lines = [
+        "## Morning Review Card",
+        "",
+        "| 复核项 | 今日摘要 |",
+        "| --- | --- |",
+    ]
+    for label, value in rows:
+        lines.append(f"| **{_table_cell(label)}** | {_table_cell(value)} |")
+    lines.append("")
+    return lines
+
+
+def _morning_review_focus_text(summary: Dict[str, Any]) -> str:
+    triage_card = summary.get("triage_card") or {}
+    for key in ("today_must_review", "data_quality_attention", "high_value_low_confidence"):
+        items = triage_card.get(key) or []
+        if items:
+            return _format_triage_preview(items)
+
+    watch_items = summary.get("watch_items") or []
+    if watch_items:
+        names = "、".join(str(item.get("name") or item.get("code") or "未知标的") for item in watch_items[:TRIAGE_CARD_PREVIEW_LIMIT])
+        suffix = " 等" if len(watch_items) > TRIAGE_CARD_PREVIEW_LIMIT else ""
+        return f"观察名单 {len(watch_items)} 只：{names}{suffix}。"
+
+    blocked_items = summary.get("blocked_items") or []
+    if blocked_items:
+        return _format_triage_preview(blocked_items)
+    return "暂无优先标的；数据不足则观察。"
+
+
+def _morning_review_reason_text(card: Dict[str, Any]) -> str:
+    reasons: List[str] = []
+    for key in ("today_must_review", "data_quality_attention", "high_value_low_confidence", "today_can_ignore"):
+        for item in card.get(key) or []:
+            reason = _compact_reason(str(item.get("reason") or ""))
+            if reason and reason not in reasons:
+                reasons.append(reason)
+            if len(reasons) >= 2:
+                return "；".join(reasons) + "。"
+    return "按主动作、风险提示、证据缺口和数据质量排序。"
+
+
+def _morning_review_reliability_text(summary: Dict[str, Any]) -> str:
+    snapshot = summary.get("data_quality_snapshot") or {}
+    attention = snapshot.get("attention") or []
+    flags = summary.get("data_quality_flags") or []
+    attention_reasons = [
+        str(item.get("reason") or item.get("message") or "").strip()
+        for item in list(attention) + list(flags)
+        if str(item.get("reason") or item.get("message") or "").strip()
+    ]
+    attention_text = "；".join(_compact_reason(reason) for reason in attention_reasons[:2])
+    if not attention_text:
+        attention_text = "暂无明显数据质量降级"
+    return (
+        f"报告可信度：{_report_reliability_sentence(summary.get('report_reliability') or {})} "
+        f"数据质量提醒：{attention_text}。"
+        f"价格来源：{_morning_review_price_policy_text(summary)}；"
+        f"技术基准日 {_display_date_or_placeholder(summary.get('technical_basis_date'))}。"
+    )
+
+
+def _morning_review_price_policy_text(summary: Dict[str, Any]) -> str:
+    policy = str(summary.get("price_policy") or "close_only")
+    label = _price_policy_label(policy)
+    counts = summary.get("price_basis_counts") or {}
+    if policy == "mixed" and int(counts.get("realtime", 0) or 0) > 0:
+        return f"{label}（包含实时价格参考）"
+    return label
+
+
+def _morning_review_risk_sizing_text(summary: Dict[str, Any]) -> str:
+    previews = summary.get("risk_sizing_previews") or []
+    comparisons = summary.get("risk_sizing_comparison") or {}
+    significant = _significant_risk_sizing_diff_count(comparisons)
+    unavailable = sum(1 for item in previews if item.get("capped_risk_target_weight") is None)
+
+    parts: List[str] = []
+    if significant > 0:
+        parts.append(f"{significant} 只与当前目标差异较大")
+    if previews:
+        parts.append(f"{len(previews)} 只已有试算提示")
+    if unavailable > 0:
+        parts.append(f"{unavailable} 只输入不足或不可用")
+    if not parts:
+        parts.append("未生成风险仓位试算")
+    return "；".join(parts) + "；仅试算，不改变主动作/目标仓位。"
+
+
 def _homepage_banner(price_policy: str) -> str:
     normalized_policy = str(price_policy or "close_only")
     if normalized_policy == "close_only":
@@ -1195,10 +1325,13 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         "",
         _homepage_banner(str(summary.get("price_policy") or "close_only")),
         "",
+    ]
+    lines.extend(render_morning_review_card_lines(summary))
+    lines.extend([
         "**开盘前快照**",
         f"- **今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
         f"- **今日动作数量**：{_format_action_counts_inline(counts)}",
-    ]
+    ])
     lines.extend(_render_triage_card_lines(summary.get("triage_card") or {}))
     lines.extend([
         "",

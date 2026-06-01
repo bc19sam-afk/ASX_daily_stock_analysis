@@ -51,6 +51,7 @@ from src.daily_decision_summary import (
     build_daily_decision_summary,
     render_preopen_decision_appendix,
     render_preopen_decision_dashboard,
+    render_morning_review_card_lines,
 )
 from src.conditional_plan import (
     build_conditional_plan_points,
@@ -730,6 +731,9 @@ class NotificationService:
         effective_actionable_results = self._effective_actionable_results(actionable_results)
         display_actionable_results = self._display_actionable_results(actionable_results)
         avg_score = sum(r.sentiment_score for r in actionable_results) / len(actionable_results) if actionable_results else 0
+
+        report_lines.extend(render_morning_review_card_lines(daily_summary))
+        report_lines.extend(["---", ""])
         
         report_lines.extend([
             "## 📊 操作建议汇总",
