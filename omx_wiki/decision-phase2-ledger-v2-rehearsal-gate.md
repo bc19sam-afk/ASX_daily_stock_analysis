@@ -5,14 +5,14 @@ Tags: phase-2, ledger-v2, rehearsal, shadow-read, control-plane
 
 ## Decision
 
-PR20 selects Phase 2 lane B: Ledger v2 deeper shadow-read / rehearsal.
+PR20 selected Phase 2 lane B: Ledger v2 deeper shadow-read / rehearsal.
 
-The next implementation candidate is PR21, "Ledger v2 rehearsal report over
-shadow diagnostics". PR21 may add a read-only rehearsal report or comparison
-export over the existing ledger v2 dry-run, shadow diagnostics, and
-income/corporate-action placeholder surfaces. It must not write ledger v2
-storage, create production tables, cut over reads, connect a broker, send
-notifications, start a worker, or make live provider API calls.
+PR21 completed the selected implementation as GitHub PR #223, "Add ledger v2
+rehearsal report", merged at `059abef45231726526b379dbc7dd152a1f164cf1`.
+It added a read-only rehearsal report over the existing ledger v2 dry-run,
+shadow diagnostics, and income/corporate-action placeholder surfaces. It does
+not write ledger v2 storage, create production tables, cut over reads, connect
+a broker, send notifications, start a worker, or make live provider API calls.
 
 ## Selection Gate
 
@@ -97,7 +97,23 @@ Acceptance criteria:
 - Targeted tests prove the read-only report contract, redaction boundary, v1
   authority wording, and Workbench/API links if touched.
 
-Compact PR21 goal direction:
+Status:
+
+- PR21 is implemented in GitHub PR #223 and merged on `main`.
+- The report endpoint is
+  `/api/v1/portfolio-events/ledger-v2/rehearsal-report`.
+- Local verification included the targeted ledger dry-run, portfolio-events,
+  Workbench, ledger v2 contract, and migration scaffold tests plus
+  `./scripts/ci_gate.sh` with the repo virtualenv and bundled Node on `PATH`.
+- GitHub checks passed for backend gate, Docker build, change detection,
+  security, static checks, AI review, and review reporting; desktop gate was
+  skipped by change detection.
+- Thread-aware review inspection found no review threads and only the generated
+  review-report comment.
+- The next step is manual review of PR21 rehearsal output before selecting any
+  separate PR22 lane; PR21 is not migration evidence or cutover readiness proof.
+
+Historical compact PR21 goal direction:
 
 > Build PR21 "Ledger v2 rehearsal report over shadow diagnostics" as a
 > read-only/dry-run report or comparison export over existing PR10-PR12 ledger
