@@ -58,6 +58,13 @@ def get_workbench_summary(
     alert_rule_batch_dry_run = _build_alert_rule_batch_dry_run_summary()
     ledger_v2_dry_run = _build_ledger_v2_dry_run_summary()
     ledger_v2_diagnostics = _build_ledger_v2_diagnostics_summary()
+    diagnostics_hub = _build_workbench_diagnostics_hub(
+        config_status=config_status,
+        alert_rule_dry_run=alert_rule_dry_run,
+        alert_rule_batch_dry_run=alert_rule_batch_dry_run,
+        ledger_v2_dry_run=ledger_v2_dry_run,
+        ledger_v2_diagnostics=ledger_v2_diagnostics,
+    )
     backtest_summary = _build_backtest_summary(db_manager)
 
     return {
@@ -76,6 +83,7 @@ def get_workbench_summary(
         "alert_rule_batch_dry_run": alert_rule_batch_dry_run,
         "ledger_v2_dry_run": ledger_v2_dry_run,
         "ledger_v2_diagnostics": ledger_v2_diagnostics,
+        "diagnostics_hub": diagnostics_hub,
         "backtest": backtest_summary,
         "config_status": config_status,
         "links": {
@@ -91,8 +99,39 @@ def get_workbench_summary(
             "alert_rule_presets": PRESETS_ENDPOINT,
             "ledger_v2_dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
             "ledger_v2_diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
+            "diagnostics_hub": "/api/v1/workbench/diagnostics",
         },
     }
+
+
+@router.get(
+    "/diagnostics",
+    summary="Get Workbench diagnostics hub",
+    description=(
+        "Read-only diagnostics hub for low-sensitive provider/cache, alert-rule dry-run, "
+        "and ledger v2 dry-run links without external calls, workers, notifications, broker calls, or writes."
+    ),
+)
+def get_workbench_diagnostics(
+    db_manager: DatabaseManager = Depends(get_database_manager),
+    config_service: SystemConfigService = Depends(get_system_config_service),
+) -> Dict[str, Any]:
+    """Return low-sensitive diagnostics links and schema without side effects."""
+    context = _load_workbench_context(db_manager)
+    portfolio_summary = _build_portfolio_summary(db_manager)
+    config_status = _build_config_status(config_service)
+    alert_rule_dry_run = _build_alert_rule_dry_run_ui_config(
+        context=context,
+        portfolio_summary=portfolio_summary,
+        config_status=config_status,
+    )
+    return _build_workbench_diagnostics_hub(
+        config_status=config_status,
+        alert_rule_dry_run=alert_rule_dry_run,
+        alert_rule_batch_dry_run=_build_alert_rule_batch_dry_run_summary(),
+        ledger_v2_dry_run=_build_ledger_v2_dry_run_summary(),
+        ledger_v2_diagnostics=_build_ledger_v2_diagnostics_summary(),
+    )
 
 
 @router.get(
@@ -324,6 +363,138 @@ def _build_ledger_v2_diagnostics_summary() -> Dict[str, Any]:
             "dry_run": dry_run_endpoint,
             "workbench": WORKBENCH_ENDPOINT,
         },
+    }
+
+
+def _build_workbench_diagnostics_hub(
+    *,
+    config_status: Mapping[str, Any],
+    alert_rule_dry_run: Mapping[str, Any],
+    alert_rule_batch_dry_run: Mapping[str, Any],
+    ledger_v2_dry_run: Mapping[str, Any],
+    ledger_v2_diagnostics: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Aggregate low-sensitive diagnostics pointers for operator review."""
+    provider_status = config_status.get("provider_status") or {}
+    providers = provider_status.get("providers") if isinstance(provider_status.get("providers"), Mapping) else {}
+    news_cache = (
+        provider_status.get("news_intel_cache")
+        if isinstance(provider_status.get("news_intel_cache"), Mapping)
+        else {}
+    )
+    sections = [
+        "provider_status",
+        "alert_rule_presets",
+        "alert_rule_batch_dry_run",
+        "ledger_v2_dry_run",
+        "ledger_v2_diagnostics",
+    ]
+    links = {
+        "self": "/api/v1/workbench/diagnostics",
+        "summary": WORKBENCH_ENDPOINT,
+        "provider_status": "/api/v1/workbench/summary#config_status.provider_status",
+        "alert_rule_presets": PRESETS_ENDPOINT,
+        "alert_rule_batch_dry_run": "/api/v1/alert-rules/dry-run/batch",
+        "ledger_v2_dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
+        "ledger_v2_diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
+    }
+    forbidden_side_effects = [
+        "db_write",
+        "background_worker",
+        "notification",
+        "broker_execution",
+        "paper_simulation",
+        "ledger_v2_storage_write",
+        "migration_cutover",
+        "external_provider_call",
+        "cache_clear",
+    ]
+
+    return {
+        "mode": "read_only_diagnostics_hub",
+        "endpoint": "/api/v1/workbench/diagnostics",
+        "method": "GET",
+        "is_trade_instruction": False,
+        "manual_review_required": True,
+        "side_effects": [],
+        "forbidden_side_effects": forbidden_side_effects,
+        "sections": sections,
+        "schema": {
+            "card_fields": ["id", "title", "status", "summary", "link"],
+            "low_sensitive_only": True,
+            "raw_secret_fields": [],
+            "side_effects": [],
+        },
+        "copy": {
+            "title": "Diagnostics Hub",
+            "boundary": "summary only; links to existing read-only diagnostics and dry-run endpoints",
+        },
+        "links": links,
+        "cards": [
+            {
+                "id": "provider_status",
+                "title": "Provider & Cache Status",
+                "status": config_status.get("status") or "unknown",
+                "summary": {
+                    "providers_configured": {
+                        "tavily": bool((providers.get("tavily") or {}).get("configured")),
+                        "gemini": bool((providers.get("gemini") or {}).get("configured")),
+                        "serpapi": bool((providers.get("serpapi") or {}).get("configured")),
+                    },
+                    "active_provider_order": list(provider_status.get("active_provider_order") or []),
+                    "news_intel_cache_enabled": bool(news_cache.get("enabled")),
+                    "quota_safe": True,
+                },
+                "link": links["provider_status"],
+            },
+            {
+                "id": "alert_rule_presets",
+                "title": "Alert Rule Presets",
+                "status": "available" if alert_rule_dry_run.get("presets") else "missing",
+                "summary": {
+                    "endpoint": PRESETS_ENDPOINT,
+                    "preset_count": len(alert_rule_dry_run.get("presets") or []),
+                    "is_trade_instruction": False,
+                },
+                "link": links["alert_rule_presets"],
+            },
+            {
+                "id": "alert_rule_batch_dry_run",
+                "title": "Alert Rule Batch Dry-Run",
+                "status": "available",
+                "summary": {
+                    "endpoint": alert_rule_batch_dry_run.get("endpoint"),
+                    "method": alert_rule_batch_dry_run.get("method"),
+                    "result_fields": list(alert_rule_batch_dry_run.get("result_fields") or []),
+                    "is_trade_instruction": False,
+                },
+                "link": links["alert_rule_batch_dry_run"],
+            },
+            {
+                "id": "ledger_v2_dry_run",
+                "title": "Ledger v2 Dry-Run",
+                "status": "available",
+                "summary": {
+                    "endpoint": ledger_v2_dry_run.get("endpoint"),
+                    "method": ledger_v2_dry_run.get("method"),
+                    "result_fields": list(ledger_v2_dry_run.get("result_fields") or []),
+                    "v1_authoritative": True,
+                },
+                "link": links["ledger_v2_dry_run"],
+            },
+            {
+                "id": "ledger_v2_diagnostics",
+                "title": "Ledger v2 Diagnostics",
+                "status": "available",
+                "summary": {
+                    "endpoint": ledger_v2_diagnostics.get("endpoint"),
+                    "method": ledger_v2_diagnostics.get("method"),
+                    "result_fields": list(ledger_v2_diagnostics.get("result_fields") or []),
+                    "v1_authoritative": True,
+                },
+                "link": links["ledger_v2_diagnostics"],
+            },
+        ],
     }
 
 

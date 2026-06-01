@@ -130,6 +130,28 @@ def test_workbench_summary_answers_daily_operational_questions(tmp_path: Path):
     assert "migration_cutover" in payload["ledger_v2_dry_run"]["forbidden_side_effects"]
     assert payload["ledger_v2_dry_run"]["links"]["dry_run"] == "/api/v1/portfolio-events/ledger-v2/dry-run"
     assert payload["links"]["ledger_v2_diagnostics"] == "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    assert payload["links"]["diagnostics_hub"] == "/api/v1/workbench/diagnostics"
+    assert payload["diagnostics_hub"]["mode"] == "read_only_diagnostics_hub"
+    assert payload["diagnostics_hub"]["endpoint"] == "/api/v1/workbench/diagnostics"
+    assert payload["diagnostics_hub"]["method"] == "GET"
+    assert payload["diagnostics_hub"]["is_trade_instruction"] is False
+    assert payload["diagnostics_hub"]["side_effects"] == []
+    assert payload["diagnostics_hub"]["sections"] == [
+        "provider_status",
+        "alert_rule_presets",
+        "alert_rule_batch_dry_run",
+        "ledger_v2_dry_run",
+        "ledger_v2_diagnostics",
+    ]
+    assert payload["diagnostics_hub"]["links"]["self"] == "/api/v1/workbench/diagnostics"
+    assert payload["diagnostics_hub"]["links"]["provider_status"] == "/api/v1/workbench/summary#config_status.provider_status"
+    assert payload["diagnostics_hub"]["links"]["alert_rule_presets"] == "/api/v1/alert-rules/presets"
+    assert payload["diagnostics_hub"]["links"]["alert_rule_batch_dry_run"] == "/api/v1/alert-rules/dry-run/batch"
+    assert payload["diagnostics_hub"]["links"]["ledger_v2_dry_run"] == "/api/v1/portfolio-events/ledger-v2/dry-run"
+    assert payload["diagnostics_hub"]["links"]["ledger_v2_diagnostics"] == (
+        "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    )
+    assert "summary only" in payload["diagnostics_hub"]["copy"]["boundary"]
     assert payload["ledger_v2_diagnostics"]["method"] == "GET"
     assert payload["ledger_v2_diagnostics"]["is_trade_instruction"] is False
     assert payload["ledger_v2_diagnostics"]["side_effects"] == []
@@ -216,9 +238,109 @@ def test_workbench_summary_exposes_provider_cache_status_without_secrets(tmp_pat
     app.dependency_overrides.clear()
 
 
+def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path):
+    app = create_app(static_dir=tmp_path / "empty-static")
+    fake_db = SimpleNamespace(
+        get_portfolio_overview=lambda: {},
+        get_trade_journal=lambda limit=20: [],
+        get_paper_portfolio_overview=lambda: {},
+    )
+    app.dependency_overrides[get_database_manager] = lambda: fake_db
+    app.dependency_overrides[get_system_config_service] = lambda: SimpleNamespace(
+        get_config=lambda include_schema=False: {
+            "items": [
+                {"key": "STOCK_LIST", "value": "BHP.AX", "raw_value_exists": True},
+                {"key": "TAVILY_API_KEYS", "value": "secret-tavily", "raw_value_exists": True},
+                {"key": "GEMINI_API_KEYS", "value": "secret-gemini", "raw_value_exists": True},
+                {"key": "SERPAPI_API_KEYS", "value": "secret-serpapi", "raw_value_exists": True},
+                {"key": "API_AUTH_TOKEN", "value": "******", "raw_value_exists": True},
+            ],
+            "updated_at": "2026-05-31T08:00:00",
+        }
+    )
+
+    with (
+        patch("api.v1.endpoints.workbench.HistoryService") as history_service,
+        patch("api.v1.endpoints.workbench.BacktestService") as backtest_service,
+    ):
+        history_service.return_value.get_history_list.return_value = {"total": 0, "items": []}
+        backtest_service.return_value.get_summary.return_value = None
+
+        response = TestClient(app).get("/api/v1/workbench/diagnostics")
+
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["mode"] == "read_only_diagnostics_hub"
+    assert payload["is_trade_instruction"] is False
+    assert payload["manual_review_required"] is True
+    assert payload["side_effects"] == []
+    assert {
+        "db_write",
+        "background_worker",
+        "notification",
+        "broker_execution",
+        "paper_simulation",
+        "ledger_v2_storage_write",
+        "migration_cutover",
+    }.issubset(set(payload["forbidden_side_effects"]))
+    assert payload["links"] == {
+        "self": "/api/v1/workbench/diagnostics",
+        "summary": "/api/v1/workbench/summary",
+        "provider_status": "/api/v1/workbench/summary#config_status.provider_status",
+        "alert_rule_presets": "/api/v1/alert-rules/presets",
+        "alert_rule_batch_dry_run": "/api/v1/alert-rules/dry-run/batch",
+        "ledger_v2_dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
+        "ledger_v2_diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
+    }
+
+    cards = payload["cards"]
+    assert [card["id"] for card in cards] == [
+        "provider_status",
+        "alert_rule_presets",
+        "alert_rule_batch_dry_run",
+        "ledger_v2_dry_run",
+        "ledger_v2_diagnostics",
+    ]
+    assert cards[0]["status"] == "available"
+    assert cards[0]["summary"]["providers_configured"] == {
+        "tavily": True,
+        "gemini": True,
+        "serpapi": True,
+    }
+    assert cards[0]["summary"]["news_intel_cache_enabled"] is True
+    assert cards[1]["summary"]["endpoint"] == "/api/v1/alert-rules/presets"
+    assert cards[2]["summary"]["method"] == "POST"
+    assert cards[3]["summary"]["method"] == "GET"
+    assert cards[4]["summary"]["method"] == "GET"
+
+    serialized = str(payload)
+    assert "secret-tavily" not in serialized
+    assert "secret-gemini" not in serialized
+    assert "secret-serpapi" not in serialized
+    assert "******" not in serialized
+    assert "account" not in serialized.lower()
+    assert "hin" not in serialized.lower()
+    assert "fill" not in serialized.lower()
+
+    app.dependency_overrides.clear()
+
+
 def test_static_workbench_renders_provider_cache_status_copy():
     html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text(encoding="utf-8")
 
     assert "Provider & Cache Status" in html
     assert "Quota-safe status only" in html
     assert "news_intel cache" in html
+
+
+def test_static_workbench_renders_diagnostics_hub_entry():
+    html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text(encoding="utf-8")
+
+    assert "Diagnostics Hub" in html
+    assert "diagnosticsHubBlock" in html
+    assert "renderDiagnosticsHub" in html
+    assert "/api/v1/workbench/diagnostics" in html
+    assert "provider_status" in html
+    assert "ledger_v2_diagnostics" in html
+    assert "summary only" in html
