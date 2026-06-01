@@ -27,18 +27,18 @@ facts needed for future planning.
   Workbench diagnostics productization, and #220 recorded PR18 status on
   `main`.
 - The next stage is a Phase 2 option menu, not an automatic continuation chain.
-  PR19 adds a docs/wiki selection gate so PR20 is selected before
+  PR19 added a docs/wiki selection gate so PR20 could select one lane before
   implementation. Pick one direction per PR:
   A. Workbench productization.
   B. Ledger v2 migration rehearsal or deeper shadow-read.
   C. Alert worker or notification attempt, default-off and manual-review only.
   D. Broker-ready draft/paper boundary, no real broker.
   E. Live provider quota telemetry, only with explicit external-call scope.
-- PR18 has used the lowest-risk Workbench productization lane. PR19 should land
-  the docs-backed selection gate before PR20 starts. Next candidates should
-  still be chosen one small PR at a time; ledger v2 rehearsal/deeper shadow-read
-  is lower-risk than worker, broker, migration/cutover, notification, or
-  live-provider-call work.
+- PR18 used the lowest-risk Workbench productization lane. PR19 landed the
+  docs-backed selection gate. PR20 selects ledger v2 rehearsal/deeper
+  shadow-read for PR21 and keeps PR21 read-only/dry-run only, with v1
+  authoritative and no storage writes, migration/cutover, broker/execution,
+  worker, notification, or live-provider-call work.
 
 ## Stable Current State
 
@@ -438,6 +438,18 @@ facts needed for future planning.
   for the user: ledger deeper shadow-read/rehearsal gate; broker-ready
   draft/paper gate; alert notification dry-run gate; live provider telemetry
   gate.
+- PR20 selects [[decision-phase2-ledger-v2-rehearsal-gate]] as the Phase 2
+  lane for PR21. Scope: docs/wiki/control-plane gate application only; record
+  chosen lane B, medium risk, none/dry-run-only side effects, v1 authority,
+  default-off migration controls, human-review boundaries, sensitive-data
+  exclusions, and concrete PR21 acceptance criteria. Boundary: no business
+  code, API, tests, static UI, database, config, workflow, broker connection,
+  real order, notification send, alert worker, live provider API call, ledger
+  v2 storage write, production migration, cutover, or sensitive
+  account/order/fill/provider payload material. Next candidate: PR21 "Ledger
+  v2 rehearsal report over shadow diagnostics", limited to a read-only
+  rehearsal report or comparison export over existing dry-run, diagnostics, and
+  placeholder surfaces.
 
 ## Blocked Or Separately Authorized Areas
 

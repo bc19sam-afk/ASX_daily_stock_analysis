@@ -192,8 +192,29 @@ storage rows, migrations, or cutover behavior. Unknown income or
 corporate-action rows must remain explicit unsupported placeholders instead of
 being treated as supported ledger events.
 
+## PR20 Rehearsal Gate / PR21 Candidate
+
+PR20 selects ledger v2 deeper shadow-read / rehearsal as the next Phase 2 lane
+through `omx_wiki/decision-phase2-ledger-v2-rehearsal-gate.md`.
+
+The selected PR21 candidate is "Ledger v2 rehearsal report over shadow
+diagnostics". It should stay read-only or explicit dry-run only and should
+summarize existing dry-run, shadow diagnostics, and income/corporate-action
+placeholder data for operator review. It must not write ledger v2 storage,
+create production tables, enable the migration flag, register v2 tables on
+active storage metadata, cut over read paths, replace v1 authority, connect a
+broker, submit orders, send notifications, start workers, call live providers,
+or store secrets, HIN originals, account numbers, real order details, or real
+fill details.
+
+PR21 should be accepted only if targeted tests prove the rehearsal report keeps
+v1 authoritative, marks output as dry-run/manual-review only, keeps unsupported
+and partial placeholders explicit, redacts sensitive material, and leaves
+existing v1 portfolio/import/events/workbench behavior unchanged.
+
 ## Related Control-Plane Pages
 
+- `omx_wiki/decision-phase2-ledger-v2-rehearsal-gate.md`
 - `omx_wiki/architecture-portfolio-ledger-review-journal.md`
 - `omx_wiki/reference-roadmap-status-and-pr-log.md`
 - `omx_wiki/pattern-broker-execution-scope-gate.md`
