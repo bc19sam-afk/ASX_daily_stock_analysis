@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Workbench API contract tests."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -9,6 +10,8 @@ from fastapi.testclient import TestClient
 
 from api.app import create_app
 from api.deps import get_database_manager, get_system_config_service
+from src.search_service import SearchResponse, SearchResult
+from src.storage import DatabaseManager, NewsIntel
 
 
 def test_workbench_summary_answers_daily_operational_questions(tmp_path: Path):
@@ -238,6 +241,92 @@ def test_workbench_summary_exposes_provider_cache_status_without_secrets(tmp_pat
     app.dependency_overrides.clear()
 
 
+def test_workbench_summary_exposes_local_provider_cache_usage_telemetry_without_content(tmp_path: Path):
+    app = create_app(static_dir=tmp_path / "empty-static")
+    db = DatabaseManager(db_url=f"sqlite:///{tmp_path / 'provider_cache_usage.db'}")
+    saved = db.save_news_intel(
+        code="BHP.AX",
+        name="BHP",
+        dimension="latest_news",
+        query="BHP private cache query",
+        response=SearchResponse(
+            query="BHP private cache query",
+            provider="Tavily",
+            success=True,
+            results=[
+                SearchResult(
+                    title="Provider cache evidence should not leak",
+                    snippet="local cache content should remain out of telemetry",
+                    url="https://example.com/private-cache-row",
+                    source="example.com",
+                    published_date="2026-05-30",
+                )
+            ],
+        ),
+    )
+    assert saved == 1
+    with db.get_session() as session:
+        row = session.query(NewsIntel).one()
+        row.fetched_at = datetime(2026, 5, 31, 23, 15, tzinfo=timezone.utc)
+        session.commit()
+
+    app.dependency_overrides[get_database_manager] = lambda: db
+    app.dependency_overrides[get_system_config_service] = lambda: SimpleNamespace(
+        get_config=lambda include_schema=False: {
+            "items": [
+                {"key": "STOCK_LIST", "value": "BHP.AX", "raw_value_exists": True},
+                {"key": "TAVILY_API_KEYS", "value": "secret-tavily", "raw_value_exists": True},
+                {"key": "NEWS_INTEL_CACHE_ENABLED", "value": "true", "raw_value_exists": True},
+                {"key": "NEWS_INTEL_CACHE_DAYS", "value": "2", "raw_value_exists": True},
+                {"key": "NEWS_INTEL_CACHE_MIN_RESULTS", "value": "1", "raw_value_exists": True},
+            ],
+            "updated_at": "2026-06-01T08:00:00+10:00",
+        }
+    )
+
+    with (
+        patch("api.v1.endpoints.workbench.HistoryService") as history_service,
+        patch("api.v1.endpoints.workbench.BacktestService") as backtest_service,
+        patch("src.search_service.SearchService.search_comprehensive_intel") as external_search,
+    ):
+        history_service.return_value.get_history_list.return_value = {"total": 0, "items": []}
+        backtest_service.return_value.get_summary.return_value = None
+
+        response = TestClient(app).get("/api/v1/workbench/summary")
+
+    assert response.status_code == 200
+    telemetry = response.json()["config_status"]["provider_status"]["usage_telemetry"]
+    assert telemetry["status"] == "available"
+    assert telemetry["source"] == "local_news_intel_cache"
+    assert telemetry["cache_reuse_provider"] == "news_intel_cache"
+    assert telemetry["cache_reuse_enabled"] is True
+    assert telemetry["cache_window_days"] == 2
+    assert telemetry["min_results"] == 1
+    assert telemetry["observed_rows"] == 1
+    assert telemetry["observed_dimensions"] == ["latest_news"]
+    assert telemetry["last_observed"] == {
+        "fetched_at": "2026-05-31T23:15:00+00:00",
+        "provider": "Tavily",
+        "dimension": "latest_news",
+    }
+    assert telemetry["side_effects"] == []
+    assert telemetry["forbidden_side_effects"] == [
+        "external_provider_call",
+        "secret_read",
+        "cache_clear",
+        "db_write",
+    ]
+    external_search.assert_not_called()
+
+    serialized = str(telemetry)
+    assert "secret-tavily" not in serialized
+    assert "Provider cache evidence should not leak" not in serialized
+    assert "private-cache-row" not in serialized
+    assert "private cache query" not in serialized
+
+    app.dependency_overrides.clear()
+
+
 def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path):
     app = create_app(static_dir=tmp_path / "empty-static")
     fake_db = SimpleNamespace(
@@ -309,6 +398,8 @@ def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path
         "serpapi": True,
     }
     assert cards[0]["summary"]["news_intel_cache_enabled"] is True
+    assert cards[0]["summary"]["usage_telemetry"]["cache_reuse_provider"] == "news_intel_cache"
+    assert cards[0]["summary"]["usage_telemetry"]["side_effects"] == []
     assert cards[1]["summary"]["endpoint"] == "/api/v1/alert-rules/presets"
     assert cards[2]["summary"]["method"] == "POST"
     assert cards[3]["summary"]["method"] == "GET"
@@ -332,6 +423,9 @@ def test_static_workbench_renders_provider_cache_status_copy():
     assert "Provider & Cache Status" in html
     assert "Quota-safe status only" in html
     assert "news_intel cache" in html
+    assert "provider-cache-usage-telemetry" in html
+    assert "cache observations" in html
+    assert "last observed" in html
 
 
 def test_static_workbench_renders_diagnostics_hub_entry():
