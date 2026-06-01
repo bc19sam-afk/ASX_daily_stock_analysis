@@ -24,8 +24,8 @@ facts needed for future planning.
 - GitHub PR #210 fixed the final date-stability audit issue, #211 recorded that
   audit status, #216 delivered PR16 provider-cache telemetry, #217 recorded
   PR16 status on `main`, #218 selected Phase 2 boundaries, #219 delivered PR18
-  Workbench diagnostics productization, and #220 recorded PR18 status on
-  `main`.
+  Workbench diagnostics productization, #220 recorded PR18 status on `main`,
+  #222 selected the PR21 ledger v2 rehearsal gate, and #223 delivered PR21.
 - The next stage is a Phase 2 option menu, not an automatic continuation chain.
   PR19 added a docs/wiki selection gate so PR20 could select one lane before
   implementation. Pick one direction per PR:
@@ -38,7 +38,8 @@ facts needed for future planning.
   docs-backed selection gate. PR20 selects ledger v2 rehearsal/deeper
   shadow-read for PR21 and keeps PR21 read-only/dry-run only, with v1
   authoritative and no storage writes, migration/cutover, broker/execution,
-  worker, notification, or live-provider-call work.
+  worker, notification, or live-provider-call work. PR21 landed the selected
+  rehearsal report without changing those boundaries.
 
 ## Stable Current State
 
@@ -450,6 +451,33 @@ facts needed for future planning.
   v2 rehearsal report over shadow diagnostics", limited to a read-only
   rehearsal report or comparison export over existing dry-run, diagnostics, and
   placeholder surfaces.
+- PR21 completed as GitHub PR #223, "Add ledger v2 rehearsal report", merged
+  at `059abef45231726526b379dbc7dd152a1f164cf1`. Scope: read-only
+  `/api/v1/portfolio-events/ledger-v2/rehearsal-report` over existing ledger
+  v2 dry-run candidates, shadow diagnostics, and income/corporate-action
+  placeholders; compact Workbench metadata/link for the report; sanitized
+  counts, source summary, top mismatch categories, unsupported placeholder
+  summary, manual-review requirement, and explicit non-cutover/not-migration
+  wording. Verification: GitHub checks passed for backend gate, Docker build,
+  change detection, security, static checks, AI review, and review reporting;
+  desktop gate was skipped by change detection. Local verification covered
+  `tests/test_asx_ledger_v2_dry_run.py`,
+  `tests/test_portfolio_events_api.py`, `tests/test_workbench_api.py`,
+  `tests/test_portfolio_ledger_v2_contract.py`,
+  `tests/test_portfolio_ledger_v2_migration_scaffold.py`, `git diff --check`,
+  focused sensitive-sample search, and `./scripts/ci_gate.sh` with the project
+  virtualenv plus bundled Node on `PATH` (`865` tests plus `5` subtests
+  passing). Review handling: GitHub AI review and generated review report
+  passed; thread-aware review inspection found no review threads and only the
+  generated report comment. Boundary: dry-run/manual-review report only; v1
+  remains authoritative; no ledger v2 storage write, table creation,
+  migration/cutover, v2 authority replacement, broker connection, real
+  orders/fills, paper simulation write, worker, notification delivery, live
+  provider call, secrets, HIN originals, account credentials, account numbers,
+  order details, or fill detail exposure. Next candidate: manually review PR21
+  rehearsal outputs before selecting a separate PR22 lane; no migration,
+  cutover, worker, notification, broker, persistence, or live-provider work is
+  implied by PR21.
 
 ## Blocked Or Separately Authorized Areas
 
