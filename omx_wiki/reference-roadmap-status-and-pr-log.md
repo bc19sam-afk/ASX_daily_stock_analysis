@@ -260,9 +260,26 @@ facts needed for future planning.
   originals, account credentials, account numbers, order details, or fill
   detail exposure. Subagent note: native Codex PR13 review-risk sidecar found
   the parameter-echo issue; coordinated OMX runtime was not used because this
-  Codex App session was not an OMX CLI/tmux runtime. Next candidate: no further
-  PR in this chain; leave future alert workers, notification attempts, broker
-  execution, persistence, or live quota telemetry for separate explicit scope.
+  Codex App session was not an OMX CLI/tmux runtime. A final audit fix followed
+  in PR #210 to stabilize date-sensitive alert-center verification without
+  expanding the roadmap chain. Leave future alert workers, notification
+  attempts, broker execution, persistence, or live quota telemetry for separate
+  explicit scope.
+- Final audit fix completed as GitHub PR #210, "Fix alert center date-stable
+  manual review checks", merged at
+  `c06ab26230d3f165b43b20e90ad9e1800ebb0d9a`. Scope: fixed alert-center
+  verification stability across the 2026-06-01 date rollover by controlling the
+  workbench alert route test date and keeping report-freshness action hints
+  explicit about manual review. Verification: local `./scripts/ci_gate.sh`
+  passed with `856` tests plus `5` subtests passing; GitHub checks passed for
+  backend gate, Docker build, change detection, security, static checks, AI
+  review, and review reporting; desktop gate was skipped by change detection.
+  Boundary: no new alert worker, notification delivery, broker integration,
+  order submission, paper simulation write, persisted execution state, secrets,
+  HIN originals, account credentials, account numbers, order details, or fill
+  detail exposure. Next candidate: no further PR in this chain; future alert
+  workers, notification attempts, broker execution, persistence, live quota
+  telemetry, or ledger v2 cutover require separate explicit scope.
 
 ## Blocked Or Separately Authorized Areas
 
