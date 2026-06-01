@@ -59,12 +59,14 @@ def get_workbench_summary(
     alert_rule_batch_dry_run = _build_alert_rule_batch_dry_run_summary()
     ledger_v2_dry_run = _build_ledger_v2_dry_run_summary()
     ledger_v2_diagnostics = _build_ledger_v2_diagnostics_summary()
+    ledger_v2_rehearsal_report = _build_ledger_v2_rehearsal_report_summary()
     diagnostics_hub = _build_workbench_diagnostics_hub(
         config_status=config_status,
         alert_rule_dry_run=alert_rule_dry_run,
         alert_rule_batch_dry_run=alert_rule_batch_dry_run,
         ledger_v2_dry_run=ledger_v2_dry_run,
         ledger_v2_diagnostics=ledger_v2_diagnostics,
+        ledger_v2_rehearsal_report=ledger_v2_rehearsal_report,
     )
     backtest_summary = _build_backtest_summary(db_manager)
 
@@ -84,6 +86,7 @@ def get_workbench_summary(
         "alert_rule_batch_dry_run": alert_rule_batch_dry_run,
         "ledger_v2_dry_run": ledger_v2_dry_run,
         "ledger_v2_diagnostics": ledger_v2_diagnostics,
+        "ledger_v2_rehearsal_report": ledger_v2_rehearsal_report,
         "diagnostics_hub": diagnostics_hub,
         "backtest": backtest_summary,
         "config_status": config_status,
@@ -100,6 +103,7 @@ def get_workbench_summary(
             "alert_rule_presets": PRESETS_ENDPOINT,
             "ledger_v2_dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
             "ledger_v2_diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
+            "ledger_v2_rehearsal_report": "/api/v1/portfolio-events/ledger-v2/rehearsal-report",
             "diagnostics_hub": "/api/v1/workbench/diagnostics",
         },
     }
@@ -132,6 +136,7 @@ def get_workbench_diagnostics(
         alert_rule_batch_dry_run=_build_alert_rule_batch_dry_run_summary(),
         ledger_v2_dry_run=_build_ledger_v2_dry_run_summary(),
         ledger_v2_diagnostics=_build_ledger_v2_diagnostics_summary(),
+        ledger_v2_rehearsal_report=_build_ledger_v2_rehearsal_report_summary(),
     )
 
 
@@ -367,6 +372,50 @@ def _build_ledger_v2_diagnostics_summary() -> Dict[str, Any]:
     }
 
 
+def _build_ledger_v2_rehearsal_report_summary() -> Dict[str, Any]:
+    """Return a compact pointer to the ledger v2 rehearsal report."""
+    rehearsal_endpoint = "/api/v1/portfolio-events/ledger-v2/rehearsal-report"
+    diagnostics_endpoint = "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    dry_run_endpoint = "/api/v1/portfolio-events/ledger-v2/dry-run"
+    return {
+        "mode": "dry_run_manual_review",
+        "endpoint": rehearsal_endpoint,
+        "method": "GET",
+        "is_trade_instruction": False,
+        "manual_review_required": True,
+        "side_effects": [],
+        "forbidden_side_effects": [
+            "ledger_v2_storage_write",
+            "migration_cutover",
+            "broker_connection",
+            "order_submission",
+            "paper_simulation_write",
+            "notification_delivery",
+            "external_provider_call",
+        ],
+        "result_fields": [
+            "source_summary",
+            "counts",
+            "top_mismatch_categories",
+            "unsupported_placeholder_summary",
+            "manual_review_required",
+            "non_cutover_ready",
+            "readiness",
+            "redaction",
+        ],
+        "copy": {
+            "title": "Ledger v2 Rehearsal Report",
+            "boundary": "dry-run report only; not migration evidence or cutover readiness proof",
+        },
+        "links": {
+            "rehearsal_report": rehearsal_endpoint,
+            "diagnostics": diagnostics_endpoint,
+            "dry_run": dry_run_endpoint,
+            "workbench": WORKBENCH_ENDPOINT,
+        },
+    }
+
+
 def _build_workbench_diagnostics_hub(
     *,
     config_status: Mapping[str, Any],
@@ -374,6 +423,7 @@ def _build_workbench_diagnostics_hub(
     alert_rule_batch_dry_run: Mapping[str, Any],
     ledger_v2_dry_run: Mapping[str, Any],
     ledger_v2_diagnostics: Mapping[str, Any],
+    ledger_v2_rehearsal_report: Mapping[str, Any],
 ) -> Dict[str, Any]:
     """Aggregate low-sensitive diagnostics pointers for operator review."""
     provider_status = config_status.get("provider_status") or {}
@@ -389,6 +439,7 @@ def _build_workbench_diagnostics_hub(
         "alert_rule_batch_dry_run",
         "ledger_v2_dry_run",
         "ledger_v2_diagnostics",
+        "ledger_v2_rehearsal_report",
     ]
     links = {
         "self": "/api/v1/workbench/diagnostics",
@@ -398,6 +449,7 @@ def _build_workbench_diagnostics_hub(
         "alert_rule_batch_dry_run": "/api/v1/alert-rules/dry-run/batch",
         "ledger_v2_dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
         "ledger_v2_diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
+        "ledger_v2_rehearsal_report": "/api/v1/portfolio-events/ledger-v2/rehearsal-report",
     }
     forbidden_side_effects = [
         "db_write",
@@ -455,6 +507,12 @@ def _build_workbench_diagnostics_hub(
             "label": "Ledger v2 diagnostics",
             "href": links["ledger_v2_diagnostics"],
             "status": "available",
+        },
+        {
+            "id": "ledger_v2_rehearsal_report",
+            "label": "Ledger v2 rehearsal",
+            "href": links["ledger_v2_rehearsal_report"],
+            "status": "manual_review_required",
         },
     ]
     status_badges = [
@@ -514,6 +572,7 @@ def _build_workbench_diagnostics_hub(
             "links": {
                 "ledger_v2_dry_run": links["ledger_v2_dry_run"],
                 "ledger_v2_diagnostics": links["ledger_v2_diagnostics"],
+                "ledger_v2_rehearsal_report": links["ledger_v2_rehearsal_report"],
             },
         },
         {
@@ -629,6 +688,19 @@ def _build_workbench_diagnostics_hub(
                     "v1_authoritative": True,
                 },
                 "link": links["ledger_v2_diagnostics"],
+            },
+            {
+                "id": "ledger_v2_rehearsal_report",
+                "title": "Ledger v2 Rehearsal Report",
+                "status": "manual_review_required",
+                "summary": {
+                    "endpoint": ledger_v2_rehearsal_report.get("endpoint"),
+                    "method": ledger_v2_rehearsal_report.get("method"),
+                    "result_fields": list(ledger_v2_rehearsal_report.get("result_fields") or []),
+                    "v1_authoritative": True,
+                    "manual_review_required": True,
+                },
+                "link": links["ledger_v2_rehearsal_report"],
             },
         ],
     }

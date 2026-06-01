@@ -220,3 +220,31 @@ def test_portfolio_events_code_filter_preserves_bare_us_symbols(tmp_path: Path):
     assert payload["events"][0]["code"] == "AAPL"
     assert payload["events"][0]["symbol"] == "AAPL"
     app.dependency_overrides.clear()
+
+
+def test_ledger_v2_rehearsal_report_endpoint_is_read_only_and_redacted(tmp_path: Path):
+    client, db, app = _make_client(tmp_path)
+    _seed_events(db)
+    before = _table_counts(db)
+
+    response = client.get("/api/v1/portfolio-events/ledger-v2/rehearsal-report")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "ledger_v2_rehearsal_report"
+    assert payload["is_dry_run"] is True
+    assert payload["will_write"] is False
+    assert payload["v1_authoritative"] is True
+    assert payload["manual_review_required"] is True
+    assert payload["readiness"]["non_cutover_ready"] is True
+    assert "not migration evidence" in payload["readiness"]["not_migration_evidence"].lower()
+    assert payload["source_summary"]["dry_run"]["candidate_count"] >= 1
+    assert set(payload["counts"]) == {"matched", "mismatched", "missing", "unsupported", "warnings"}
+    assert payload["links"]["diagnostics"] == "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    assert _table_counts(db) == before
+    serialized = str(payload)
+    assert "HIN-001" not in serialized
+    assert "123456" not in serialized
+    assert "account_number" not in serialized
+    assert "dedup-secret-hash" not in serialized
+    app.dependency_overrides.clear()

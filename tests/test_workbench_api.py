@@ -145,6 +145,7 @@ def test_workbench_summary_answers_daily_operational_questions(tmp_path: Path):
         "alert_rule_batch_dry_run",
         "ledger_v2_dry_run",
         "ledger_v2_diagnostics",
+        "ledger_v2_rehearsal_report",
     ]
     assert payload["diagnostics_hub"]["links"]["self"] == "/api/v1/workbench/diagnostics"
     assert payload["diagnostics_hub"]["links"]["provider_status"] == "/api/v1/workbench/summary#config_status.provider_status"
@@ -153,6 +154,9 @@ def test_workbench_summary_answers_daily_operational_questions(tmp_path: Path):
     assert payload["diagnostics_hub"]["links"]["ledger_v2_dry_run"] == "/api/v1/portfolio-events/ledger-v2/dry-run"
     assert payload["diagnostics_hub"]["links"]["ledger_v2_diagnostics"] == (
         "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    )
+    assert payload["diagnostics_hub"]["links"]["ledger_v2_rehearsal_report"] == (
+        "/api/v1/portfolio-events/ledger-v2/rehearsal-report"
     )
     assert "summary only" in payload["diagnostics_hub"]["copy"]["boundary"]
     assert payload["ledger_v2_diagnostics"]["method"] == "GET"
@@ -169,6 +173,18 @@ def test_workbench_summary_answers_daily_operational_questions(tmp_path: Path):
     )
     assert payload["ledger_v2_diagnostics"]["links"]["dry_run"] == (
         "/api/v1/portfolio-events/ledger-v2/dry-run"
+    )
+    assert payload["links"]["ledger_v2_rehearsal_report"] == (
+        "/api/v1/portfolio-events/ledger-v2/rehearsal-report"
+    )
+    assert payload["ledger_v2_rehearsal_report"]["method"] == "GET"
+    assert payload["ledger_v2_rehearsal_report"]["is_trade_instruction"] is False
+    assert payload["ledger_v2_rehearsal_report"]["manual_review_required"] is True
+    assert payload["ledger_v2_rehearsal_report"]["side_effects"] == []
+    assert "ledger_v2_storage_write" in payload["ledger_v2_rehearsal_report"]["forbidden_side_effects"]
+    assert "non_cutover_ready" in payload["ledger_v2_rehearsal_report"]["result_fields"]
+    assert payload["ledger_v2_rehearsal_report"]["links"]["rehearsal_report"] == (
+        "/api/v1/portfolio-events/ledger-v2/rehearsal-report"
     )
     backtest_service.return_value.get_summary.assert_called_once_with(
         scope="overall",
@@ -381,6 +397,7 @@ def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path
         "alert_rule_batch_dry_run": "/api/v1/alert-rules/dry-run/batch",
         "ledger_v2_dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
         "ledger_v2_diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
+        "ledger_v2_rehearsal_report": "/api/v1/portfolio-events/ledger-v2/rehearsal-report",
     }
 
     cards = payload["cards"]
@@ -390,6 +407,7 @@ def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path
         "alert_rule_batch_dry_run",
         "ledger_v2_dry_run",
         "ledger_v2_diagnostics",
+        "ledger_v2_rehearsal_report",
     ]
     assert cards[0]["status"] == "available"
     assert cards[0]["summary"]["providers_configured"] == {
@@ -404,6 +422,9 @@ def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path
     assert cards[2]["summary"]["method"] == "POST"
     assert cards[3]["summary"]["method"] == "GET"
     assert cards[4]["summary"]["method"] == "GET"
+    assert cards[5]["summary"]["endpoint"] == "/api/v1/portfolio-events/ledger-v2/rehearsal-report"
+    assert cards[5]["summary"]["v1_authoritative"] is True
+    assert cards[5]["summary"]["manual_review_required"] is True
 
     serialized = str(payload)
     assert "secret-tavily" not in serialized
@@ -468,6 +489,7 @@ def test_workbench_diagnostics_hub_exposes_operator_flow_schema(tmp_path: Path):
         "provider_status",
         "alert_rule_batch_dry_run",
         "ledger_v2_diagnostics",
+        "ledger_v2_rehearsal_report",
     }
     assert {badge["id"] for badge in hub["status_badges"]} == {
         "read_only",
@@ -491,6 +513,9 @@ def test_workbench_diagnostics_hub_exposes_operator_flow_schema(tmp_path: Path):
     )
     assert hub["action_groups"][2]["links"]["ledger_v2_diagnostics"] == (
         "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    )
+    assert hub["action_groups"][2]["links"]["ledger_v2_rehearsal_report"] == (
+        "/api/v1/portfolio-events/ledger-v2/rehearsal-report"
     )
     assert hub["action_groups"][3]["is_trade_instruction"] is False
     assert hub["action_groups"][3]["manual_review_required"] is True

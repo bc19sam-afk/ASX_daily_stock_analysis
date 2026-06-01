@@ -7,7 +7,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from sqlalchemy import select
@@ -154,47 +154,77 @@ class AsxLedgerV2DryRunService:
     def build_diagnostics(self) -> Dict[str, Any]:
         """Return operator-facing shadow-read diagnostics grouped for manual review."""
         dry_run = self.build_dry_run()
-        comparison = dict(dry_run.get("comparison") or {})
-        mismatched = _diagnostic_items(comparison.get("mismatched"))
-        missing = _diagnostic_items(comparison.get("missing"))
-        unsupported = _unsupported_diagnostic_items(dry_run.get("candidates") or [])
-        warnings = _warning_diagnostic_items(dry_run.get("warnings") or [])
-        summary = {
-            "matched_count": int(comparison.get("matched_count") or 0),
-            "mismatched_count": len(mismatched),
-            "missing_count": len(missing),
-            "unsupported_count": len(unsupported),
-            "warning_count": len(warnings),
-            "requires_manual_review": bool(mismatched or missing or unsupported or warnings),
-            "v1_authoritative": True,
+        return _build_diagnostics_from_dry_run(dry_run)
+
+    def build_rehearsal_report(self) -> Dict[str, Any]:
+        """Return a dry-run rehearsal report over existing ledger v2 diagnostics."""
+        dry_run = self.build_dry_run()
+        diagnostics = _build_diagnostics_from_dry_run(dry_run)
+        diagnostic_summary = diagnostics.get("summary") or {}
+        details = diagnostics.get("details") or {}
+        counts = {
+            "matched": int(diagnostic_summary.get("matched_count") or 0),
+            "mismatched": int(diagnostic_summary.get("mismatched_count") or 0),
+            "missing": int(diagnostic_summary.get("missing_count") or 0),
+            "unsupported": int(diagnostic_summary.get("unsupported_count") or 0),
+            "warnings": int(diagnostic_summary.get("warning_count") or 0),
         }
-        summary["groups"] = [
-            _diagnostic_group("mismatched", "V1 / ledger v2 mismatch", len(mismatched), "manual_review"),
-            _diagnostic_group("missing", "Missing from ledger v2 dry-run", len(missing), "manual_review"),
-            _diagnostic_group(
-                "unsupported",
-                "Unsupported or cash-only placeholder",
-                len(unsupported),
-                "manual_review",
-            ),
-            _diagnostic_group("warnings", "Dry-run warning", len(warnings), "info"),
-        ]
+
         return {
             "status": dry_run.get("status") or "available",
-            "mode": "ledger_v2_shadow_read_diagnostics",
+            "mode": "ledger_v2_rehearsal_report",
             "is_dry_run": True,
             "will_write": False,
-            "summary": summary,
-            "details": {
-                "mismatched": mismatched,
-                "missing": missing,
-                "unsupported": unsupported,
-                "warnings": warnings,
+            "v1_authoritative": True,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "source_summary": {
+                "dry_run": {
+                    "mode": dry_run.get("mode"),
+                    "candidate_count": int(dry_run.get("candidate_count") or 0),
+                    "supported_candidate_count": int(dry_run.get("supported_candidate_count") or 0),
+                    "unsupported_candidate_count": int(dry_run.get("unsupported_candidate_count") or 0),
+                    "comparison_mode": "v1_vs_ledger_v2_dry_run",
+                },
+                "diagnostics": {
+                    "mode": diagnostics.get("mode"),
+                    "group_count": len(diagnostic_summary.get("groups") or []),
+                    "detail_scope": "sanitized_shadow_diagnostics",
+                },
+                "placeholders": {
+                    "scope": "income_and_corporate_action_placeholders",
+                    "source": "dry_run_candidates",
+                },
             },
-            "warnings": [item["message"] for item in warnings],
+            "counts": counts,
+            "top_mismatch_categories": _top_mismatch_categories(details),
+            "unsupported_placeholder_summary": _unsupported_placeholder_summary(
+                dry_run.get("candidates") or []
+            ),
+            "manual_review_required": True,
+            "readiness": {
+                "non_cutover_ready": True,
+                "not_migration_evidence": (
+                    "This rehearsal report is not migration evidence and cannot be used as cutover readiness proof."
+                ),
+                "authority_wording": (
+                    "v1 remains authoritative; ledger v2 rehearsal output is dry-run/manual-review only."
+                ),
+            },
+            "details": {
+                "mismatched": list(details.get("mismatched") or []),
+                "missing": list(details.get("missing") or []),
+                "unsupported": list(details.get("unsupported") or []),
+                "warnings": list(details.get("warnings") or []),
+            },
+            "redaction": {
+                "sensitive_fields": "redacted_or_omitted",
+                "detail_scope": "counts_and_sanitized_diagnostics_only",
+            },
+            "warnings": list(diagnostics.get("warnings") or []),
             "boundaries": dict(dry_run.get("boundaries") or {}),
             "links": {
                 "dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
+                "diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
                 "workbench": "/api/v1/workbench/summary",
             },
         }
@@ -427,6 +457,112 @@ class AsxLedgerV2DryRunService:
             "warnings": _dedupe_strings(warnings),
             "v1_authoritative": True,
         }
+
+
+def _build_diagnostics_from_dry_run(dry_run: Mapping[str, Any]) -> Dict[str, Any]:
+    comparison = dict(dry_run.get("comparison") or {})
+    mismatched = _diagnostic_items(comparison.get("mismatched"))
+    missing = _diagnostic_items(comparison.get("missing"))
+    unsupported = _unsupported_diagnostic_items(dry_run.get("candidates") or [])
+    warnings = _warning_diagnostic_items(dry_run.get("warnings") or [])
+    summary = {
+        "matched_count": int(comparison.get("matched_count") or 0),
+        "mismatched_count": len(mismatched),
+        "missing_count": len(missing),
+        "unsupported_count": len(unsupported),
+        "warning_count": len(warnings),
+        "requires_manual_review": bool(mismatched or missing or unsupported or warnings),
+        "v1_authoritative": True,
+    }
+    summary["groups"] = [
+        _diagnostic_group("mismatched", "V1 / ledger v2 mismatch", len(mismatched), "manual_review"),
+        _diagnostic_group("missing", "Missing from ledger v2 dry-run", len(missing), "manual_review"),
+        _diagnostic_group(
+            "unsupported",
+            "Unsupported or cash-only placeholder",
+            len(unsupported),
+            "manual_review",
+        ),
+        _diagnostic_group("warnings", "Dry-run warning", len(warnings), "info"),
+    ]
+    return {
+        "status": dry_run.get("status") or "available",
+        "mode": "ledger_v2_shadow_read_diagnostics",
+        "is_dry_run": True,
+        "will_write": False,
+        "summary": summary,
+        "details": {
+            "mismatched": mismatched,
+            "missing": missing,
+            "unsupported": unsupported,
+            "warnings": warnings,
+        },
+        "warnings": [item["message"] for item in warnings],
+        "boundaries": dict(dry_run.get("boundaries") or {}),
+        "links": {
+            "dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
+            "workbench": "/api/v1/workbench/summary",
+        },
+    }
+
+
+def _top_mismatch_categories(details: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    counts: Dict[str, int] = {}
+    for item in list(details.get("mismatched") or []) + list(details.get("missing") or []):
+        if not isinstance(item, Mapping):
+            continue
+        category = _safe_diagnostic_text(item.get("type") or "unknown") or "unknown"
+        counts[category] = counts.get(category, 0) + 1
+    return [
+        {"category": category, "count": count}
+        for category, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+
+
+def _unsupported_placeholder_summary(candidates: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:
+    summary = {
+        "total": 0,
+        "income_partial": 0,
+        "income_unsupported": 0,
+        "corporate_action_unsupported": 0,
+        "cash_only_or_snapshot": 0,
+        "symbols": [],
+        "categories": [],
+    }
+    symbols: set[str] = set()
+    categories: set[str] = set()
+    for candidate in candidates:
+        if str(candidate.get("event_type") or "") != "unsupported":
+            continue
+        summary["total"] += 1
+        symbol = _safe_diagnostic_text(candidate.get("symbol"))
+        if symbol:
+            symbols.add(symbol)
+        source_event_id = _safe_diagnostic_text(candidate.get("source_event_id"))
+        warnings = " ".join(_safe_diagnostic_text(warning).lower() for warning in candidate.get("warnings") or [])
+        if source_event_id.startswith("account_snapshot:") or "cash-only" in warnings:
+            summary["cash_only_or_snapshot"] += 1
+            categories.add("cash_only_or_snapshot")
+        income = candidate.get("income") if isinstance(candidate.get("income"), Mapping) else {}
+        income_status = str((income or {}).get("status") or "")
+        if income_status == "partial_placeholder":
+            summary["income_partial"] += 1
+            categories.add("income_partial")
+        elif income_status == "unsupported":
+            summary["income_unsupported"] += 1
+            categories.add("income_unsupported")
+        corporate_action = (
+            candidate.get("corporate_action")
+            if isinstance(candidate.get("corporate_action"), Mapping)
+            else {}
+        )
+        corporate_status = str((corporate_action or {}).get("status") or "")
+        if corporate_status in {"unsupported", "unsupported_placeholder"}:
+            summary["corporate_action_unsupported"] += 1
+            categories.add("corporate_action_unsupported")
+    summary["symbols"] = sorted(symbols)[:10]
+    summary["categories"] = sorted(categories)
+    return summary
 
 
 def _aggregate_supported_trades(candidates: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:
