@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -23,7 +24,7 @@ from src.services.asx_alert_rule_presets import (
 )
 from src.services.history_service import HistoryService
 from src.services.system_config_service import SystemConfigService
-from src.storage import DatabaseManager
+from src.storage import DatabaseManager, NewsIntel
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def get_workbench_summary(
     portfolio_summary = _build_portfolio_summary(db_manager)
     risk_summary = _build_risk_summary(latest_detail=latest_detail, history_items=history_items)
     alert_center = _build_alert_center(context)
-    config_status = _build_config_status(config_service)
+    config_status = _build_config_status(config_service, db_manager)
     alert_rule_dry_run = _build_alert_rule_dry_run_ui_config(
         context=context,
         portfolio_summary=portfolio_summary,
@@ -119,7 +120,7 @@ def get_workbench_diagnostics(
     """Return low-sensitive diagnostics links and schema without side effects."""
     context = _load_workbench_context(db_manager)
     portfolio_summary = _build_portfolio_summary(db_manager)
-    config_status = _build_config_status(config_service)
+    config_status = _build_config_status(config_service, db_manager)
     alert_rule_dry_run = _build_alert_rule_dry_run_ui_config(
         context=context,
         portfolio_summary=portfolio_summary,
@@ -444,6 +445,9 @@ def _build_workbench_diagnostics_hub(
                     "active_provider_order": list(provider_status.get("active_provider_order") or []),
                     "news_intel_cache_enabled": bool(news_cache.get("enabled")),
                     "quota_safe": True,
+                    "usage_telemetry": _provider_usage_telemetry_summary(
+                        provider_status.get("usage_telemetry")
+                    ),
                 },
                 "link": links["provider_status"],
             },
@@ -709,7 +713,10 @@ def _build_risk_summary(*, latest_detail: Dict[str, Any], history_items: List[Di
     }
 
 
-def _build_config_status(config_service: SystemConfigService) -> Dict[str, Any]:
+def _build_config_status(
+    config_service: SystemConfigService,
+    db_manager: Optional[DatabaseManager] = None,
+) -> Dict[str, Any]:
     try:
         payload = config_service.get_config(include_schema=False)
     except Exception as exc:
@@ -719,7 +726,7 @@ def _build_config_status(config_service: SystemConfigService) -> Dict[str, Any]:
             "stock_list_configured": False,
             "secrets_configured": 0,
             "updated_at": None,
-            "provider_status": _build_provider_status({}),
+            "provider_status": _build_provider_status({}, db_manager=db_manager),
         }
 
     items = list(payload.get("items") or [])
@@ -741,11 +748,15 @@ def _build_config_status(config_service: SystemConfigService) -> Dict[str, Any]:
         "stock_list_configured": bool(stock_list.get("raw_value_exists") or stock_list.get("value")),
         "secrets_configured": secret_count,
         "updated_at": payload.get("updated_at"),
-        "provider_status": _build_provider_status(item_by_key),
+        "provider_status": _build_provider_status(item_by_key, db_manager=db_manager),
     }
 
 
-def _build_provider_status(item_by_key: Mapping[str, Mapping[str, Any]]) -> Dict[str, Any]:
+def _build_provider_status(
+    item_by_key: Mapping[str, Mapping[str, Any]],
+    *,
+    db_manager: Optional[DatabaseManager] = None,
+) -> Dict[str, Any]:
     """Return low-sensitivity provider/cache status without exposing raw credentials."""
     gemini_model = _config_value(item_by_key, "GEMINI_MODEL", default="gemini-3.5-flash")
     grounding_model = _config_value(item_by_key, "GEMINI_GROUNDING_MODEL", default=gemini_model)
@@ -753,6 +764,11 @@ def _build_provider_status(item_by_key: Mapping[str, Mapping[str, Any]]) -> Dict
     tavily_configured = _config_raw_exists(item_by_key, "TAVILY_API_KEYS")
     gemini_configured = _config_raw_exists(item_by_key, "GEMINI_API_KEYS", "GEMINI_API_KEY")
     serpapi_configured = _config_raw_exists(item_by_key, "SERPAPI_API_KEYS")
+    news_cache = {
+        "enabled": _config_bool(item_by_key, "NEWS_INTEL_CACHE_ENABLED", default=True),
+        "days": _config_int(item_by_key, "NEWS_INTEL_CACHE_DAYS", default=1, minimum=1),
+        "min_results": _config_int(item_by_key, "NEWS_INTEL_CACHE_MIN_RESULTS", default=1, minimum=1),
+    }
 
     return {
         "provider_order": ["Tavily", "Gemini Grounding", "SerpAPI"],
@@ -783,11 +799,11 @@ def _build_provider_status(item_by_key: Mapping[str, Mapping[str, Any]]) -> Dict
                 "configured": serpapi_configured,
             },
         },
-        "news_intel_cache": {
-            "enabled": _config_bool(item_by_key, "NEWS_INTEL_CACHE_ENABLED", default=True),
-            "days": _config_int(item_by_key, "NEWS_INTEL_CACHE_DAYS", default=1, minimum=1),
-            "min_results": _config_int(item_by_key, "NEWS_INTEL_CACHE_MIN_RESULTS", default=1, minimum=1),
-        },
+        "news_intel_cache": news_cache,
+        "usage_telemetry": _build_provider_cache_usage_telemetry(
+            db_manager=db_manager,
+            news_cache=news_cache,
+        ),
         "search_fallback_note": (
             "news_intel cache is checked before external providers when enabled; "
             "stock-news fallback order remains Tavily -> Gemini Grounding -> SerpAPI; "
@@ -798,6 +814,88 @@ def _build_provider_status(item_by_key: Mapping[str, Mapping[str, Any]]) -> Dict
             "change provider order, or expose raw secrets."
         ),
     }
+
+
+def _build_provider_cache_usage_telemetry(
+    *,
+    db_manager: Optional[DatabaseManager],
+    news_cache: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Return local news_intel cache usage telemetry without content or side effects."""
+    base = {
+        "status": "unavailable",
+        "source": "local_news_intel_cache",
+        "cache_reuse_provider": "news_intel_cache" if bool(news_cache.get("enabled")) else None,
+        "cache_reuse_enabled": bool(news_cache.get("enabled")),
+        "cache_window_days": int(news_cache.get("days") or 1),
+        "min_results": int(news_cache.get("min_results") or 1),
+        "observed_rows": 0,
+        "observed_dimensions": [],
+        "last_observed": None,
+        "side_effects": [],
+        "forbidden_side_effects": [
+            "external_provider_call",
+            "secret_read",
+            "cache_clear",
+            "db_write",
+        ],
+    }
+    if db_manager is None or not hasattr(db_manager, "get_session"):
+        return base
+
+    try:
+        with db_manager.get_session() as session:
+            observed_rows = int(session.query(NewsIntel).count())
+            dimensions = [
+                str(row[0])
+                for row in session.query(NewsIntel.dimension)
+                .filter(NewsIntel.dimension.isnot(None))
+                .distinct()
+                .order_by(NewsIntel.dimension)
+                .all()
+                if row[0]
+            ]
+            last_row = (
+                session.query(NewsIntel)
+                .order_by(NewsIntel.fetched_at.desc(), NewsIntel.id.desc())
+                .first()
+            )
+    except Exception as exc:
+        logger.debug("Failed to read provider/cache usage telemetry: %s", exc)
+        return base
+
+    base["status"] = "available" if observed_rows else "empty"
+    base["observed_rows"] = observed_rows
+    base["observed_dimensions"] = dimensions
+    if last_row is not None:
+        base["last_observed"] = {
+            "fetched_at": _iso_datetime(getattr(last_row, "fetched_at", None)),
+            "provider": str(getattr(last_row, "provider", "") or "unknown"),
+            "dimension": str(getattr(last_row, "dimension", "") or "unknown"),
+        }
+    return base
+
+
+def _provider_usage_telemetry_summary(telemetry: Any) -> Dict[str, Any]:
+    payload = telemetry if isinstance(telemetry, Mapping) else {}
+    return {
+        "status": payload.get("status") or "unavailable",
+        "cache_reuse_provider": payload.get("cache_reuse_provider"),
+        "cache_reuse_enabled": bool(payload.get("cache_reuse_enabled")),
+        "observed_rows": int(payload.get("observed_rows") or 0),
+        "last_observed": payload.get("last_observed"),
+        "side_effects": list(payload.get("side_effects") or []),
+    }
+
+
+def _iso_datetime(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
+    return str(value)
 
 
 def _config_raw_exists(item_by_key: Mapping[str, Mapping[str, Any]], *keys: str) -> bool:

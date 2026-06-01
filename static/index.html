@@ -869,6 +869,16 @@
         const status = data.config_status?.provider_status || {};
         const providers = status.providers || {};
         const cache = status.news_intel_cache || {};
+        const telemetry = status.usage_telemetry || {};
+        const lastObserved = telemetry.last_observed || {};
+        const observedDimensions = Array.isArray(telemetry.observed_dimensions)
+          ? telemetry.observed_dimensions.join(', ')
+          : '';
+        const lastObservedText = [
+          lastObserved.provider,
+          lastObserved.dimension,
+          lastObserved.fetched_at,
+        ].filter(Boolean).join(' · ');
         const providerRows = [
           ['Tavily', providers.tavily?.configured],
           ['Gemini', providers.gemini?.configured],
@@ -904,6 +914,11 @@
             ${pill(`news_intel cache ${cache.enabled ? 'enabled' : 'disabled'}`, cache.enabled ? 'good' : 'warn')}
             ${pill(`days ${fmt(cache.days)}`)}
             ${pill(`min results ${fmt(cache.min_results)}`)}
+          </div>
+          <div class="toolbar" data-smoke-id="provider-cache-usage-telemetry" style="margin:10px 0;">
+            ${pill(`cache observations ${fmt(telemetry.observed_rows)}`)}
+            ${pill(`dimensions ${fmt(observedDimensions)}`)}
+            ${pill(`last observed ${fmt(lastObservedText)}`)}
           </div>
           <div class="statusline">${escapeHtml(status.search_fallback_note || '')}</div>
           <div class="statusline">${escapeHtml(status.quota_safe_note || '')}</div>
