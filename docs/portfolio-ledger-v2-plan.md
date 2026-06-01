@@ -3,10 +3,12 @@
 ## Purpose
 
 Ledger v2 is a planned event-oriented portfolio ledger for ASX/AU/US manual
-review workflows. PR6 is only the schema plan, declarative contract, and
-default-off migration guard. It does not create tables, migrate data, expose a
-mutation endpoint, or replace current portfolio overview, ASX CSV import, paper
-portfolio, workbench, alert-rule, or review-journal behavior.
+review workflows. PR6 introduced the schema plan, declarative contract, and
+default-off migration guard; PR7, PR10, PR11, and PR12 later added disabled
+scaffold, dry-run comparison, shadow diagnostics, and placeholder groundwork.
+These phases still do not create production tables, migrate data, expose a
+mutation endpoint, cut over reads, or replace current portfolio overview, ASX
+CSV import, paper portfolio, workbench, alert-rule, or review-journal behavior.
 
 ## Goals
 
@@ -95,23 +97,23 @@ effective dates.
 
 ## Migration Phases
 
-1. **Plan and guard**: ship this document, the declarative contract, and a
-   default-off guard. No data changes.
-2. **Disabled shadow migration scaffold**: introduce a side-effect-free shadow
-   schema spec and DDL planner that returns a blocked/dry-run plan by default.
-   The scaffold must not register ledger v2 models on active storage metadata,
-   create tables during normal startup, or run without the explicit migration
-   guard.
-3. **Backfill dry run**: build a dry-run transformer from current
-   `portfolio_positions`, `trade_journal`, `account_snapshots`, and paper
-   rows into ledger v2 candidate rows.
-4. **Dual-read comparison**: compare v1 overview/event outputs with v2
-   generated snapshots in tests and diagnostics, while production reads stay on
-   v1.
-5. **Shadow read**: optionally expose read-only v2 diagnostics for manual
-   review after tests prove parity.
-6. **Cutover decision**: only after separate approval, switch selected read
-   paths to v2.
+1. **Plan and guard**: shipped in PR6 with this document, the declarative
+   contract, and a default-off guard. No data changes.
+2. **Disabled shadow migration scaffold**: shipped in PR7 as a side-effect-free
+   shadow schema spec and DDL planner that returns a blocked/dry-run plan by
+   default. The scaffold must not register ledger v2 models on active storage
+   metadata, create tables during normal startup, or run without the explicit
+   migration guard.
+3. **Backfill dry run**: shipped in PR10 as a dry-run transformer from current
+   `portfolio_positions`, `trade_journal`, `account_snapshots`, and paper rows
+   into ledger v2 candidate rows.
+4. **Dual-read comparison**: shipped in PR10/PR11 as comparison diagnostics
+   while production reads stay on v1.
+5. **Shadow read diagnostics**: shipped in PR11 as read-only diagnostics for
+   manual review. PR12 added dividend/franking and corporate-action
+   placeholders as explicit unsupported or partial review metadata.
+6. **Cutover decision**: not started. Only after separate approval may selected
+   read paths switch to v2.
 
 ## Dual-Read Boundary
 
@@ -170,9 +172,11 @@ tests for ASX CSV import, manual portfolio workflows, portfolio event API,
 workbench API, and the existing CI gate. PR7 adds scaffold tests for blocked
 default execution, dry-run non-mutation, contract-aligned shadow schema,
 account-scoped corporate actions, sensitive-field exclusion, active metadata
-isolation, and unchanged v1 storage behavior. Passing those checks proves only
-that the plan/contract/guard/scaffold are present and current behavior remains
-unchanged; it does not prove ledger v2 storage or migration readiness.
+isolation, and unchanged v1 storage behavior. PR10-PR12 add dry-run comparison,
+shadow diagnostics, and placeholder regression coverage. Passing those checks
+proves only that the plan/contract/guard/scaffold/diagnostics are present and
+current behavior remains unchanged; it does not prove ledger v2 storage,
+production migration, or cutover readiness.
 
 ## PR12 Income And Corporate-Action Placeholders
 

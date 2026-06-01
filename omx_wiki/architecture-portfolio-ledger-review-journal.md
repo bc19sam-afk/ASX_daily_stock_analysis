@@ -45,6 +45,21 @@ The PR6 scope is plan/contract/guard only: no database migration, no broker or
 execution integration, and no replacement of current portfolio overview/import,
 paper portfolio, workbench, alert, or review-journal behavior.
 
+Current completed ledger v2 groundwork now extends beyond PR6:
+
+- PR7 added the disabled shadow migration scaffold.
+- PR10 added dry-run backfill and dual-read comparison groundwork.
+- PR11 exposed read-only shadow diagnostics for manual review.
+- PR12 added dividend/franking and corporate-action placeholders.
+
+These remain manual-review diagnostics. V1 portfolio reads are still
+authoritative, and production migration, cutover, broker integration, worker
+side effects, or notification delivery require separate explicit scope.
+
+Phase 2 ledger work may choose a migration rehearsal or deeper shadow-read PR,
+but it must stay reversible, default-off, and outside production cutover unless
+the task explicitly authorizes that boundary change.
+
 ## Related Pages
 
 - [[pattern-broker-execution-scope-gate]]

@@ -9,6 +9,33 @@ This page is a compressed index of durable roadmap state. Detailed historical
 logs remain in `docs/codex_execution_log.md`; this page should keep only the
 facts needed for future planning.
 
+## Current Phase Snapshot
+
+- Phase 1 is complete enough to close the upstream catch-up and infrastructure
+  chain: P0-P2 established report/evidence safety, PR0/PR1 established the
+  control plane and low-sensitive context, and PR2-PR16 delivered the ASX
+  capability foundation through provider-cache telemetry v0.
+- Numbering note: in this control-plane chain, PR0 maps to GitHub PR #184
+  control-plane wiki/maintainer skill, PR1 maps to GitHub PR #185
+  AnalysisContextPack low-sensitivity summary, PR8 maps to GitHub PR #198
+  provider quota/status dashboard, and PR9 maps to GitHub PR #200 alert-rule
+  presets. GitHub PR #211 and #217 are status/documentation PRs, not additional
+  implementation milestones.
+- GitHub PR #210 fixed the final date-stability audit issue, #211 recorded that
+  audit status, #216 delivered PR16 provider-cache telemetry, and #217 recorded
+  PR16 status on `main`.
+- The next stage is a Phase 2 option menu, not an automatic continuation chain.
+  Pick one direction per PR:
+  A. Workbench productization.
+  B. Ledger v2 migration rehearsal or deeper shadow-read.
+  C. Alert worker or notification attempt, default-off and manual-review only.
+  D. Broker-ready draft/paper boundary, no real broker.
+  E. Live provider quota telemetry, only with explicit external-call scope.
+- Recommended PR18 candidates, lowest risk first: Workbench productization, or a
+  docs-backed selection gate that records the chosen Phase 2 direction before
+  implementation. Do not mix broker/execution, worker/notification,
+  migration/cutover, or live provider-call work into the same PR.
+
 ## Stable Current State
 
 - P0 report safety and evidence chain completed.
@@ -361,6 +388,11 @@ facts needed for future planning.
 - Realtime quote adapter.
 - Broker integration.
 - Automatic trading.
+- Default alert worker or production notification delivery.
+- Production ledger v2 migration or cutover.
+- Live provider quota probes or external-call telemetry.
+- Provider request payload, raw key/token, query/title/snippet/URL, or requester
+  field exposure.
 - Workflow changes.
 - `close_only` default changes.
 - Storage or database migrations unless scoped as an explicit PR.
