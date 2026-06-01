@@ -25,7 +25,8 @@ facts needed for future planning.
   audit status, #216 delivered PR16 provider-cache telemetry, #217 recorded
   PR16 status on `main`, #218 selected Phase 2 boundaries, #219 delivered PR18
   Workbench diagnostics productization, #220 recorded PR18 status on `main`,
-  #222 selected the PR21 ledger v2 rehearsal gate, and #223 delivered PR21.
+  #222 selected the PR21 ledger v2 rehearsal gate, #223 delivered PR21, #224
+  recorded PR21 status, and #225 delivered PR22 Morning Review Card.
 - The next stage is a Phase 2 option menu, not an automatic continuation chain.
   PR19 added a docs/wiki selection gate so PR20 could select one lane before
   implementation. Pick one direction per PR:
@@ -478,6 +479,44 @@ facts needed for future planning.
   rehearsal outputs before selecting a separate PR22 lane; no migration,
   cutover, worker, notification, broker, persistence, or live-provider work is
   implied by PR21.
+- PR22 completed as GitHub PR #225, "Add Morning Review Card to daily
+  email/report", merged at `acc8033d6cd159e1bfc9bfe3f9fc486a60a3c863`.
+  Scope: display-only Morning Review Card in the dashboard and legacy daily
+  report bodies, reusing existing `daily_decision_summary` action/watch/blocked
+  items, `triage_card`, top risk lines, `report_reliability`,
+  `data_quality_snapshot`, score/evidence gaps, and risk-sizing
+  preview/comparison fields. The card surfaces today's conclusion, first
+  symbols to review, why, key risks, reliability/data-quality reminders,
+  risk-sizing trial notes, and human-review wording before the longer report
+  detail and archive appendix. Verification: GitHub checks passed for backend
+  gate, Docker build, change detection, security, static checks, AI review, and
+  review reporting; desktop gate was skipped by change detection. Local
+  verification covered `tests/test_morning_review_card.py`,
+  `tests/test_report_body_deduplication.py`,
+  `tests/test_daily_decision_dashboard_archive.py`,
+  `tests/test_daily_decision_summary_evidence.py`,
+  `tests/test_risk_sizing_dry_run_comparison.py`,
+  `tests/test_report_readability_guardrail.py`,
+  `tests/test_notification_summary_format.py`,
+  `tests/test_notification_validation_gate.py`,
+  `tests/test_score_bucket_calibration.py`,
+  `tests/test_risk_sizing_shadow_mode.py`, `git diff --check`, targeted
+  `py_compile`, and `./scripts/ci_gate.sh` with the project virtualenv plus
+  bundled Node on `PATH` (`870` tests plus `5` subtests passing). Review
+  handling: GitHub AI review and generated review report passed. Boundary:
+  display-only report/email UX; no deterministic final action, position action,
+  target weight, sizing write-back, notification send timing, default worker,
+  Workbench/API expansion, provider order/cache change, live provider call,
+  broker/execution, database migration, ledger v2 production write/cutover,
+  secrets, HIN originals, account credentials, account numbers, order details,
+  or fill detail exposure. Next candidate: review the next real daily
+  email/report with the Morning Review Card before choosing another small PR.
+  If implementation continues, select one separate lane only: another report
+  readability pass, alert notification dry-run/default-off gate, broker-ready
+  draft/paper boundary, live provider telemetry with explicit external-call
+  scope, or ledger v2 follow-up after manual review; no worker, broker,
+  notification delivery, live-provider call, persistence, or ledger cutover is
+  implied by PR22.
 
 ## Blocked Or Separately Authorized Areas
 
