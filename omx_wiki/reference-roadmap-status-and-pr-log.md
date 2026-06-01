@@ -302,6 +302,29 @@ facts needed for future planning.
   or fill detail exposure. Next candidate: PR15 Workbench diagnostics smoke
   hardening, limited to stable smoke/test coverage for diagnostics hub and the
   static workbench entry.
+- PR15 completed as GitHub PR #214, "Harden workbench diagnostics smoke
+  coverage", merged at `42adf68bb9b12e4c933ea825d98556ce1419a739`. Scope:
+  stable smoke coverage for the PR14 diagnostics hub and static Workbench entry,
+  including smoke selectors for the Workbench navigation, diagnostics hub,
+  alert-rule dry-run panel, provider/cache panel, diagnostics card list, and
+  narrow-screen overflow guardrails. Verification: GitHub checks passed for
+  backend gate, Docker build, change detection, security, static checks, AI
+  review, and review reporting; desktop gate was skipped by change detection.
+  Local verification covered new diagnostics smoke tests, broader
+  workbench/alert/ledger API tests, `git diff --check`, `./scripts/ci_gate.sh`
+  with the project virtualenv plus bundled Node on `PATH` (`861` tests plus
+  `5` subtests passing), and a local Chrome Workbench smoke for desktop and
+  390px mobile smoke-hook rendering with no horizontal overflow. Review
+  handling: a native Codex code-review sidecar approved the scoped static/test
+  hardening diff; GitHub PR review checks passed. Boundary: smoke/test
+  hardening only; no new business capability, external provider calls, cache
+  clearing, DB writes, background worker, notification delivery, broker
+  integration, order submission, paper simulation write, ledger v2 storage
+  write, migration/cutover, v2 authority replacement, secrets, HIN originals,
+  account credentials, account numbers, order details, or fill detail exposure.
+  Next candidate: PR16 provider/cache usage telemetry v0, only if started from
+  clean main and kept low-sensitive/local-status only without active external
+  provider calls or secret reads.
 
 ## Blocked Or Separately Authorized Areas
 
