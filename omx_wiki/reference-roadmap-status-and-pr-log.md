@@ -280,6 +280,28 @@ facts needed for future planning.
   detail exposure. Next candidate: no further PR in this chain; future alert
   workers, notification attempts, broker execution, persistence, live quota
   telemetry, or ledger v2 cutover require separate explicit scope.
+- PR14 completed as GitHub PR #212, "Add workbench diagnostics hub", merged at
+  `45e3708207733a6a3506a255fc8df4116f31527e`. Scope: read-only Workbench
+  Diagnostics Hub at `/api/v1/workbench/diagnostics`, compact hub metadata in
+  `/api/v1/workbench/summary`, and a static Workbench panel linking existing
+  low-sensitive provider/cache status, alert-rule presets, alert-rule batch
+  dry-run, ledger v2 dry-run, and ledger v2 diagnostics surfaces. Verification:
+  GitHub checks passed for backend gate, Docker build, change detection,
+  security, static checks, AI review, and review reporting; desktop gate was
+  skipped by change detection. Local verification covered new diagnostics hub
+  contract tests, broader workbench/alert/ledger API tests, `git diff --check`,
+  `./scripts/ci_gate.sh` with the project virtualenv plus bundled Node on
+  `PATH` (`858` tests plus `5` subtests passing), and a local Chrome Workbench
+  smoke for desktop and 390px mobile hub rendering with no horizontal overflow.
+  Review handling: a native Codex code-review sidecar found no blocking issues;
+  GitHub PR review checks passed. Boundary: summary/link aggregation only; no
+  external provider calls, cache clearing, DB writes, background worker,
+  notification delivery, broker integration, order submission, paper simulation
+  write, ledger v2 storage write, migration/cutover, v2 authority replacement,
+  secrets, HIN originals, account credentials, account numbers, order details,
+  or fill detail exposure. Next candidate: PR15 Workbench diagnostics smoke
+  hardening, limited to stable smoke/test coverage for diagnostics hub and the
+  static workbench entry.
 
 ## Blocked Or Separately Authorized Areas
 
