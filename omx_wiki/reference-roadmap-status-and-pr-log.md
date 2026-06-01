@@ -325,6 +325,35 @@ facts needed for future planning.
   Next candidate: PR16 provider/cache usage telemetry v0, only if started from
   clean main and kept low-sensitive/local-status only without active external
   provider calls or secret reads.
+- PR16 completed as GitHub PR #216, "Expose provider cache usage telemetry",
+  merged at `0ca7eb68e660d678847c3fb42da64210ebcda1e8`. Scope: local-only
+  provider/cache usage telemetry v0 under
+  `config_status.provider_status.usage_telemetry`, compact diagnostics hub
+  provider-card telemetry, and static Workbench display of cache observation
+  count, observed dimensions, and last observed provider/dimension/timestamp.
+  Verification: GitHub checks passed for backend gate, Docker build, change
+  detection, security, static checks, AI review, and review reporting; desktop
+  gate was skipped by change detection. Local verification covered red-first
+  targeted tests for missing telemetry, `tests/test_workbench_api.py`,
+  `tests/test_workbench_diagnostics_smoke.py`,
+  `tests/test_news_intel_cache_reuse.py`, `git diff --check`,
+  `./scripts/ci_gate.sh` with the project virtualenv plus bundled Node on
+  `PATH` (`862` tests plus `5` subtests passing), and a local Chrome Workbench
+  smoke for desktop and 390px mobile telemetry rendering with no horizontal
+  overflow. Review handling: GitHub PR AI/review checks passed; a native Codex
+  exploratory sidecar mapped the implementation surface, a native test sidecar
+  mapped the expected tests, and a later native code-review sidecar was stopped
+  after timing out without blocking the already-green local and GitHub gates.
+  Boundary: metadata-only local cache status; no live provider/quota polling,
+  external search/AI provider calls, secret reads, raw key/token exposure,
+  cache clearing, DB writes, background worker, notification delivery, broker
+  integration, order submission, paper simulation write, ledger v2 storage
+  write, migration/cutover, v2 authority replacement, secrets, HIN originals,
+  account credentials, account numbers, order details, query/title/snippet/URL,
+  requester fields, or fill detail exposure. Next candidate: no further PR in
+  this chain; future live provider telemetry, quota probes, workers,
+  notification attempts, broker execution, persistence, or ledger v2 cutover
+  require separate explicit scope.
 
 ## Blocked Or Separately Authorized Areas
 
