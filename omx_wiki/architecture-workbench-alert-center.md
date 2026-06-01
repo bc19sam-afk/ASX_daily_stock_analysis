@@ -21,6 +21,8 @@ The workbench is the local review surface for:
 - Alert-rule dry-run and preset review.
 - Diagnostics hub links for provider/cache status, alert-rule batch dry-run,
   ledger v2 dry-run, and ledger v2 diagnostics.
+- Operator-facing diagnostics schema and first-screen cards for provider/cache
+  status, alert diagnostics, ledger diagnostics, and manual-review boundaries.
 - Provider-cache usage telemetry v0 from local cache observations only.
 
 The Alert Center aggregates must-review risks from existing report and
@@ -54,10 +56,10 @@ way, UI changes should preserve:
 - Alert Center wording as review prompts, not orders.
 - Smoke tests if navigation or layout complexity increases.
 
-Phase 2 Workbench productization can improve operator flow, navigation,
-diagnostics grouping, or smoke coverage. It should remain side-effect-free
-unless a later PR explicitly enters worker, notification, broker, migration, or
-external-provider-call scope.
+Phase 2 Workbench productization can continue improving operator flow,
+navigation, diagnostics grouping, or smoke coverage. It should remain
+side-effect-free unless a later PR explicitly enters worker, notification,
+broker, migration, or external-provider-call scope.
 
 ## Related Pages
 

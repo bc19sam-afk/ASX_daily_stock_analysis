@@ -22,8 +22,9 @@ facts needed for future planning.
   presets. GitHub PR #211 and #217 are status/documentation PRs, not additional
   implementation milestones.
 - GitHub PR #210 fixed the final date-stability audit issue, #211 recorded that
-  audit status, #216 delivered PR16 provider-cache telemetry, and #217 recorded
-  PR16 status on `main`.
+  audit status, #216 delivered PR16 provider-cache telemetry, #217 recorded
+  PR16 status on `main`, #218 selected Phase 2 boundaries, and #219 delivered
+  PR18 Workbench diagnostics productization.
 - The next stage is a Phase 2 option menu, not an automatic continuation chain.
   Pick one direction per PR:
   A. Workbench productization.
@@ -31,10 +32,10 @@ facts needed for future planning.
   C. Alert worker or notification attempt, default-off and manual-review only.
   D. Broker-ready draft/paper boundary, no real broker.
   E. Live provider quota telemetry, only with explicit external-call scope.
-- Recommended PR18 candidates, lowest risk first: Workbench productization, or a
-  docs-backed selection gate that records the chosen Phase 2 direction before
-  implementation. Do not mix broker/execution, worker/notification,
-  migration/cutover, or live provider-call work into the same PR.
+- PR18 has used the lowest-risk Workbench productization lane. Next candidates
+  should still be chosen one small PR at a time; ledger v2 rehearsal/deeper
+  shadow-read or a docs-backed selection gate are lower-risk than worker,
+  broker, migration/cutover, notification, or live-provider-call work.
 
 ## Stable Current State
 
@@ -381,6 +382,37 @@ facts needed for future planning.
   this chain; future live provider telemetry, quota probes, workers,
   notification attempts, broker execution, persistence, or ledger v2 cutover
   require separate explicit scope.
+- PR18 completed as GitHub PR #219, "Productize ASX workbench diagnostics",
+  merged at `21a1e6ac6f1537b84ea67b85034871bac16ed177`. Scope:
+  operator-facing diagnostics hub productization in the existing static
+  Workbench, including stable `nav`, `quick_links`, `status_badges`, and
+  `action_groups` schema fields; first-screen Diagnostics Hub placement; and
+  cards for provider/cache status, alert diagnostics, ledger diagnostics, and
+  the manual-review/no-trade boundary. Verification: GitHub checks passed for
+  backend gate, Docker build, change detection, security, static checks, AI
+  review, and review reporting; desktop gate was skipped by change detection.
+  Local verification covered red/green productization tests,
+  `tests/test_workbench_api.py`, `tests/test_workbench_diagnostics_smoke.py`,
+  targeted alert/ledger/provider tests, `git diff --check`,
+  `./scripts/ci_gate.sh` with the project virtualenv plus bundled Node on
+  `PATH` (`863` tests plus `5` subtests passing), and a Chrome/Playwright
+  Workbench smoke at 1280px desktop and 390px mobile with diagnostics hub,
+  status badges, links, and no horizontal overflow. Review handling: GitHub AI
+  review/checks passed with only the generated review report; native Codex
+  read-only mapping succeeded after the spark-model `explore` lanes hit the
+  known provider `502`, and a later local code-review sidecar was stopped after
+  timeout without blocking the green local and GitHub gates. Boundary:
+  read-only/manual-review UI and schema only; no new business capability,
+  external provider calls, cache clearing, DB writes, background worker,
+  notification delivery, broker integration, order submission, paper simulation
+  write, ledger v2 storage write, migration/cutover, v2 authority replacement,
+  live provider quota API, secrets, HIN originals, account credentials, account
+  numbers, order details, fill detail, provider request payload,
+  query/title/snippet/URL, or requester-field exposure. Next candidate: pick a
+  separate Phase 2 direction, with ledger v2 rehearsal/deeper shadow-read or a
+  docs-backed selection gate lower risk than alert workers, notification
+  attempts, broker execution, persistence, live provider telemetry, or ledger v2
+  cutover.
 
 ## Blocked Or Separately Authorized Areas
 
