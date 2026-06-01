@@ -70,3 +70,17 @@ def get_ledger_v2_diagnostics(
     db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> Dict[str, Any]:
     return AsxLedgerV2DryRunService(db_manager).build_diagnostics()
+
+
+@router.get(
+    "/ledger-v2/rehearsal-report",
+    summary="Build ledger v2 rehearsal report",
+    description=(
+        "Read-only ledger v2 rehearsal report over dry-run candidates and shadow diagnostics. "
+        "This is not migration evidence and does not write ledger v2 storage or change v1 reads."
+    ),
+)
+def get_ledger_v2_rehearsal_report(
+    db_manager: DatabaseManager = Depends(get_database_manager),
+) -> Dict[str, Any]:
+    return AsxLedgerV2DryRunService(db_manager).build_rehearsal_report()

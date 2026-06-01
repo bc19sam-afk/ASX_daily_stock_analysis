@@ -501,6 +501,95 @@ def test_shadow_read_diagnostics_groups_mismatches_missing_unsupported_and_warni
     DatabaseManager.reset_instance()
 
 
+def test_rehearsal_report_summarizes_shadow_diagnostics_for_manual_review(tmp_path: Path):
+    db = _make_db(tmp_path)
+    _seed_v1_buy_sell(db)
+    db.upsert_portfolio_position(
+        code="BHP.AX",
+        name="BHP Group",
+        quantity=5.0,
+        avg_cost=25.0,
+        current_price=25.0,
+        weight=0.1,
+        market_value=125.0,
+    )
+    db.upsert_portfolio_position(
+        code="CBA.AX",
+        name="CBA",
+        quantity=2.0,
+        avg_cost=100.0,
+        current_price=100.0,
+        weight=0.2,
+        market_value=200.0,
+    )
+    with db.get_session() as session:
+        session.add(
+            TradeJournal(
+                query_id="income-dividend-row",
+                code="BHP.AX",
+                action_date=date(2026, 5, 24),
+                action="DIVIDEND",
+                final_decision="DIVIDEND",
+                current_quantity=4.0,
+                target_quantity=4.0,
+                current_price=25.0,
+                available_cash_before=1000.0,
+                available_cash_after=1012.0,
+                reason=(
+                    "event_type=dividend currency=AUD dividend=12.34 "
+                    "franking_credit=5.67 custody_metadata_present=true HIN-001 account_number=123456"
+                ),
+            )
+        )
+        session.add(
+            TradeJournal(
+                query_id="corporate-action-row",
+                code="BHP.AX",
+                action_date=date(2026, 6, 1),
+                action="SPLIT",
+                final_decision="SPLIT",
+                current_quantity=4.0,
+                target_quantity=4.0,
+                current_price=25.0,
+                available_cash_before=1000.0,
+                available_cash_after=1000.0,
+                reason="corporate_action_type=split currency=AUD ratio=2.0 custody_metadata_present=true",
+            )
+        )
+        session.commit()
+    before = _table_counts(db)
+
+    report = AsxLedgerV2DryRunService(db).build_rehearsal_report()
+
+    assert report["status"] == "available"
+    assert report["mode"] == "ledger_v2_rehearsal_report"
+    assert report["is_dry_run"] is True
+    assert report["will_write"] is False
+    assert report["v1_authoritative"] is True
+    assert report["manual_review_required"] is True
+    assert report["readiness"]["non_cutover_ready"] is True
+    assert "not migration evidence" in report["readiness"]["not_migration_evidence"].lower()
+    assert "v1 remains authoritative" in report["readiness"]["authority_wording"].lower()
+    assert report["source_summary"]["dry_run"]["candidate_count"] >= 4
+    assert report["source_summary"]["diagnostics"]["mode"] == "ledger_v2_shadow_read_diagnostics"
+    assert report["counts"]["matched"] == 1
+    assert report["counts"]["mismatched"] == 1
+    assert report["counts"]["missing"] == 1
+    assert report["counts"]["unsupported"] >= 3
+    assert report["counts"]["warnings"] >= 2
+    assert report["top_mismatch_categories"][0]["category"] in {"holding", "cash"}
+    assert report["unsupported_placeholder_summary"]["total"] >= 3
+    assert report["unsupported_placeholder_summary"]["income_partial"] >= 1
+    assert report["unsupported_placeholder_summary"]["corporate_action_unsupported"] >= 1
+    assert report["details"]["mismatched"][0]["type"] == "holding"
+    assert report["links"]["dry_run"] == "/api/v1/portfolio-events/ledger-v2/dry-run"
+    assert report["links"]["diagnostics"] == "/api/v1/portfolio-events/ledger-v2/diagnostics"
+    assert _table_counts(db) == before
+    serialized = str(report)
+    assert not any(marker in serialized for marker in SENSITIVE_MARKERS)
+    DatabaseManager.reset_instance()
+
+
 def test_dual_read_comparison_reports_dry_run_only_holdings(tmp_path: Path):
     db = _make_db(tmp_path)
     with db.get_session() as session:
