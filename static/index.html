@@ -273,6 +273,7 @@
         <a href="/api/v1/backtest/performance" class="pill">回测概览</a>
         <a href="/api/v1/paper-portfolio/overview" class="pill">模拟盘</a>
         <a href="/api/v1/system/config" class="pill">配置</a>
+        <a href="/api/v1/workbench/diagnostics" class="pill">Diagnostics Hub</a>
       </div>
 
       <div class="grid">
@@ -290,6 +291,11 @@
           <section class="panel">
             <h2>Alert Rule Dry-Run</h2>
             <div id="alertRuleDryRunBlock" class="empty">正在读取 dry-run 规则...</div>
+          </section>
+
+          <section class="panel">
+            <h2>Diagnostics Hub</h2>
+            <div id="diagnosticsHubBlock" class="empty">正在读取 diagnostics hub...</div>
           </section>
 
           <section class="panel">
@@ -343,6 +349,7 @@
         stats: document.getElementById('stats'),
         alertCenterBlock: document.getElementById('alertCenterBlock'),
         alertRuleDryRunBlock: document.getElementById('alertRuleDryRunBlock'),
+        diagnosticsHubBlock: document.getElementById('diagnosticsHubBlock'),
         latestReport: document.getElementById('latestReport'),
         historyList: document.getElementById('historyList'),
         portfolioBlock: document.getElementById('portfolioBlock'),
@@ -710,6 +717,38 @@
         `;
       }
 
+      function renderDiagnosticsHub(data) {
+        const hub = data.diagnostics_hub || {};
+        const cards = hub.cards || [];
+        if (!cards.length) {
+          els.diagnosticsHubBlock.innerHTML = '<div class="empty">没有可用 diagnostics hub 条目。</div>';
+          return;
+        }
+        const linkFor = (card) => card.link || hub.links?.[card.id] || '#';
+        els.diagnosticsHubBlock.innerHTML = `
+          <div class="toolbar" style="margin-bottom:10px;">
+            ${pill('summary only', 'good')}
+            ${pill('read-only')}
+            ${pill('no workers')}
+          </div>
+          <div class="statusline">${escapeHtml(hub.copy?.boundary || 'summary only; read-only diagnostics links')}</div>
+          <div class="list" style="margin-top:10px;">
+            ${cards.map((card) => `
+              <div class="item">
+                <h3><a href="${escapeHtml(linkFor(card))}">${escapeHtml(fmt(card.title))}</a></h3>
+                <p>${escapeHtml(fmt(card.id))} · ${escapeHtml(fmt(card.status))}</p>
+                <div class="statusline">
+                  provider_status / alert_rule_batch_dry_run / ledger_v2_diagnostics stay linked as low-sensitive summaries.
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="statusline" style="margin-top:10px;">
+            <a href="${escapeHtml(hub.links?.self || '/api/v1/workbench/diagnostics')}">打开 diagnostics schema</a>
+          </div>
+        `;
+      }
+
       function renderHistory(data) {
         const items = data.history?.items || [];
         if (!items.length) {
@@ -865,6 +904,7 @@
           renderStats(data);
           renderAlertCenter(data);
           renderAlertRuleDryRun(data);
+          renderDiagnosticsHub(data);
           renderLatest(data);
           renderHistory(data);
           renderPortfolio(data);
@@ -878,6 +918,7 @@
           els.stats.innerHTML = '';
           els.alertCenterBlock.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
           els.alertRuleDryRunBlock.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
+          els.diagnosticsHubBlock.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
           els.latestReport.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
           els.historyList.innerHTML = '<div class="empty error">历史报告暂时不可用。</div>';
           els.portfolioBlock.innerHTML = `<div class="empty error">${escapeHtml(message)}</div>`;
