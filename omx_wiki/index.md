@@ -11,6 +11,7 @@ It is not a place for secrets, raw account identifiers, or real order details.
 
 - [[project-boundary-and-safety-contract]]
 - [[decision-asx-roadmap-control-plane]]
+- [[decision-phase2-ledger-v2-rehearsal-gate]]
 - [[runbook-daily-asx-maintenance]]
 - [[decision-asx-upstream-diff-roadmap-2026-05-29]]
 

@@ -56,12 +56,17 @@ These remain manual-review diagnostics. V1 portfolio reads are still
 authoritative, and production migration, cutover, broker integration, worker
 side effects, or notification delivery require separate explicit scope.
 
-Phase 2 ledger work may choose a migration rehearsal or deeper shadow-read PR,
-but it must stay reversible, default-off, and outside production cutover unless
-the task explicitly authorizes that boundary change.
+PR20 selects Phase 2 ledger v2 deeper shadow-read / rehearsal for PR21. That
+follow-up may add a read-only rehearsal report or comparison export over
+existing dry-run, shadow diagnostics, and placeholder data, but it must stay
+reversible, explicit dry-run/manual-review only, default-off, and outside
+production storage, migration, cutover, broker, worker, notification, or live
+provider-call scope unless a later task explicitly authorizes that boundary
+change.
 
 ## Related Pages
 
 - [[pattern-broker-execution-scope-gate]]
+- [[decision-phase2-ledger-v2-rehearsal-gate]]
 - [[reference-upstream-diff-evidence-2026-05-29]]
 - [[decision-asx-upstream-diff-roadmap-2026-05-29]]
