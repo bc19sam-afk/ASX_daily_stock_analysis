@@ -23,19 +23,22 @@ facts needed for future planning.
   implementation milestones.
 - GitHub PR #210 fixed the final date-stability audit issue, #211 recorded that
   audit status, #216 delivered PR16 provider-cache telemetry, #217 recorded
-  PR16 status on `main`, #218 selected Phase 2 boundaries, and #219 delivered
-  PR18 Workbench diagnostics productization.
+  PR16 status on `main`, #218 selected Phase 2 boundaries, #219 delivered PR18
+  Workbench diagnostics productization, and #220 recorded PR18 status on
+  `main`.
 - The next stage is a Phase 2 option menu, not an automatic continuation chain.
-  Pick one direction per PR:
+  PR19 adds a docs/wiki selection gate so PR20 is selected before
+  implementation. Pick one direction per PR:
   A. Workbench productization.
   B. Ledger v2 migration rehearsal or deeper shadow-read.
   C. Alert worker or notification attempt, default-off and manual-review only.
   D. Broker-ready draft/paper boundary, no real broker.
   E. Live provider quota telemetry, only with explicit external-call scope.
-- PR18 has used the lowest-risk Workbench productization lane. Next candidates
-  should still be chosen one small PR at a time; ledger v2 rehearsal/deeper
-  shadow-read or a docs-backed selection gate are lower-risk than worker,
-  broker, migration/cutover, notification, or live-provider-call work.
+- PR18 has used the lowest-risk Workbench productization lane. PR19 should land
+  the docs-backed selection gate before PR20 starts. Next candidates should
+  still be chosen one small PR at a time; ledger v2 rehearsal/deeper shadow-read
+  is lower-risk than worker, broker, migration/cutover, notification, or
+  live-provider-call work.
 
 ## Stable Current State
 
@@ -382,6 +385,16 @@ facts needed for future planning.
   this chain; future live provider telemetry, quota probes, workers,
   notification attempts, broker execution, persistence, or ledger v2 cutover
   require separate explicit scope.
+- PR17 completed as GitHub PR #218, "Record ASX phase-2 roadmap options",
+  merged at `8f71f957b1e9d7996416b13cb5d75bc905bab0a8`. Scope: selected the
+  Phase 2 option menu after PR16/status #217 and kept future work split by
+  direction rather than automatic continuation. Boundary: docs/wiki roadmap
+  selection only; no Workbench implementation, ledger migration/cutover,
+  alert worker, notification delivery, broker connection, real orders/fills,
+  live provider calls, or sensitive data exposure. Next candidate at the time:
+  choose one Phase 2 direction, with Workbench productization or a docs-backed
+  selection gate lower risk than worker, broker, migration/cutover,
+  notification, or live-provider-call work.
 - PR18 completed as GitHub PR #219, "Productize ASX workbench diagnostics",
   merged at `21a1e6ac6f1537b84ea67b85034871bac16ed177`. Scope:
   operator-facing diagnostics hub productization in the existing static
@@ -413,6 +426,18 @@ facts needed for future planning.
   docs-backed selection gate lower risk than alert workers, notification
   attempts, broker execution, persistence, live provider telemetry, or ledger v2
   cutover.
+- PR19 is GitHub PR #221, "Add ASX Phase 2 selection gate". Scope: add
+  [[pattern-phase2-selection-gate]], link it from the wiki index and roadmap
+  decision, update the roadmap status log, and point the maintainer skill at the
+  gate for future Phase 2 starts. Boundary: docs/wiki/control-plane only;
+  no PR20 implementation, business code, API, tests, static UI, database,
+  config, workflow, broker connection, real order, notification send, alert
+  worker, ledger v2 migration/cutover, live provider API call, or sensitive
+  account/order/fill/provider payload material. Next step after merge: use the
+  gate to choose exactly one PR20 lane. Recommended ordering, without choosing
+  for the user: ledger deeper shadow-read/rehearsal gate; broker-ready
+  draft/paper gate; alert notification dry-run gate; live provider telemetry
+  gate.
 
 ## Blocked Or Separately Authorized Areas
 

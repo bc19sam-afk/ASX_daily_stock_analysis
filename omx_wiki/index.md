@@ -24,6 +24,7 @@ It is not a place for secrets, raw account identifiers, or real order details.
 
 - [[pattern-human-review-output-contract]]
 - [[pattern-broker-execution-scope-gate]]
+- [[pattern-phase2-selection-gate]]
 
 ## References
 
