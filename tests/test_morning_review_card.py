@@ -45,6 +45,15 @@ def _card_text(summary):
     return "\n".join(render_morning_review_card_lines(summary))
 
 
+def _row_value(markdown: str, label: str) -> str:
+    marker = f"| **{label}** |"
+    for line in markdown.splitlines():
+        if line.startswith(marker):
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            return cells[1] if len(cells) > 1 else ""
+    raise AssertionError(f"missing row {label!r}")
+
+
 @patch("src.notification.get_db")
 def test_morning_review_card_reaches_email_body_with_action_watch_and_blocked_items(mock_get_db):
     mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
@@ -55,7 +64,7 @@ def test_morning_review_card_reaches_email_body_with_action_watch_and_blocked_it
 
     assert "## Morning Review Card" in email_body
     assert "今日总判断" in email_body
-    assert "先看这几只" in email_body
+    assert "今日优先复核" in email_body
     assert "BHP (BHP.AX)" in email_body
     assert "关键风险" in email_body
     assert "数据可靠性" in email_body
@@ -83,7 +92,8 @@ def test_morning_review_card_handles_no_actionable_day_with_manual_review_remind
     card = _card_text(summary)
 
     assert "今日没有明确计划动作，以观察为主" in card
-    assert "观察名单 1 只" in card
+    assert "今日无可执行动作，先观察" in card
+    assert "WES (WES.AX)" in _row_value(card, "低优先级观察")
     assert "人工复核" in card
     assert "系统不自动下单" in card
 
@@ -117,10 +127,14 @@ def test_morning_review_card_surfaces_reliability_and_data_quality_degradation()
     card = _card_text(summary)
 
     assert "报告可信度" in card
-    assert "包含实时价格参考" in card
-    assert "数据质量" in card
+    assert "价格来源混用" in card
+    assert "主要缺口" in card
     assert "验证阻断" in card
     assert "收盘价缺失" in card
+    reliability = _row_value(card, "数据可靠性")
+    assert len(reliability) <= 160
+    assert "主要缺口：" in reliability
+    assert reliability.count("；") <= 2
 
 
 def test_morning_review_card_marks_risk_sizing_as_preview_without_mutating_actions():
@@ -161,5 +175,62 @@ def test_legacy_daily_report_body_also_includes_morning_review_card(mock_get_db)
 
     assert "## Morning Review Card" in report
     assert "今日总判断" in report
-    assert "先看这几只" in report
+    assert "今日优先复核" in report
     assert report.index("## Morning Review Card") < report.index("## 📊 操作建议汇总")
+
+
+def test_morning_review_card_separates_action_priority_from_data_gaps():
+    summary = _summary(
+        [
+            _result(
+                code="BHP.AX",
+                name="BHP",
+                final_decision="BUY",
+                position_action="ADD",
+                target_weight=0.10,
+                delta_amount=5000.0,
+            ),
+            _result(
+                code="TWE.AX",
+                name="TWE",
+                validation_status="BLOCK",
+                validation_issues=["分析结果不完整，需补数据后复核。"],
+                fundamental_analysis="",
+                news_summary="",
+            ),
+            _result(
+                code="WES.AX",
+                name="WES",
+                final_decision="HOLD",
+                position_action="HOLD",
+                target_weight=0.0,
+                delta_amount=0.0,
+            ),
+        ]
+    )
+
+    card = _card_text(summary)
+
+    assert "今日优先复核" in card
+    assert "先补数据再判断" in card
+    assert "低优先级观察" in card
+    assert "先看这几只" not in card
+    assert "有机会但证据不足" not in card
+    assert "BHP (BHP.AX)" in _row_value(card, "今日优先复核")
+    assert "TWE" not in _row_value(card, "今日优先复核")
+    assert "TWE" in _row_value(card, "先补数据再判断")
+    assert "WES (WES.AX)" in _row_value(card, "低优先级观察")
+
+
+@patch("src.notification.get_db")
+def test_preopen_dashboard_does_not_repeat_legacy_review_card_core_rows(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+
+    report = service.generate_dashboard_report(_readability_results(), report_date="2026-04-29")
+    landing = report.split("\n---\n", 1)[0]
+
+    assert "## Morning Review Card" in landing
+    assert "**今日人工复核卡片**" not in landing
+    assert landing.count("今日优先复核") == 1
+    assert landing.count("先补数据再判断") == 1

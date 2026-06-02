@@ -1113,6 +1113,13 @@ def _execution_checklist_inline(checklist: List[str]) -> str:
     return "开盘后确认价格；检查公告和新闻；数据不足则观察；仅作计划。"
 
 
+def _triage_section_text(summary: Dict[str, Any], key: str, empty_text: str) -> str:
+    items = (summary.get("triage_card") or {}).get(key) or []
+    if items:
+        return _format_triage_preview(items)
+    return empty_text
+
+
 def _render_triage_card_lines(card: Dict[str, Any]) -> List[str]:
     if not card:
         return []
@@ -1181,8 +1188,9 @@ def render_morning_review_card_lines(summary: Dict[str, Any]) -> List[str]:
                 f"动作数量：{_format_action_counts_inline(summary.get('action_counts') or {})}。"
             ),
         ),
-        ("先看这几只", _morning_review_focus_text(summary)),
-        ("为什么", _morning_review_reason_text(summary.get("triage_card") or {})),
+        ("今日优先复核", _morning_review_priority_text(summary)),
+        ("先补数据再判断", _triage_section_text(summary, "data_quality_attention", "暂无验证阻断或补数项。")),
+        ("低优先级观察", _morning_review_low_priority_text(summary)),
         ("关键风险", "；".join(_compact_reason(line) for line in risk_lines[:3])),
         ("数据可靠性", _morning_review_reliability_text(summary)),
         ("风险仓位试算", _morning_review_risk_sizing_text(summary)),
@@ -1207,23 +1215,27 @@ def render_morning_review_card_lines(summary: Dict[str, Any]) -> List[str]:
     return lines
 
 
-def _morning_review_focus_text(summary: Dict[str, Any]) -> str:
-    triage_card = summary.get("triage_card") or {}
-    for key in ("today_must_review", "data_quality_attention", "high_value_low_confidence"):
-        items = triage_card.get(key) or []
-        if items:
-            return _format_triage_preview(items)
+def _morning_review_priority_text(summary: Dict[str, Any]) -> str:
+    text = _triage_section_text(summary, "today_must_review", "")
+    if text:
+        return text
+    if summary.get("blocked_items"):
+        return "今日无可执行动作，先观察；补齐验证阻断后再判断。"
+    if summary.get("watch_items"):
+        return "今日无可执行动作，先观察；只在价格、公告或新闻触发时再打开观察名单。"
+    return "今日无可执行动作，先观察。"
 
+
+def _morning_review_low_priority_text(summary: Dict[str, Any]) -> str:
+    text = _triage_section_text(summary, "today_can_ignore", "")
+    if text:
+        return text
     watch_items = summary.get("watch_items") or []
     if watch_items:
         names = "、".join(str(item.get("name") or item.get("code") or "未知标的") for item in watch_items[:TRIAGE_CARD_PREVIEW_LIMIT])
         suffix = " 等" if len(watch_items) > TRIAGE_CARD_PREVIEW_LIMIT else ""
-        return f"观察名单 {len(watch_items)} 只：{names}{suffix}。"
-
-    blocked_items = summary.get("blocked_items") or []
-    if blocked_items:
-        return _format_triage_preview(blocked_items)
-    return "暂无优先标的；数据不足则观察。"
+        return f"低优先级观察 {len(watch_items)} 只：{names}{suffix}。"
+    return "暂无低优先级观察项。"
 
 
 def _morning_review_reason_text(card: Dict[str, Any]) -> str:
@@ -1239,32 +1251,53 @@ def _morning_review_reason_text(card: Dict[str, Any]) -> str:
 
 
 def _morning_review_reliability_text(summary: Dict[str, Any]) -> str:
-    snapshot = summary.get("data_quality_snapshot") or {}
-    attention = snapshot.get("attention") or []
-    flags = summary.get("data_quality_flags") or []
-    attention_reasons = [
-        str(item.get("reason") or item.get("message") or "").strip()
-        for item in list(attention) + list(flags)
-        if str(item.get("reason") or item.get("message") or "").strip()
-    ]
-    attention_text = "；".join(_compact_reason(reason) for reason in attention_reasons[:2])
-    if not attention_text:
-        attention_text = "暂无明显数据质量降级"
+    reliability = summary.get("report_reliability") or {}
+    score = int(reliability.get("score") or 0)
+    level = str(reliability.get("level") or "low_observe_only")
+    label = LEVEL_LABELS.get(level, LEVEL_LABELS["low_observe_only"])
     return (
-        f"报告可信度：{_report_reliability_sentence(summary.get('report_reliability') or {})} "
-        f"数据质量提醒：{attention_text}。"
-        f"价格来源：{_morning_review_price_policy_text(summary)}；"
-        f"技术基准日 {_display_date_or_placeholder(summary.get('technical_basis_date'))}。"
+        f"报告可信度：{score}/100（{label}）；"
+        f"{_morning_review_price_policy_text(summary)}；基准日 {_display_date_or_placeholder(summary.get('technical_basis_date'))}。"
+        f"主要缺口：{_morning_review_main_gap_text(summary)}。"
     )
+
+
+def _morning_review_main_gap_text(summary: Dict[str, Any]) -> str:
+    evidence_summary = summary.get("evidence_summary") or {}
+    stock_count = int(evidence_summary.get("stock_count") or summary.get("stock_count") or 0)
+    gaps: List[str] = []
+    blocked = int(evidence_summary.get("validation_block") or len(summary.get("blocked_items") or []))
+    if blocked > 0:
+        gaps.append(f"{blocked}/{stock_count} 验证阻断" if stock_count else f"{blocked} 只验证阻断")
+    for key, label in (
+        ("valuation_missing", "估值"),
+        ("news_missing", "新闻"),
+        ("backtest_not_checked", "回测"),
+        ("market_data_missing_or_stale", "行情"),
+    ):
+        count = int(evidence_summary.get(key) or 0)
+        if count > 0:
+            gaps.append(f"{count}/{stock_count} {label}" if stock_count else f"{count} 项{label}")
+        if len(gaps) >= 2:
+            break
+    if gaps:
+        return "，".join(gaps)
+    flags = summary.get("data_quality_flags") or []
+    if flags:
+        return _compact_reason(str(flags[0].get("message") or "数据质量需人工确认"))
+    return "暂无明显缺口"
 
 
 def _morning_review_price_policy_text(summary: Dict[str, Any]) -> str:
     policy = str(summary.get("price_policy") or "close_only")
-    label = _price_policy_label(policy)
     counts = summary.get("price_basis_counts") or {}
     if policy == "mixed" and int(counts.get("realtime", 0) or 0) > 0:
-        return f"{label}（包含实时价格参考）"
-    return label
+        return "价格来源混用"
+    return {
+        "close_only": "昨收数据",
+        "latest_close": "最新收盘数据",
+        "realtime": "实时价格参考",
+    }.get(policy, f"价格来源需确认（{policy}）")
 
 
 def _morning_review_risk_sizing_text(summary: Dict[str, Any]) -> str:
@@ -1332,7 +1365,6 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         f"- **今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
         f"- **今日动作数量**：{_format_action_counts_inline(counts)}",
     ])
-    lines.extend(_render_triage_card_lines(summary.get("triage_card") or {}))
     lines.extend([
         "",
         "**当前持仓需要处理什么**",

@@ -353,12 +353,11 @@ def test_dashboard_homepage_is_compact_and_moves_audit_sections_to_appendix(mock
     assert "**开盘前快照**" in landing
     assert "**今日结论**" in landing
     assert "**今日动作数量**" in landing
-    assert "**今日人工复核卡片**" in landing
-    assert "| 阅读顺序 | 摘要 |" in landing
-    assert "| **先看这几只** |" in landing
-    assert "| **低优先级** |" in landing
-    assert "| **有机会但证据不足** |" in landing
+    assert "## Morning Review Card" in landing
+    assert "| **今日优先复核** |" in landing
+    assert "| **低优先级观察** |" in landing
     assert "| **先补数据再判断** |" in landing
+    assert "**今日人工复核卡片**" not in landing
     assert "**当前持仓需要处理什么**" in landing
     assert "**今日重点股票**" in landing
     assert "**主要风险 / 暂停动作**" in landing
@@ -631,9 +630,9 @@ def test_triage_card_homepage_uses_plain_chinese_not_developer_jargon(mock_get_d
     assert "加仓当前持仓" in landing
     assert "新开仓观察" in landing
     assert "今天没有明确动作" in landing
-    assert "数据或历史样本需要人工确认" in landing
-    assert "回测证据不足" in landing
-    assert "行情时间口径不是纯昨收" in landing
+    assert "主要缺口" in landing
+    assert "回测" in landing
+    assert "价格来源混用" in landing
 
     developer_terms = [
         "add to holding",
