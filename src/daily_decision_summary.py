@@ -1270,6 +1270,9 @@ def _morning_review_main_gap_text(summary: Dict[str, Any]) -> str:
     if blocked > 0:
         gaps.append(f"{blocked}/{stock_count} 验证阻断" if stock_count else f"{blocked} 只验证阻断")
     for key, label in (
+        ("announcement_risk_found", "公告风险"),
+        ("announcement_unavailable", "公告源不可用"),
+        ("announcement_not_checked", "公告未检查"),
         ("valuation_missing", "估值"),
         ("news_missing", "新闻"),
         ("backtest_not_checked", "回测"),
@@ -1290,8 +1293,7 @@ def _morning_review_main_gap_text(summary: Dict[str, Any]) -> str:
 
 def _morning_review_price_policy_text(summary: Dict[str, Any]) -> str:
     policy = str(summary.get("price_policy") or "close_only")
-    counts = summary.get("price_basis_counts") or {}
-    if policy == "mixed" and int(counts.get("realtime", 0) or 0) > 0:
+    if policy == "mixed":
         return "价格来源混用"
     return {
         "close_only": "昨收数据",

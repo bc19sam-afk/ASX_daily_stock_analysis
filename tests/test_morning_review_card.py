@@ -5,6 +5,7 @@ from datetime import datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from src.asx_announcements import ASXAnnouncementCheck
 from src.core.risk_sizing import RiskSizingSettings
 from src.daily_decision_summary import (
     build_daily_decision_summary,
@@ -27,7 +28,7 @@ def _model(result):
     }
 
 
-def _summary(results, *, overview=None, risk_sizing_settings=None):
+def _summary(results, *, overview=None, risk_sizing_settings=None, announcement_checks=None):
     return build_daily_decision_summary(
         results=results,
         report_date="2026-04-29",
@@ -38,6 +39,7 @@ def _summary(results, *, overview=None, risk_sizing_settings=None):
         format_stock_display_name=lambda name, code: f"{name} ({code})",
         format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
         risk_sizing_settings=risk_sizing_settings,
+        announcement_checks=announcement_checks,
     )
 
 
@@ -135,6 +137,78 @@ def test_morning_review_card_surfaces_reliability_and_data_quality_degradation()
     assert len(reliability) <= 160
     assert "主要缺口：" in reliability
     assert reliability.count("；") <= 2
+
+
+def test_morning_review_card_includes_asx_announcement_gap_in_reliability_summary():
+    result = _result(
+        code="BHP.AX",
+        name="BHP",
+        final_decision="BUY",
+        position_action="ADD",
+        current_weight=0.20,
+        target_weight=0.24,
+        delta_amount=4000.0,
+    )
+    result.backtest_summary = {"sample_size": 20, "win_rate_pct": 55}
+    summary = _summary(
+        [result],
+        overview={
+            "cash": 10000.0,
+            "equity_value": 20000.0,
+            "total_value": 30000.0,
+            "holdings": [{"code": "BHP.AX", "name": "BHP", "weight": 0.20}],
+        },
+        announcement_checks={
+            "BHP.AX": ASXAnnouncementCheck(
+                code="BHP.AX",
+                checked=True,
+                source="asx_market_announcements",
+                checked_at="2026-04-29T07:20:00+10:00",
+                has_price_sensitive_item=True,
+                status="risk_found",
+                reason="检测到 ASX 公告风险；执行前人工复核。",
+            )
+        },
+    )
+
+    reliability = _row_value(_card_text(summary), "数据可靠性")
+
+    assert "主要缺口：" in reliability
+    assert "公告风险" in reliability
+    assert "暂无明显缺口" not in reliability
+
+
+def test_morning_review_card_keeps_chinese_mixed_price_label_without_realtime_rows():
+    summary = _summary(
+        [
+            _result(
+                code="BHP.AX",
+                name="BHP",
+                execution_price_source="close_only",
+                current_weight=0.20,
+            ),
+            _result(
+                code="CBA.AX",
+                name="CBA",
+                execution_price_source="latest_close",
+                market_snapshot={"date": "2026-04-28", "close": "100.00", "source": "yfinance"},
+            ),
+        ],
+        overview={
+            "cash": 10000.0,
+            "equity_value": 20000.0,
+            "total_value": 30000.0,
+            "holdings": [
+                {"code": "BHP.AX", "name": "BHP", "weight": 0.20},
+                {"code": "CBA.AX", "name": "CBA", "weight": 0.0},
+            ],
+        },
+    )
+
+    reliability = _row_value(_card_text(summary), "数据可靠性")
+
+    assert "价格来源混用" in reliability
+    assert "mixed" not in reliability
 
 
 def test_morning_review_card_marks_risk_sizing_as_preview_without_mutating_actions():
