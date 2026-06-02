@@ -122,12 +122,11 @@ def test_preopen_dashboard_close_only_wording_and_action_counts(mock_get_db):
     assert "**开盘前快照**" in report
     assert "**今日结论**" in report
     assert "**今日动作数量**" in report
-    assert "**今日人工复核卡片**" in report
-    assert "| 阅读顺序 | 摘要 |" in report
-    assert "| **先看这几只** |" in report
-    assert "| **低优先级** |" in report
-    assert "| **有机会但证据不足** |" in report
+    assert "## Morning Review Card" in report
+    assert "| **今日优先复核** |" in report
+    assert "| **低优先级观察** |" in report
     assert "| **先补数据再判断** |" in report
+    assert "**今日人工复核卡片**" not in report.split("\n---\n", 1)[0]
     assert "买入 1 / 加仓 1 / 减仓 1 / 清仓 1 / 观察 1 / 阻断 1" in report
     assert "**执行口径**" in report
     assert "| 复核项 |" in report
