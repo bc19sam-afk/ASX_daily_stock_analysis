@@ -110,6 +110,7 @@ class _InflightCacheEntry:
 
 class BaseSearchProvider(ABC):
     """搜索引擎基类"""
+    supports_comprehensive_intel_rotation = True
     
     def __init__(self, api_keys: List[str], name: str):
         self._api_keys = api_keys
@@ -519,6 +520,7 @@ Rules:
 
 class SerpAPISearchProvider(BaseSearchProvider):
     """SerpAPI 搜索引擎"""
+    supports_comprehensive_intel_rotation = False
     
     def __init__(self, api_keys: List[str]):
         super().__init__(api_keys, "SerpAPI")
@@ -1315,6 +1317,13 @@ class SearchService:
             return None
         return filtered
 
+    @staticmethod
+    def _select_comprehensive_intel_providers(providers: List[BaseSearchProvider]) -> List[BaseSearchProvider]:
+        """Keep scarce SerpAPI quota out of routine multi-dimension rotation."""
+        available_providers = [p for p in providers if p.is_available]
+        primary_providers = [p for p in available_providers if p.supports_comprehensive_intel_rotation]
+        return primary_providers or available_providers
+
     def search_comprehensive_intel(
         self,
         stock_code: str,
@@ -1330,7 +1339,7 @@ class SearchService:
         except (TypeError, ValueError):
             search_limit = len(dims)
 
-        available_providers = [p for p in self._providers if p.is_available]
+        available_providers = self._select_comprehensive_intel_providers(self._providers)
         provider_index = 0
 
         for dim in dims[:search_limit]:
