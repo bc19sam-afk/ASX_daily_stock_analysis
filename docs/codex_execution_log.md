@@ -19,7 +19,7 @@
 - P0 state: complete.
 - P1 state: complete through shadow / dry-run risk sizing, structured valuation, and ASX search localisation; true risk sizing enabled mode is not implemented.
 - P2 state: original roadmap complete through P2-1, P2-2, P2-3, and P2-4.
-- R0/R1 state: report readability guardrails complete.
+- R0/R1 state: report readability guardrails complete through PR23 real-email Morning Review Card readability tune.
 - P1-3b-3, realtime quote adapter, broker integration, automatic trading, workflow changes, `close_only` changes, storage changes, and database migrations remain blocked unless separately authorized.
 
 ## PR Status
@@ -91,7 +91,19 @@ Process notes:
 - Local verification: `tests/test_morning_review_card.py`, report-body projection tests, daily-decision dashboard/archive tests, evidence integration tests, risk-sizing comparison/shadow tests, report readability guardrails, notification summary/validation tests, score bucket tests, `git diff --check`, targeted `py_compile`, and `./scripts/ci_gate.sh` with the project venv plus bundled Node on `PATH` (`870` tests plus `5` subtests passing).
 - GitHub verification: backend gate, Docker build, change detection, security, static checks, AI review, and review report passed; desktop gate skipped by change detection.
 - Boundary: no deterministic final action, position action, target weight, sizing write-back, notification send timing, default worker, Workbench/API expansion, provider order/cache change, live provider call, broker/execution, database migration, ledger v2 production write/cutover, secrets, HIN originals, account credentials, account numbers, order details, or fill detail exposure.
-- Next candidate: review the next real daily email/report with Morning Review Card before choosing another small PR. Any follow-up should select one lane only, such as report readability, alert notification dry-run/default-off gate, broker-ready draft/paper boundary, explicit live provider telemetry, or ledger v2 follow-up after manual review.
+- Next candidate was completed by the PR23 real-email readability tune after the 2026-06-02 daily email. Future follow-up should again select one separate lane only, such as another report readability pass after a new real report, alert notification dry-run/default-off gate, broker-ready draft/paper boundary, explicit live provider telemetry, or ledger v2 follow-up after manual review.
+
+## 2026-06-02 PR23 Morning Review Card Real-Email Readability
+
+- Status: merged via GitHub PR #227, "Tune Morning Review Card readability", plus follow-up GitHub PR #229, "Polish Morning Review Card reliability labels".
+- Merge commits: PR #227 `2c76715b5ed1e804e0ae73f85045bae932741985`; PR #229 `68edc7298f59e4dc67da115d5002bc5da1aedcf7`.
+- Real email evidence: first real daily email subject `股票智能分析报告 - 2026-06-02`, Gmail messageId `19e85a61ef289ba5`, proved the Morning Review Card was active but the first screen still repeated the legacy `今日人工复核卡片`, mixed blocked/data-incomplete names into `先看这几只`, and made the data reliability cell too dense.
+- Scope: display-only report/email readability micro-tune. PR #227 separated `今日优先复核`, `先补数据再判断`, and `低优先级观察`; removed the legacy review card from the pre-open first screen; shortened the data reliability row; and kept risk sizing as trial-only wording. PR #229 closed two Codex P2 follow-up comments by surfacing ASX announcement gaps in the Morning Review Card `主要缺口` row and keeping non-realtime mixed price labels in Chinese.
+- Changed files: PR #227 changed `src/daily_decision_summary.py`, `tests/test_morning_review_card.py`, `tests/test_daily_decision_dashboard_archive.py`, and `tests/test_report_readability_guardrail.py`; PR #229 changed `src/daily_decision_summary.py` and `tests/test_morning_review_card.py`.
+- Local verification: PR #227 targeted report/email readability tests passed and `./scripts/ci_gate.sh` passed with `872` tests plus `5` subtests; PR #229 targeted Morning Review Card, ASX announcement, report reliability, report readability, and dashboard/archive tests passed, `git diff --check` and targeted `py_compile` passed, and `./scripts/ci_gate.sh` passed with `874` tests plus `5` subtests.
+- GitHub verification: PR #227 and PR #229 both passed backend gate, Docker build, change detection, security, static checks, AI review, and review report; desktop gate was skipped by change detection. PR #229 had no inline review comments and closed the actionable Codex P2 comments discovered after PR #227 merge.
+- Boundary: no deterministic final action, position action, target weight, validation block, risk-sizing calculation, sizing write-back, strategy strip, portfolio card, alert worker, notification send, provider order/cache policy, live provider or paid data call, broker/execution, real account/order/fill handling, ledger v2 migration/cutover/production write, secrets, HIN originals, account numbers, or strategy/AI write-back to authoritative action fields.
+- Next candidate: wait for another real report/email or select one separate Phase 2 lane; no worker, broker, notification delivery, live-provider call, persistence, provider-policy change, or ledger cutover is implied by PR23.
 
 ## Run Log
 

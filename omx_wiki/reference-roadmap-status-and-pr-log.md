@@ -20,13 +20,16 @@ facts needed for future planning.
   AnalysisContextPack low-sensitivity summary, PR8 maps to GitHub PR #198
   provider quota/status dashboard, and PR9 maps to GitHub PR #200 alert-rule
   presets. GitHub PR #211 and #217 are status/documentation PRs, not additional
-  implementation milestones.
+  implementation milestones. PR23 landed as GitHub PR #227 plus review-fix
+  follow-up #229.
 - GitHub PR #210 fixed the final date-stability audit issue, #211 recorded that
   audit status, #216 delivered PR16 provider-cache telemetry, #217 recorded
   PR16 status on `main`, #218 selected Phase 2 boundaries, #219 delivered PR18
   Workbench diagnostics productization, #220 recorded PR18 status on `main`,
   #222 selected the PR21 ledger v2 rehearsal gate, #223 delivered PR21, #224
-  recorded PR21 status, and #225 delivered PR22 Morning Review Card.
+  recorded PR21 status, #225 delivered PR22 Morning Review Card, #227 tuned
+  Morning Review Card readability after the first real email, and #229 closed
+  the follow-up readability label review comments.
 - The next stage is a Phase 2 option menu, not an automatic continuation chain.
   PR19 added a docs/wiki selection gate so PR20 could select one lane before
   implementation. Pick one direction per PR:
@@ -40,7 +43,10 @@ facts needed for future planning.
   shadow-read for PR21 and keeps PR21 read-only/dry-run only, with v1
   authoritative and no storage writes, migration/cutover, broker/execution,
   worker, notification, or live-provider-call work. PR21 landed the selected
-  rehearsal report without changing those boundaries.
+  rehearsal report without changing those boundaries. PR22 added the display
+  only Morning Review Card, and PR23 tuned its real-email first-screen
+  readability without changing action, provider, worker, broker, or ledger
+  semantics.
 
 ## Stable Current State
 
@@ -517,6 +523,30 @@ facts needed for future planning.
   scope, or ledger v2 follow-up after manual review; no worker, broker,
   notification delivery, live-provider call, persistence, or ledger cutover is
   implied by PR22.
+- PR23 completed as GitHub PR #227, "Tune Morning Review Card readability",
+  merged at `2c76715b5ed1e804e0ae73f85045bae932741985`, with follow-up GitHub
+  PR #229, "Polish Morning Review Card reliability labels", merged at
+  `68edc7298f59e4dc67da115d5002bc5da1aedcf7`. Scope: display-only report/email
+  readability tune after the first real daily email
+  `股票智能分析报告 - 2026-06-02` (`Gmail messageId 19e85a61ef289ba5`). PR23
+  separated `今日优先复核`, `先补数据再判断`, and `低优先级观察`; removed the
+  legacy `今日人工复核卡片` from the pre-open first screen; shortened the
+  Morning Review Card data reliability row; kept risk sizing as trial-only; and
+  added regression coverage so ASX announcement gaps appear in `主要缺口` and
+  non-realtime mixed price policies keep the Chinese `价格来源混用` label.
+  Verification: PR #227 and #229 both passed GitHub backend gate, Docker build,
+  change detection, security, static checks, AI review, and review reporting;
+  local `ci_gate.sh` passed with `872` tests plus `5` subtests for #227 and
+  `874` tests plus `5` subtests for #229. Boundary: display/readability and
+  tests only; no deterministic action, target weight, validation block,
+  risk-sizing calculation/write-back, strategy strip, portfolio card, alert
+  worker, notification send, provider order/cache policy, live provider/paid
+  data call, broker/execution, real account/order/fill handling, ledger v2
+  migration/cutover/production write, secrets, HIN originals, account numbers,
+  or strategy/AI write-back to authoritative fields. Next candidate: wait for
+  another real report/email or choose one separate Phase 2 lane; no worker,
+  broker, notification delivery, live-provider call, persistence, provider
+  policy change, or ledger cutover is implied by PR23.
 
 ## Blocked Or Separately Authorized Areas
 
