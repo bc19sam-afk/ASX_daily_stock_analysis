@@ -12,6 +12,7 @@ from src.search_service import (
     SearchService,
     SearchResponse,
     SearchResult,
+    SerpAPISearchProvider,
 )
 
 
@@ -309,6 +310,70 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.assertEqual(list(intel.keys()), ["latest_news", "market_analysis", "risk_check"])
         self.assertEqual(p1.call_count, 2)
         self.assertEqual(p2.call_count, 1)
+
+    def test_search_comprehensive_intel_excludes_serpapi_from_primary_rotation(self) -> None:
+        """SerpAPI 配额少，Tavily/Gemini 可用时不应进入多维度轮换池。"""
+
+        def make_response(url_suffix: str) -> SearchResponse:
+            return SearchResponse(
+                query="ok",
+                results=[
+                    SearchResult(
+                        title="ASX: CBA.AX coverage",
+                        snippet="Commonwealth Bank of Australia update",
+                        url=f"https://example.com/{url_suffix}",
+                        source="example.com",
+                        published_date=self.fresh_published_date,
+                    )
+                ],
+                provider="mock",
+                success=True,
+            )
+
+        tavily = FakeSearchProvider("Tavily", [make_response(f"tavily-{i}") for i in range(3)])
+        gemini = FakeSearchProvider("Gemini Grounding", [make_response(f"gemini-{i}") for i in range(2)])
+        serpapi = FakeSearchProvider("SerpAPI", [make_response(f"serpapi-{i}") for i in range(5)])
+        serpapi.supports_comprehensive_intel_rotation = False
+        self.service._providers = [tavily, gemini, serpapi]
+
+        intel = self.service.search_comprehensive_intel(self.code, self.name, max_searches=5)
+
+        self.assertEqual(list(intel.keys()), ["latest_news", "market_analysis", "risk_check", "earnings", "industry"])
+        self.assertEqual([resp.provider for resp in intel.values()], ["Tavily", "Gemini Grounding", "Tavily", "Gemini Grounding", "Tavily"])
+        self.assertEqual(tavily.call_count, 3)
+        self.assertEqual(gemini.call_count, 2)
+        self.assertEqual(serpapi.call_count, 0)
+
+    def test_search_comprehensive_intel_uses_serpapi_when_only_fallback_available(self) -> None:
+        """只有 SerpAPI 可用时，保留最后兜底能力。"""
+        provider_response = SearchResponse(
+            query="ok",
+            results=[
+                SearchResult(
+                    title="ASX: CBA.AX coverage",
+                    snippet="Commonwealth Bank of Australia update",
+                    url="https://example.com/serpapi-only",
+                    source="example.com",
+                    published_date=self.fresh_published_date,
+                )
+            ],
+            provider="mock",
+            success=True,
+        )
+        serpapi = FakeSearchProvider("SerpAPI", [provider_response])
+        serpapi.supports_comprehensive_intel_rotation = False
+        self.service._providers = [serpapi]
+
+        intel = self.service.search_comprehensive_intel(self.code, self.name, max_searches=1)
+
+        self.assertEqual(intel["latest_news"].provider, "SerpAPI")
+        self.assertEqual(serpapi.call_count, 1)
+
+    def test_real_serpapi_provider_marks_itself_out_of_routine_rotation(self) -> None:
+        """真实 SerpAPI provider 应声明自己只做低频兜底。"""
+        provider = SerpAPISearchProvider(["fake-key"])
+
+        self.assertFalse(provider.supports_comprehensive_intel_rotation)
 
     def test_search_comprehensive_intel_keeps_undated_non_news_dimension(self) -> None:
         """非新闻类维度不应因为 provider 未给发布日期就被时效过滤清空。"""

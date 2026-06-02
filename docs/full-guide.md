@@ -557,7 +557,7 @@ PUSHOVER_API_TOKEN=your_api_token
 ## 数据源配置
 
 当前 ASX/AU/US 默认数据路径使用 yfinance，无需额外行情源 token。
-新闻搜索默认顺序为 `Tavily advanced -> Gemini Grounding -> SerpAPI`。Tavily advanced 是主路径；Gemini Grounding 复用 Gemini key；在调用外部 provider 前会先复用最近的 `news_intel` 持久缓存；SerpAPI 额度较少，仅作为 Tavily/Gemini Grounding 都不可用后的低频 fallback。多维度情报按维度轮换单个 provider，不再在过滤为空后继续扫完整 provider 链。
+新闻搜索默认顺序为 `Tavily advanced -> Gemini Grounding -> SerpAPI`。Tavily advanced 是主路径；Gemini Grounding 复用 Gemini key；在调用外部 provider 前会先复用最近的 `news_intel` 持久缓存；SerpAPI 额度较少，仅作为 Tavily/Gemini Grounding 都不可用后的低频 fallback。多维度情报只在 Tavily/Gemini Grounding 等主 provider 间按维度轮换；只要主 provider 可用，SerpAPI 不进入日常轮换池。
 
 ---
 
