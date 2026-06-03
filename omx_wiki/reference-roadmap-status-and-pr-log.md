@@ -21,7 +21,8 @@ facts needed for future planning.
   provider quota/status dashboard, and PR9 maps to GitHub PR #200 alert-rule
   presets. GitHub PR #211 and #217 are status/documentation PRs, not additional
   implementation milestones. PR23 landed as GitHub PR #227 plus review-fix
-  follow-up #229. PR24 landed as GitHub PR #231.
+  follow-up #229. PR24 landed as GitHub PR #231, and PR25 landed as GitHub
+  PR #233.
 - GitHub PR #210 fixed the final date-stability audit issue, #211 recorded that
   audit status, #216 delivered PR16 provider-cache telemetry, #217 recorded
   PR16 status on `main`, #218 selected Phase 2 boundaries, #219 delivered PR18
@@ -30,7 +31,8 @@ facts needed for future planning.
   recorded PR21 status, #225 delivered PR22 Morning Review Card, #227 tuned
   Morning Review Card readability after the first real email, #229 closed
   the follow-up readability label review comments, and #231 fixed the 2026-06-03
-  daily stock report notification failure on malformed report data.
+  daily stock report notification failure on malformed report data, and #233
+  added the Daily Report Delivery Health Guard.
 - The next stage is a Phase 2 option menu, not an automatic continuation chain.
   PR19 added a docs/wiki selection gate so PR20 could select one lane before
   implementation. Pick one direction per PR:
@@ -46,8 +48,9 @@ facts needed for future planning.
   worker, notification, or live-provider-call work. PR21 landed the selected
   rehearsal report without changing those boundaries. PR22 added the display
   only Morning Review Card, PR23 tuned its real-email first-screen readability,
-  and PR24 added malformed report-data notification resilience without changing
-  action, provider, worker, broker, or ledger semantics.
+  PR24 added malformed report-data notification resilience, and PR25 added a
+  delivery-health status guard without changing action, provider, worker,
+  broker, or ledger semantics.
 
 ## Stable Current State
 
@@ -575,6 +578,27 @@ facts needed for future planning.
   stock daily report/email and confirm stock daily Markdown, HTML, JSON, and
   email are all present; if not, start from the new traceback-bearing
   notification log.
+- PR25 completed as GitHub PR #233, "Add daily report delivery health guard",
+  merged at `506caf62b4a84fb6409ec6b9d38d7b17c5d89b83`. Scope:
+  lightweight delivery-health observability around `_send_notifications`,
+  recording whether stock daily Markdown, HTML, and `daily_decision_summary`
+  JSON were saved, whether notification was attempted, which channels were in
+  scope, and where notification failed. Notification-stage exceptions now keep
+  traceback context plus an explicit `日报交付健康检查失败` marker. Verification:
+  local RED/GREEN pipeline health tests, related notification/dashboard/Morning
+  Review Card/readability suite (`137` tests), `git diff --check`, and full
+  `./scripts/ci_gate.sh` (`882` tests plus `5` subtests) passed; GitHub backend
+  gate, Docker build, change detection, security, static checks, AI review, and
+  review report passed, with desktop gate skipped by change detection. Boundary:
+  observability only; no real notification send, manual `workflow_dispatch`,
+  schedule change, deterministic action, position action, target weight,
+  validation block, risk-sizing calculation/write-back, provider order/cache
+  policy, live provider/paid data call, broker/execution, real
+  account/order/fill handling, ledger v2 migration/cutover/production write,
+  secrets, HIN originals, account numbers, order details, or fill details. Next
+  step: still validate with the next real scheduled daily report/email and
+  confirm stock daily Markdown, HTML, JSON, and email are present; use the new
+  delivery-health log line first if delivery fails.
 
 ## Blocked Or Separately Authorized Areas
 
