@@ -210,6 +210,7 @@ def test_workbench_summary_exposes_provider_cache_status_without_secrets(tmp_pat
                 {"key": "TAVILY_API_KEYS", "value": "secret-tavily", "raw_value_exists": True},
                 {"key": "GEMINI_API_KEYS", "value": "secret-gemini", "raw_value_exists": True},
                 {"key": "SERPAPI_API_KEYS", "value": "secret-serpapi", "raw_value_exists": False},
+                {"key": "SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED", "value": "false", "raw_value_exists": True},
                 {"key": "GEMINI_GROUNDING_SEARCH_ENABLED", "value": "true", "raw_value_exists": True},
                 {"key": "GEMINI_GROUNDING_MODEL", "value": "gemini-3.5-flash", "raw_value_exists": True},
                 {"key": "NEWS_INTEL_CACHE_ENABLED", "value": "true", "raw_value_exists": True},
@@ -239,13 +240,18 @@ def test_workbench_summary_exposes_provider_cache_status_without_secrets(tmp_pat
     assert provider_status["providers"]["gemini"]["grounding_enabled"] is True
     assert provider_status["providers"]["gemini"]["grounding_model"] == "gemini-3.5-flash"
     assert provider_status["providers"]["serpapi"]["configured"] is False
+    assert provider_status["providers"]["serpapi"]["role"] == "low_frequency_fallback"
+    assert provider_status["providers"]["serpapi"]["market_review_fallback_enabled"] is False
     assert provider_status["news_intel_cache"] == {
         "enabled": True,
         "days": 2,
         "min_results": 3,
     }
-    assert "stock-news fallback order remains Tavily -> Gemini Grounding -> SerpAPI" in provider_status["search_fallback_note"]
-    assert "news_intel dimensions may rotate providers" in provider_status["search_fallback_note"]
+    assert "ordinary stocks" in provider_status["search_fallback_note"]
+    assert "SerpAPI is a low-frequency fallback" in provider_status["search_fallback_note"]
+    assert "market review skips it by default" in provider_status["search_fallback_note"]
+    assert "SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED=true" in provider_status["search_fallback_note"]
+    assert "routine rotation" in provider_status["search_fallback_note"]
     assert "does not run external search" in provider_status["quota_safe_note"]
 
     serialized = str(provider_status)

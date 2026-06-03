@@ -968,6 +968,11 @@ def _build_provider_status(
     tavily_configured = _config_raw_exists(item_by_key, "TAVILY_API_KEYS")
     gemini_configured = _config_raw_exists(item_by_key, "GEMINI_API_KEYS", "GEMINI_API_KEY")
     serpapi_configured = _config_raw_exists(item_by_key, "SERPAPI_API_KEYS")
+    serpapi_market_review_fallback_enabled = _config_bool(
+        item_by_key,
+        "SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED",
+        default=False,
+    )
     news_cache = {
         "enabled": _config_bool(item_by_key, "NEWS_INTEL_CACHE_ENABLED", default=True),
         "days": _config_int(item_by_key, "NEWS_INTEL_CACHE_DAYS", default=1, minimum=1),
@@ -1001,6 +1006,8 @@ def _build_provider_status(
             "serpapi": {
                 "label": "SerpAPI",
                 "configured": serpapi_configured,
+                "role": "low_frequency_fallback",
+                "market_review_fallback_enabled": serpapi_market_review_fallback_enabled,
             },
         },
         "news_intel_cache": news_cache,
@@ -1010,8 +1017,10 @@ def _build_provider_status(
         ),
         "search_fallback_note": (
             "news_intel cache is checked before external providers when enabled; "
-            "stock-news fallback order remains Tavily -> Gemini Grounding -> SerpAPI; "
-            "news_intel dimensions may rotate providers across dimensions to spread quota."
+            "stock-news fallback order remains Tavily -> Gemini Grounding -> SerpAPI for ordinary stocks; "
+            "SerpAPI is a low-frequency fallback and market review skips it by default unless "
+            "SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED=true; "
+            "news_intel dimensions rotate only providers marked for routine rotation."
         ),
         "quota_safe_note": (
             "Quota-safe status only: this endpoint does not run external search, clear caches, "

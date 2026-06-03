@@ -111,6 +111,7 @@ class _InflightCacheEntry:
 class BaseSearchProvider(ABC):
     """搜索引擎基类"""
     supports_comprehensive_intel_rotation = True
+    requires_market_review_fallback_opt_in = False
     
     def __init__(self, api_keys: List[str], name: str):
         self._api_keys = api_keys
@@ -521,6 +522,7 @@ Rules:
 class SerpAPISearchProvider(BaseSearchProvider):
     """SerpAPI 搜索引擎"""
     supports_comprehensive_intel_rotation = False
+    requires_market_review_fallback_opt_in = True
     
     def __init__(self, api_keys: List[str]):
         super().__init__(api_keys, "SerpAPI")
@@ -713,7 +715,8 @@ class SearchService:
         gemini_grounding_model: Optional[str] = None,
         gemini_grounding_max_results: int = 3,
         news_max_age_days: int = 3,
-        market_timezone: Optional[str] = None
+        market_timezone: Optional[str] = None,
+        serpapi_market_review_fallback_enabled: bool = False,
         
     ):
         """初始化搜索服务（已针对澳洲股票优化：Tavily advanced 优先）"""
@@ -721,6 +724,7 @@ class SearchService:
         
         self.news_max_age_days = max(1, news_max_age_days)  # <--- 插入这句
         self.market_timezone = self._resolve_market_timezone(market_timezone)
+        self.serpapi_market_review_fallback_enabled = bool(serpapi_market_review_fallback_enabled)
 
         # 1. Tavily 优先（针对 ASX 澳洲股票搜索能力强）
         if tavily_keys:
@@ -792,6 +796,22 @@ class SearchService:
         if code.lower().startswith('hk') or (code.isdigit() and len(code) == 5):
             return True
         return False
+
+    @staticmethod
+    def _is_market_review_stock_news(stock_code: str) -> bool:
+        return (stock_code or "").strip().lower() == "market"
+
+    def _should_use_provider_for_stock_news(
+        self,
+        provider: BaseSearchProvider,
+        *,
+        stock_code: str,
+    ) -> bool:
+        if not self._is_market_review_stock_news(stock_code):
+            return True
+        if not getattr(provider, "requires_market_review_fallback_opt_in", False):
+            return True
+        return self.serpapi_market_review_fallback_enabled
 
     def _cache_key(self, query: str, max_results: int, days: int) -> str:
         return f"{query}|{max_results}|{days}"
@@ -1190,6 +1210,16 @@ class SearchService:
         def fill() -> SearchResponse:
             for provider in self._providers:
                 if not provider.is_available:
+                    continue
+                if not self._should_use_provider_for_stock_news(
+                    provider,
+                    stock_code=stock_code,
+                ):
+                    logger.info(
+                        "大盘复盘默认跳过低频 fallback provider: provider=%s stock_code=%s",
+                        provider.name,
+                        stock_code,
+                    )
                     continue
                 response = provider.search(query, max_results, days=search_days)
                 if response.success and response.results:
@@ -1605,6 +1635,7 @@ def get_search_service() -> SearchService:
             gemini_grounding_max_results=config.gemini_grounding_max_results,
             news_max_age_days=config.news_max_age_days,
             market_timezone=config.market_timezone,
+            serpapi_market_review_fallback_enabled=config.serpapi_market_review_fallback_enabled,
         )
     
     return _search_service

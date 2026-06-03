@@ -96,6 +96,15 @@ def test_daily_workflow_exposes_gemini_grounding_search_defaults():
     assert "GEMINI_GROUNDING_MAX_RESULTS: ${{ vars.GEMINI_GROUNDING_MAX_RESULTS || '3' }}" in daily_workflow
 
 
+def test_daily_workflow_keeps_serpapi_market_review_fallback_default_off():
+    daily_workflow = _read(".github/workflows/daily_analysis.yml")
+
+    assert (
+        "SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED: "
+        "${{ vars.SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED || 'false' }}"
+    ) in daily_workflow
+
+
 def test_daily_workflow_exposes_asx_announcement_defaults_without_secrets():
     daily_workflow = _read(".github/workflows/daily_analysis.yml")
 
@@ -133,6 +142,15 @@ def test_config_registry_exposes_news_intel_cache_defaults():
     assert min_results["validation"]["min"] == 1
 
 
+def test_config_registry_exposes_serpapi_market_review_fallback_default_off():
+    enabled = get_field_definition("SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED")
+
+    assert enabled["category"] == "data_source"
+    assert enabled["default_value"] == "false"
+    assert enabled["data_type"] == "boolean"
+    assert enabled["is_sensitive"] is False
+
+
 def test_runtime_config_exposes_news_intel_cache_defaults(monkeypatch, tmp_path):
     env_path = tmp_path / ".env"
     env_path.write_text("", encoding="utf-8")
@@ -151,6 +169,28 @@ def test_runtime_config_exposes_news_intel_cache_defaults(monkeypatch, tmp_path)
         assert config.news_intel_cache_enabled is True
         assert config.news_intel_cache_days == 1
         assert config.news_intel_cache_min_results == 1
+    finally:
+        Config.reset_instance()
+
+
+def test_runtime_config_keeps_serpapi_market_review_fallback_default_off(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("", encoding="utf-8")
+
+    monkeypatch.setenv("ENV_FILE", str(env_path))
+    monkeypatch.delenv("SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED", raising=False)
+    Config.reset_instance()
+    try:
+        config = Config.get_instance()
+        assert config.serpapi_market_review_fallback_enabled is False
+    finally:
+        Config.reset_instance()
+
+    monkeypatch.setenv("SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED", "true")
+    Config.reset_instance()
+    try:
+        config = Config.get_instance()
+        assert config.serpapi_market_review_fallback_enabled is True
     finally:
         Config.reset_instance()
 
