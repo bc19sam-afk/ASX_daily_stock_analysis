@@ -117,6 +117,17 @@ Process notes:
 - Boundary: no real notification send, no manual `workflow_dispatch`, no schedule change, no deterministic final action, position action, target weight, validation block, risk-sizing calculation/write-back, provider order/cache policy, live provider/paid data call, broker/execution, real account/order/fill handling, ledger v2 migration/cutover/production write, secrets, HIN originals, account numbers, order details, or fill details.
 - Next step: wait for the next real scheduled daily stock report/email to confirm artifacts include `report_YYYYMMDD.md`, `report_YYYYMMDD.html`, `daily_decision_summary_YYYYMMDD.json`, and the expected email. If it still fails, use the new traceback-bearing notification log as the first debugging artifact.
 
+## 2026-06-03 PR25 Daily Report Delivery Health Guard
+
+- Status: merged via GitHub PR #233, "Add daily report delivery health guard".
+- Merge commit: `506caf62b4a84fb6409ec6b9d38d7b17c5d89b83`.
+- Scope: lightweight delivery-health observability around the daily stock report path. `_send_notifications` now returns and logs a compact health dictionary for Markdown saved, HTML saved, `daily_decision_summary` JSON saved, notification attempted, notification channels, and notification failure stage/message. HTML and JSON archive outputs are marked independently, and notification-stage exceptions keep traceback context plus an explicit `日报交付健康检查失败` marker.
+- Purpose: PR24 fixed the 2026-06-03 malformed-data crash; PR25 prevents a future "analysis finished, but report/email status is unclear" incident from being silent. It does not re-investigate PR24 or change report decisions.
+- Local verification: RED/GREEN `tests/test_pipeline_summary_date_filter.py`; related notification/dashboard/Morning Review Card/readability suite passed (`137` tests); `git diff --check` passed; full `./scripts/ci_gate.sh` passed (`882` tests plus `5` subtests).
+- GitHub verification: PR #233 passed backend gate, Docker build, change detection, security, static checks, AI review, and review report; desktop gate skipped by change detection. Inline review comment count was `0`; the only PR comment was the generated review summary.
+- Boundary: no real notification send, no manual `workflow_dispatch`, no schedule change, no deterministic final action, position action, target weight, validation block, risk-sizing calculation/write-back, provider order/cache policy, live provider/paid data call, broker/execution, real account/order/fill handling, ledger v2 migration/cutover/production write, secrets, HIN originals, account numbers, order details, or fill details.
+- Next step: still wait for the next real scheduled daily stock report/email as production validation. Expected evidence is stock daily Markdown, HTML, JSON artifacts plus the email; if delivery fails, start with the new delivery-health log line and traceback-bearing failure marker.
+
 ## Run Log
 
 ### 2026-05-05 - Roadmap Initialization
