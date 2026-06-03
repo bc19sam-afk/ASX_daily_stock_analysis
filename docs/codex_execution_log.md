@@ -19,7 +19,7 @@
 - P0 state: complete.
 - P1 state: complete through shadow / dry-run risk sizing, structured valuation, and ASX search localisation; true risk sizing enabled mode is not implemented.
 - P2 state: original roadmap complete through P2-1, P2-2, P2-3, and P2-4.
-- R0/R1 state: report readability guardrails complete through PR23 real-email Morning Review Card readability tune.
+- R0/R1 state: report readability guardrails complete through PR23 real-email Morning Review Card readability tune; PR24 added malformed report-data notification resilience.
 - P1-3b-3, realtime quote adapter, broker integration, automatic trading, workflow changes, `close_only` changes, storage changes, and database migrations remain blocked unless separately authorized.
 
 ## PR Status
@@ -104,6 +104,18 @@ Process notes:
 - GitHub verification: PR #227 and PR #229 both passed backend gate, Docker build, change detection, security, static checks, AI review, and review report; desktop gate was skipped by change detection. PR #229 had no inline review comments and closed the actionable Codex P2 comments discovered after PR #227 merge.
 - Boundary: no deterministic final action, position action, target weight, validation block, risk-sizing calculation, sizing write-back, strategy strip, portfolio card, alert worker, notification send, provider order/cache policy, live provider or paid data call, broker/execution, real account/order/fill handling, ledger v2 migration/cutover/production write, secrets, HIN originals, account numbers, or strategy/AI write-back to authoritative action fields.
 - Next candidate: wait for another real report/email or select one separate Phase 2 lane; no worker, broker, notification delivery, live-provider call, persistence, provider-policy change, or ledger cutover is implied by PR23.
+
+## 2026-06-03 PR24 Daily Report Notification Failure
+
+- Status: merged via GitHub PR #231, "Fix daily report notification failure on malformed report data".
+- Merge commit: `33ea9fb3e9c06aa00daeae463acb5fa2bc323325`.
+- Incident evidence: GitHub schedule run `26854967085` used remote `main@c1edf3a516bf28473c0eef13053d2378fa3eb14f`, so the missing 2026-06-03 stock daily email was not caused by local uncommitted files. Gmail had the 2026-06-02 daily report but no 2026-06-03 stock daily report. The run succeeded overall, but artifacts contained only `logs/` and `reports/market_review_20260603.md`; it did not archive `report_20260603.md`, `report_20260603.html`, or `daily_decision_summary_20260603.json`.
+- Root cause: after stock analysis and portfolio summary succeeded, malformed string-shaped report data reached `.get(...)` calls in the notification/report render path. Non-dict portfolio holding rows could fail in the report-time portfolio overview builder, and malformed dashboard nested blocks could fail in dashboard observation/detail rendering. `_send_notifications` only logged one line (`发送通知失败: 'str' object has no attribute 'get'`), which hid the traceback.
+- Scope: display-only resilience. Report-time portfolio builders now skip malformed non-dict holding rows and surface a skipped-row notice. Dashboard nested blocks are normalized before report rendering and get a readable degraded-dashboard note. Existing malformed paper portfolio row handling remains visible. Notification failure logging now uses traceback context.
+- Local verification: targeted RED/GREEN malformed report tests; `tests/test_notification_summary_format.py`, `tests/test_daily_decision_dashboard_archive.py`, `tests/test_morning_review_card.py`, `tests/test_report_readability_guardrail.py`, and `tests/test_pipeline_summary_date_filter.py` passed (`135` tests). `git diff --check`, targeted `py_compile`, and `./scripts/ci_gate.sh` passed (`880` tests plus `5` subtests).
+- GitHub verification: PR #231 passed backend gate, Docker build, change detection, security, static checks, AI review, and review report; desktop gate skipped by change detection. Automated review produced no actionable inline comments.
+- Boundary: no real notification send, no manual `workflow_dispatch`, no schedule change, no deterministic final action, position action, target weight, validation block, risk-sizing calculation/write-back, provider order/cache policy, live provider/paid data call, broker/execution, real account/order/fill handling, ledger v2 migration/cutover/production write, secrets, HIN originals, account numbers, order details, or fill details.
+- Next step: wait for the next real scheduled daily stock report/email to confirm artifacts include `report_YYYYMMDD.md`, `report_YYYYMMDD.html`, `daily_decision_summary_YYYYMMDD.json`, and the expected email. If it still fails, use the new traceback-bearing notification log as the first debugging artifact.
 
 ## Run Log
 

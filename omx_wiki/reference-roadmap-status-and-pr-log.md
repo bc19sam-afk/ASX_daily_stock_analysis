@@ -21,15 +21,16 @@ facts needed for future planning.
   provider quota/status dashboard, and PR9 maps to GitHub PR #200 alert-rule
   presets. GitHub PR #211 and #217 are status/documentation PRs, not additional
   implementation milestones. PR23 landed as GitHub PR #227 plus review-fix
-  follow-up #229.
+  follow-up #229. PR24 landed as GitHub PR #231.
 - GitHub PR #210 fixed the final date-stability audit issue, #211 recorded that
   audit status, #216 delivered PR16 provider-cache telemetry, #217 recorded
   PR16 status on `main`, #218 selected Phase 2 boundaries, #219 delivered PR18
   Workbench diagnostics productization, #220 recorded PR18 status on `main`,
   #222 selected the PR21 ledger v2 rehearsal gate, #223 delivered PR21, #224
   recorded PR21 status, #225 delivered PR22 Morning Review Card, #227 tuned
-  Morning Review Card readability after the first real email, and #229 closed
-  the follow-up readability label review comments.
+  Morning Review Card readability after the first real email, #229 closed
+  the follow-up readability label review comments, and #231 fixed the 2026-06-03
+  daily stock report notification failure on malformed report data.
 - The next stage is a Phase 2 option menu, not an automatic continuation chain.
   PR19 added a docs/wiki selection gate so PR20 could select one lane before
   implementation. Pick one direction per PR:
@@ -44,9 +45,9 @@ facts needed for future planning.
   authoritative and no storage writes, migration/cutover, broker/execution,
   worker, notification, or live-provider-call work. PR21 landed the selected
   rehearsal report without changing those boundaries. PR22 added the display
-  only Morning Review Card, and PR23 tuned its real-email first-screen
-  readability without changing action, provider, worker, broker, or ledger
-  semantics.
+  only Morning Review Card, PR23 tuned its real-email first-screen readability,
+  and PR24 added malformed report-data notification resilience without changing
+  action, provider, worker, broker, or ledger semantics.
 
 ## Stable Current State
 
@@ -547,6 +548,33 @@ facts needed for future planning.
   another real report/email or choose one separate Phase 2 lane; no worker,
   broker, notification delivery, live-provider call, persistence, provider
   policy change, or ledger cutover is implied by PR23.
+- PR24 completed as GitHub PR #231, "Fix daily report notification failure on
+  malformed report data", merged at
+  `33ea9fb3e9c06aa00daeae463acb5fa2bc323325`. Incident evidence: scheduled run
+  `26854967085` used remote `main@c1edf3a516bf28473c0eef13053d2378fa3eb14f`,
+  Gmail had the 2026-06-02 daily report but no 2026-06-03 stock daily report,
+  and run artifacts had `logs/` plus `reports/market_review_20260603.md` but no
+  stock daily Markdown, HTML, or `daily_decision_summary_20260603.json`. Root
+  cause: malformed string-shaped report data reached `.get(...)` in the
+  notification/report renderer before stock daily artifacts were saved, and the
+  old notification failure log omitted traceback context. Scope: display-only
+  resilience for malformed portfolio holding rows, paper portfolio rows, and
+  dashboard nested blocks, plus traceback-bearing notification failure logging.
+  Verification: local targeted RED/GREEN tests, the notification/dashboard/
+  Morning Review Card/readability/pipeline related suite (`135` tests),
+  `git diff --check`, targeted `py_compile`, and full `./scripts/ci_gate.sh`
+  (`880` tests plus `5` subtests) passed; GitHub backend gate, Docker build,
+  change detection, security, static checks, AI review, and review report
+  passed, with desktop gate skipped by change detection. Boundary: no real
+  notification send, manual `workflow_dispatch`, schedule change, deterministic
+  action, position action, target weight, validation block, risk-sizing
+  calculation/write-back, provider order/cache policy, live provider/paid data
+  call, broker/execution, real account/order/fill handling, ledger v2
+  migration/cutover/production write, secrets, HIN originals, account numbers,
+  order details, or fill details. Next step: inspect the next real scheduled
+  stock daily report/email and confirm stock daily Markdown, HTML, JSON, and
+  email are all present; if not, start from the new traceback-bearing
+  notification log.
 
 ## Blocked Or Separately Authorized Areas
 
