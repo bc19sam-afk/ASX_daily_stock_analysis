@@ -2,14 +2,19 @@
 """Tests for stable rendering of Analysis Results Summary table."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from datetime import datetime as real_datetime
 from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
 from src.formatters import format_feishu_markdown, markdown_to_html_document
 from src import notification_formatting
-from src.notification import NotificationService, NotificationBuilder
+from src.notification import (
+    WECHAT_IMAGE_MAX_BYTES,
+    NotificationBuilder,
+    NotificationChannel,
+    NotificationService,
+)
 
 
 def _section_from(text: str, title: str) -> str:
@@ -24,6 +29,16 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
     def _build_service(self) -> NotificationService:
         service = NotificationService.__new__(NotificationService)
         service._report_summary_only = True
+        return service
+
+    def _build_channel_service(self, channels: list[NotificationChannel]) -> NotificationService:
+        service = NotificationService.__new__(NotificationService)
+        service._available_channels = channels
+        service._markdown_to_image_channels = {channel.value for channel in channels}
+        service._markdown_to_image_max_chars = 15000
+        service._stock_email_groups = []
+        service._source_message = None
+        service.send_to_context = MagicMock(return_value=False)
         return service
 
     def _build_result(self, **overrides) -> AnalysisResult:
@@ -648,6 +663,29 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
 
         sent_msg = mock_server.send_message.call_args.args[0]
         self.assertIn("2026-04-29", str(sent_msg["Subject"]))
+
+    def test_markdown_to_image_failure_falls_back_to_text_channel(self) -> None:
+        service = self._build_channel_service([NotificationChannel.WECHAT])
+        service.send_to_wechat = MagicMock(return_value=True)
+        service._send_wechat_image = MagicMock(return_value=True)
+
+        with patch("src.md2img.markdown_to_image", return_value=None):
+            self.assertTrue(service.send("report body"))
+
+        service.send_to_wechat.assert_called_once_with("report body")
+        service._send_wechat_image.assert_not_called()
+
+    def test_oversized_wechat_image_falls_back_to_text_channel(self) -> None:
+        service = self._build_channel_service([NotificationChannel.WECHAT])
+        service.send_to_wechat = MagicMock(return_value=True)
+        service._send_wechat_image = MagicMock(return_value=True)
+        oversized_image = b"x" * (WECHAT_IMAGE_MAX_BYTES + 1)
+
+        with patch("src.md2img.markdown_to_image", return_value=oversized_image):
+            self.assertTrue(service.send("report body"))
+
+        service.send_to_wechat.assert_called_once_with("report body")
+        service._send_wechat_image.assert_not_called()
 
     def test_single_stock_report_labels_sniper_points_as_conditional_review_only(self) -> None:
         service = self._build_service()
