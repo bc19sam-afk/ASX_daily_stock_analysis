@@ -10,6 +10,13 @@ from typing import Any, Callable, Dict, List, Optional, Set
 logger = logging.getLogger(__name__)
 
 
+def _to_float_or_zero(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _valuation_source_from_execution_price_source(source: Any) -> str:
     normalized = str(source or "").strip().lower()
     if normalized == "realtime":
@@ -66,13 +73,15 @@ def build_holdings_audit_table(
     ]
 
     for item in holdings or []:
+        if not isinstance(item, dict):
+            continue
         display_name = format_stock_display_name(item.get("name"), item.get("code"))
         stock_cell = to_markdown_table_cell(display_name)
         lines.append(
             "| "
             f"{stock_cell} | "
-            f"{float(item.get('quantity') or 0.0):,.2f} | "
-            f"{float(item.get('weight') or 0.0):.2%} | "
+            f"{_to_float_or_zero(item.get('quantity')):,.2f} | "
+            f"{_to_float_or_zero(item.get('weight')):.2%} | "
             f"{format_valuation_source_label(str(item.get('valuation_source') or ''))} | "
             f"{format_yes_no_label(item.get('analyzed_today'))} |"
         )
@@ -86,7 +95,7 @@ def build_section_c_reconciliation_lines(
     normalize_stock_code: Callable[[Any], str],
 ) -> List[str]:
     """Build reconciliation summary so Section C closes to 100% explicitly."""
-    holdings = overview_holdings or []
+    holdings = [item for item in (overview_holdings or []) if isinstance(item, dict)]
     analyzed_target_weight_sum = sum(float(getattr(result, "target_weight", 0.0) or 0.0) for result in results)
     analyzed_codes = {
         normalize_stock_code(getattr(result, "code", ""))
@@ -94,7 +103,7 @@ def build_section_c_reconciliation_lines(
         if normalize_stock_code(getattr(result, "code", ""))
     }
     unmanaged_holdings_weight = sum(
-        float(item.get("weight") or 0.0)
+        _to_float_or_zero(item.get("weight"))
         for item in holdings
         if normalize_stock_code(item.get("code", "")) not in analyzed_codes
     )
@@ -132,8 +141,18 @@ def build_report_time_portfolio_overview(
     to_positive_float: Callable[[Any], Optional[float]],
 ) -> Dict[str, Any]:
     """Build read-only mark-to-market overview using executed holdings and report-time prices."""
-    cash = round(float((overview or {}).get("cash") or 0.0), 2)
-    original_holdings = (overview or {}).get("holdings") or []
+    overview_data = overview if isinstance(overview, dict) else {}
+    cash = round(_to_float_or_zero(overview_data.get("cash")), 2)
+    raw_original_holdings = overview_data.get("holdings")
+    if isinstance(raw_original_holdings, list):
+        original_holdings = [item for item in raw_original_holdings if isinstance(item, dict)]
+        malformed_holding_count = len(raw_original_holdings) - len(original_holdings)
+    elif raw_original_holdings:
+        original_holdings = []
+        malformed_holding_count = 1
+    else:
+        original_holdings = []
+        malformed_holding_count = 0
 
     report_time_prices: Dict[str, float] = {}
     report_time_price_sources: Dict[str, str] = {}
@@ -156,14 +175,14 @@ def build_report_time_portfolio_overview(
 
     for holding in original_holdings:
         code = normalize_stock_code(holding.get("code", ""))
-        quantity = float(holding.get("quantity") or 0.0)
+        quantity = _to_float_or_zero(holding.get("quantity"))
         report_time_price = report_time_prices.get(code)
 
         if report_time_price is not None:
             market_value = round(max(quantity, 0.0) * report_time_price, 2)
             valuation_source = report_time_price_sources.get(code, "report_time_price")
         else:
-            market_value = round(float(holding.get("market_value") or 0.0), 2)
+            market_value = round(_to_float_or_zero(holding.get("market_value")), 2)
             valuation_source = "stored_market_value_fallback"
             if code:
                 fallback_codes.append(code)
@@ -174,7 +193,7 @@ def build_report_time_portfolio_overview(
                 "code": code,
                 "name": holding.get("name"),
                 "quantity": quantity,
-                "avg_cost": float(holding.get("avg_cost") or 0.0),
+                "avg_cost": _to_float_or_zero(holding.get("avg_cost")),
                 "current_price": report_time_price if report_time_price is not None else holding.get("current_price"),
                 "market_value": market_value,
                 "valuation_source": valuation_source,
@@ -194,9 +213,10 @@ def build_report_time_portfolio_overview(
         )
 
     return {
-        "snapshot_date": (overview or {}).get("snapshot_date"),
+        "snapshot_date": overview_data.get("snapshot_date"),
         "cash": cash,
         "equity_value": equity_value,
         "total_value": total_value,
         "holdings": holdings,
+        "_malformed_holding_count": malformed_holding_count,
     }

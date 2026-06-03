@@ -51,6 +51,65 @@ def _overview():
     }
 
 
+@patch("src.notification.get_db")
+def test_dashboard_report_skips_malformed_portfolio_rows(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = {
+        "cash": 10000.0,
+        "equity_value": 40000.0,
+        "total_value": 50000.0,
+        "holdings": [
+            "legacy-string-holding",
+            {"code": "BHP.AX", "name": "BHP", "quantity": 100, "market_value": 10000.0},
+        ],
+    }
+    mock_get_db.return_value.get_paper_portfolio_overview.return_value = {
+        "initialized": True,
+        "snapshot_date": "2026-06-03",
+        "cash": 1000.0,
+        "equity_value": 2500.0,
+        "total_value": 3500.0,
+        "holdings": ["legacy-string-paper-holding"],
+        "latest_simulated_trades": ["legacy-string-trade"],
+    }
+    service = _service()
+
+    report = service.generate_dashboard_report([_result()], report_date="2026-06-03")
+
+    assert "## Morning Review Card" in report
+    assert "部分当前持仓记录格式异常，已跳过 1 条" in report
+    assert "部分模拟盘账本记录格式异常，已跳过 2 条" in report
+    assert service.get_last_daily_decision_summary()["report_date"] == "2026-06-03"
+
+
+@patch("src.notification.get_db")
+def test_dashboard_report_downgrades_malformed_dashboard_blocks(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = {
+        "cash": 10000.0,
+        "equity_value": 0.0,
+        "total_value": 10000.0,
+        "holdings": [],
+    }
+    mock_get_db.return_value.get_paper_portfolio_overview.return_value = {"initialized": False}
+    service = _service()
+    result = _result(
+        code="GMG.AX",
+        name="GOOD GROUP",
+        dashboard={
+            "core_conclusion": "string-shaped core block",
+            "intelligence": "string-shaped intelligence block",
+            "battle_plan": "string-shaped battle plan",
+            "data_perspective": "string-shaped data block",
+        },
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-06-03")
+
+    assert "## Morning Review Card" in report
+    assert "GOOD GROUP (GMG.AX)" in report
+    assert "部分 dashboard 结构异常，已按普通摘要降级展示" in report
+    assert service.get_last_daily_decision_summary()["report_date"] == "2026-06-03"
+
+
 def _mixed_action_results():
     return [
         _result(

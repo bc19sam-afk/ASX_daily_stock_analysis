@@ -2153,6 +2153,78 @@ class NotificationService:
             return "N/A"
         return f"{number:+.2f}%"
 
+    @staticmethod
+    def _normalize_dashboard_list(value: Any) -> List[Any]:
+        if isinstance(value, list):
+            return value
+        if value is None or value == "":
+            return []
+        return [value]
+
+    def _sanitize_dashboard_for_render(self, result: AnalysisResult) -> bool:
+        """Normalize malformed dashboard blocks so report rendering can continue."""
+        dashboard = getattr(result, "dashboard", None)
+        if not dashboard:
+            return False
+        if not isinstance(dashboard, dict):
+            result.dashboard = None
+            return True
+
+        malformed = False
+        sanitized = dict(dashboard)
+        for key in ("core_conclusion", "data_perspective", "intelligence", "battle_plan"):
+            value = sanitized.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, dict):
+                sanitized[key] = {}
+                malformed = True
+
+        core = sanitized.get("core_conclusion")
+        if isinstance(core, dict) and "position_advice" in core and not isinstance(core.get("position_advice"), dict):
+            core["position_advice"] = {}
+            malformed = True
+
+        data_perspective = sanitized.get("data_perspective")
+        if isinstance(data_perspective, dict):
+            for key in ("trend_status", "price_position", "volume_analysis"):
+                value = data_perspective.get(key)
+                if value is not None and not isinstance(value, dict):
+                    data_perspective[key] = {}
+                    malformed = True
+
+        intelligence = sanitized.get("intelligence")
+        if isinstance(intelligence, dict):
+            for key in ("risk_alerts", "positive_catalysts"):
+                value = intelligence.get(key)
+                if value is not None and not isinstance(value, list):
+                    intelligence[key] = self._normalize_dashboard_list(value)
+                    malformed = True
+
+        battle_plan = sanitized.get("battle_plan")
+        if isinstance(battle_plan, dict):
+            for key in ("sniper_points", "position_strategy"):
+                value = battle_plan.get(key)
+                if value is not None and not isinstance(value, dict):
+                    battle_plan[key] = {}
+                    malformed = True
+            if "action_checklist" in battle_plan and not isinstance(battle_plan.get("action_checklist"), list):
+                battle_plan["action_checklist"] = self._normalize_dashboard_list(battle_plan.get("action_checklist"))
+                malformed = True
+
+        if malformed:
+            result.dashboard = sanitized
+        return malformed
+
+    def _sanitize_dashboards_for_render(self, results: List[AnalysisResult]) -> Set[str]:
+        malformed_codes: Set[str] = set()
+        for result in results or []:
+            if self._sanitize_dashboard_for_render(result):
+                code = canonical_stock_code(getattr(result, "code", ""))
+                if code:
+                    malformed_codes.add(code)
+        return malformed_codes
+
     def _build_dashboard_observation_item(
         self,
         result: AnalysisResult,
@@ -2389,6 +2461,7 @@ class NotificationService:
             report_date = self._default_report_date()
         self._remember_report_date(report_date)
         generated_at = self._now_in_report_tz()
+        malformed_dashboard_codes = self._sanitize_dashboards_for_render(results)
 
         # 按评分排序（高分在前）
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -2425,6 +2498,7 @@ class NotificationService:
             report_lines.extend([portfolio_summary_section.rstrip(), "", "---", ""])
 
         holdings = overview.get("holdings") or []
+        malformed_holding_count = int(overview.get("_malformed_holding_count") or 0)
         executed_weight_by_code = {
             canonical_stock_code(item.get("code", "")): float(item.get("weight") or 0.0)
             for item in holdings
@@ -2477,7 +2551,8 @@ class NotificationService:
             basis_counts[self._classify_price_basis(result)] += 1
         has_mixed_price_basis = basis_counts["realtime"] > 0 and (basis_counts["latest_close"] + basis_counts["close_only"]) > 0
 
-        if holdings or actionable_holding_results or uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis:
+        has_malformed_report_data = bool(malformed_holding_count or malformed_dashboard_codes)
+        if holdings or actionable_holding_results or uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis or has_malformed_report_data:
             report_lines.extend([
                 "## 当前持仓动作",
                 "",
@@ -2513,11 +2588,20 @@ class NotificationService:
                         current_weight_by_code=executed_weight_by_code,
                     )
                 )
-            if uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis:
+            if uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis or has_malformed_report_data:
                 report_lines.extend([
                     "**待补齐 / 风险提醒**",
                     "",
                 ])
+                if malformed_holding_count:
+                    report_lines.append(f"- 部分当前持仓记录格式异常，已跳过 {malformed_holding_count} 条；日报主体继续生成。")
+                if malformed_dashboard_codes:
+                    formatted_codes = "、".join(sorted(malformed_dashboard_codes))
+                    report_lines.append(
+                        f"- {formatted_codes} 部分 dashboard 结构异常，已按普通摘要降级展示；请结合原始分析复核。"
+                    )
+                if has_malformed_report_data:
+                    report_lines.append("")
                 if uncovered_holdings:
                     report_lines.append(f"- 当前持仓有 **{len(uncovered_holdings)}** 只未覆盖分析，请优先补齐。")
                     report_lines.append("")

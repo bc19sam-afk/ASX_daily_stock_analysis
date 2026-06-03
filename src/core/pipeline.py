@@ -1929,4 +1929,4 @@ class StockAnalysisPipeline:
                 logger.info("通知渠道未配置，跳过推送")
                 
         except Exception as e:
-            logger.error(f"发送通知失败: {e}")
+            logger.error("发送通知失败: %s", e, exc_info=True)
