@@ -23,6 +23,7 @@ import math
 import smtplib
 import re
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
 from zoneinfo import ZoneInfo
@@ -87,6 +88,46 @@ logger = logging.getLogger(__name__)
 
 # WeChat Work image msgtype limit ~2MB (base64 payload)
 WECHAT_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class _DashboardReportTiming:
+    report_date: str
+    generated_at: datetime
+
+
+@dataclass(frozen=True)
+class _DashboardPortfolioSnapshot:
+    overview: Dict[str, Any]
+    paper_portfolio_overview: Dict[str, Any]
+    holdings: List[Dict[str, Any]]
+    malformed_holding_count: int
+    executed_weight_by_code: Dict[str, float]
+    holding_codes: Set[str]
+
+
+@dataclass(frozen=True)
+class _DashboardSummaryGroups:
+    daily_summary: Dict[str, Any]
+    successful_results_for_summary: List[AnalysisResult]
+    failed_results_for_summary: List[AnalysisResult]
+    blocked_results_for_summary: List[AnalysisResult]
+
+
+@dataclass(frozen=True)
+class _DashboardActionGroups:
+    actionable_holding_results: List[AnalysisResult]
+    effective_actionable_results: List[AnalysisResult]
+    display_holding_results: List[AnalysisResult]
+    display_non_holding_results: List[AnalysisResult]
+
+
+@dataclass(frozen=True)
+class _DashboardRiskGroups:
+    uncovered_holdings: List[Dict[str, Any]]
+    failed_results: List[AnalysisResult]
+    blocked_results: List[AnalysisResult]
+    has_mixed_price_basis: bool
 
 
 def _get_effective_decision(result: Any) -> str:
@@ -2438,34 +2479,23 @@ class NotificationService:
             "*免责声明：仅作计划，供人工决策辅助；系统不自动下单。*"
         )
         return email_body
-    
-    def generate_dashboard_report(
+
+    def _resolve_dashboard_report_timing(
         self,
-        results: List[AnalysisResult],
-        report_date: Optional[str] = None,
-        portfolio_summary_section: Optional[str] = None,
-    ) -> str:
-        """
-        生成决策仪表盘格式的日报（详细版）
-
-        格式：市场概览 + 重要信息 + 核心结论 + 数据透视 + 作战计划
-
-        Args:
-            results: 分析结果列表
-            report_date: 报告日期（默认今天）
-
-        Returns:
-            Markdown 格式的决策仪表盘日报
-        """
+        report_date: Optional[str],
+    ) -> _DashboardReportTiming:
         if report_date is None:
             report_date = self._default_report_date()
         self._remember_report_date(report_date)
-        generated_at = self._now_in_report_tz()
-        malformed_dashboard_codes = self._sanitize_dashboards_for_render(results)
+        return _DashboardReportTiming(
+            report_date=report_date,
+            generated_at=self._now_in_report_tz(),
+        )
 
-        # 按评分排序（高分在前）
-        sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
-
+    def _load_dashboard_portfolio_snapshot(
+        self,
+        results: List[AnalysisResult],
+    ) -> _DashboardPortfolioSnapshot:
         try:
             overview = get_db().get_portfolio_overview()
         except Exception:
@@ -2476,26 +2506,6 @@ class NotificationService:
             results=results,
         )
         paper_portfolio_overview = self._get_paper_portfolio_overview_for_report()
-
-        daily_summary = self.build_daily_decision_summary(
-            results=sorted_results,
-            report_date=report_date,
-            generated_at=generated_at,
-            overview=overview,
-        )
-        self._annotate_paper_ledger_scope_notes(daily_summary, paper_portfolio_overview)
-        self._last_daily_decision_summary = daily_summary
-
-        successful_results_for_summary, _, blocked_results_for_summary = self._split_completed_results(sorted_results)
-        failed_results_for_summary = [r for r in sorted_results if is_failed_analysis(r)]
-
-        report_lines = [
-            f"# 🎯 {report_date} 决策仪表盘",
-            "",
-        ]
-        report_lines.extend(render_preopen_decision_dashboard(daily_summary))
-        if portfolio_summary_section:
-            report_lines.extend([portfolio_summary_section.rstrip(), "", "---", ""])
 
         holdings = overview.get("holdings") or []
         malformed_holding_count = int(overview.get("_malformed_holding_count") or 0)
@@ -2509,17 +2519,50 @@ class NotificationService:
             for item in holdings
             if canonical_stock_code(item.get("code", ""))
         }
-        successful_results, actionable_results, blocked_results = self._split_completed_results(sorted_results)
-        failed_results = [r for r in sorted_results if is_failed_analysis(r)]
-        successful_codes = {
-            canonical_stock_code(getattr(r, "code", ""))
-            for r in successful_results
-            if canonical_stock_code(getattr(r, "code", ""))
-        }
-        uncovered_holdings = [
-            item for item in holdings
-            if canonical_stock_code(item.get("code", "")) not in successful_codes
-        ]
+
+        return _DashboardPortfolioSnapshot(
+            overview=overview,
+            paper_portfolio_overview=paper_portfolio_overview,
+            holdings=holdings,
+            malformed_holding_count=malformed_holding_count,
+            executed_weight_by_code=executed_weight_by_code,
+            holding_codes=holding_codes,
+        )
+
+    def _build_dashboard_summary_groups(
+        self,
+        *,
+        sorted_results: List[AnalysisResult],
+        timing: _DashboardReportTiming,
+        overview: Dict[str, Any],
+        paper_portfolio_overview: Dict[str, Any],
+    ) -> _DashboardSummaryGroups:
+        daily_summary = self.build_daily_decision_summary(
+            results=sorted_results,
+            report_date=timing.report_date,
+            generated_at=timing.generated_at,
+            overview=overview,
+        )
+        self._annotate_paper_ledger_scope_notes(daily_summary, paper_portfolio_overview)
+        self._last_daily_decision_summary = daily_summary
+
+        successful_results_for_summary, _, blocked_results_for_summary = self._split_completed_results(sorted_results)
+        failed_results_for_summary = [r for r in sorted_results if is_failed_analysis(r)]
+
+        return _DashboardSummaryGroups(
+            daily_summary=daily_summary,
+            successful_results_for_summary=successful_results_for_summary,
+            failed_results_for_summary=failed_results_for_summary,
+            blocked_results_for_summary=blocked_results_for_summary,
+        )
+
+    def _build_dashboard_action_groups(
+        self,
+        *,
+        sorted_results: List[AnalysisResult],
+        holding_codes: Set[str],
+    ) -> _DashboardActionGroups:
+        _, actionable_results, _ = self._split_completed_results(sorted_results)
         holding_results = [
             r for r in actionable_results
             if canonical_stock_code(getattr(r, "code", "")) in holding_codes
@@ -2539,388 +2582,527 @@ class NotificationService:
             r for r in non_holding_results
             if not self._is_suppressed_executable_action_today(r)
         ]
-        report_lines.extend(
-            self._build_paper_portfolio_readonly_lines(
-                paper_portfolio_overview,
-                has_plan_actions=bool(effective_actionable_results),
-                report_date=report_date,
-            )
+
+        return _DashboardActionGroups(
+            actionable_holding_results=actionable_holding_results,
+            effective_actionable_results=effective_actionable_results,
+            display_holding_results=display_holding_results,
+            display_non_holding_results=display_non_holding_results,
         )
+
+    def _build_dashboard_risk_groups(
+        self,
+        *,
+        results: List[AnalysisResult],
+        sorted_results: List[AnalysisResult],
+        holdings: List[Dict[str, Any]],
+    ) -> _DashboardRiskGroups:
+        successful_results, _, blocked_results = self._split_completed_results(sorted_results)
+        failed_results = [r for r in sorted_results if is_failed_analysis(r)]
+        successful_codes = {
+            canonical_stock_code(getattr(r, "code", ""))
+            for r in successful_results
+            if canonical_stock_code(getattr(r, "code", ""))
+        }
+        uncovered_holdings = [
+            item for item in holdings
+            if canonical_stock_code(item.get("code", "")) not in successful_codes
+        ]
         basis_counts = {"realtime": 0, "latest_close": 0, "close_only": 0}
         for result in results:
             basis_counts[self._classify_price_basis(result)] += 1
         has_mixed_price_basis = basis_counts["realtime"] > 0 and (basis_counts["latest_close"] + basis_counts["close_only"]) > 0
 
+        return _DashboardRiskGroups(
+            uncovered_holdings=uncovered_holdings,
+            failed_results=failed_results,
+            blocked_results=blocked_results,
+            has_mixed_price_basis=has_mixed_price_basis,
+        )
+
+    def _build_dashboard_current_holdings_lines(
+        self,
+        *,
+        overview: Dict[str, Any],
+        holdings: List[Dict[str, Any]],
+        actionable_holding_results: List[AnalysisResult],
+        display_holding_results: List[AnalysisResult],
+        uncovered_holdings: List[Dict[str, Any]],
+        failed_results: List[AnalysisResult],
+        blocked_results: List[AnalysisResult],
+        has_mixed_price_basis: bool,
+        executed_weight_by_code: Dict[str, float],
+        malformed_holding_count: int = 0,
+        malformed_dashboard_codes: Optional[Set[str]] = None,
+    ) -> List[str]:
+        malformed_dashboard_codes = malformed_dashboard_codes or set()
         has_malformed_report_data = bool(malformed_holding_count or malformed_dashboard_codes)
-        if holdings or actionable_holding_results or uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis or has_malformed_report_data:
-            report_lines.extend([
-                "## 当前持仓动作",
-                "",
-                (
-                    f"> 账户概览：可用现金 **{overview.get('cash', 0.0):,.2f}** | "
-                    f"持仓市值 **{overview.get('equity_value', 0.0):,.2f}** | "
-                    f"账户总值 **{overview.get('total_value', 0.0):,.2f}**"
-                ),
-                "",
-                "> 有明确调仓动作时列出待人工处理项；无调仓动作时保留持仓复盘，供开盘前人工确认。",
-                "",
-            ])
-            if actionable_holding_results:
-                report_lines.extend(self._build_recommended_actions_table(actionable_holding_results))
-            else:
-                report_lines.append("- 当前持仓暂无明确调仓动作。")
-                if display_holding_results:
-                    report_lines.extend([
-                        "",
-                        "### 持仓复盘（无调仓观察）",
-                        "",
-                        "> 当前持仓今日没有明确调仓动作；以下保留 AI 摘要、关键理由和风险，供开盘前人工复核。",
-                        "",
-                    ])
-                    report_lines.extend(self._build_recommended_actions_table(display_holding_results))
-                    report_lines.append("")
-                    report_lines.extend(self._build_dashboard_observation_items_lines(display_holding_results))
-            report_lines.append("")
+        if not (
+            holdings
+            or actionable_holding_results
+            or uncovered_holdings
+            or failed_results
+            or blocked_results
+            or has_mixed_price_basis
+            or has_malformed_report_data
+        ):
+            return []
+
+        lines = [
+            "## 当前持仓动作",
+            "",
+            (
+                f"> 账户概览：可用现金 **{overview.get('cash', 0.0):,.2f}** | "
+                f"持仓市值 **{overview.get('equity_value', 0.0):,.2f}** | "
+                f"账户总值 **{overview.get('total_value', 0.0):,.2f}**"
+            ),
+            "",
+            "> 有明确调仓动作时列出待人工处理项；无调仓动作时保留持仓复盘，供开盘前人工确认。",
+            "",
+        ]
+        if actionable_holding_results:
+            lines.extend(self._build_recommended_actions_table(actionable_holding_results))
+        else:
+            lines.append("- 当前持仓暂无明确调仓动作。")
             if display_holding_results:
-                report_lines.extend(
-                    self._build_holding_followup_review_lines(
-                        display_holding_results,
-                        current_weight_by_code=executed_weight_by_code,
-                    )
-                )
-            if uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis or has_malformed_report_data:
-                report_lines.extend([
-                    "**待补齐 / 风险提醒**",
+                lines.extend([
+                    "",
+                    "### 持仓复盘（无调仓观察）",
+                    "",
+                    "> 当前持仓今日没有明确调仓动作；以下保留 AI 摘要、关键理由和风险，供开盘前人工复核。",
                     "",
                 ])
-                if malformed_holding_count:
-                    report_lines.append(f"- 部分当前持仓记录格式异常，已跳过 {malformed_holding_count} 条；日报主体继续生成。")
-                if malformed_dashboard_codes:
-                    formatted_codes = "、".join(sorted(malformed_dashboard_codes))
-                    report_lines.append(
-                        f"- {formatted_codes} 部分 dashboard 结构异常，已按普通摘要降级展示；请结合原始分析复核。"
-                    )
-                if has_malformed_report_data:
-                    report_lines.append("")
-                if uncovered_holdings:
-                    report_lines.append(f"- 当前持仓有 **{len(uncovered_holdings)}** 只未覆盖分析，请优先补齐。")
-                    report_lines.append("")
-                    report_lines.append("**未覆盖持仓**")
-                    for item in uncovered_holdings:
-                        report_lines.append(
-                            f"- {notification_formatting.format_stock_display_name(item.get('name'), item.get('code'))}"
-                        )
-                    report_lines.append("")
-                if failed_results:
-                    report_lines.append(f"- 今日有 **{len(failed_results)}** 只分析失败，建议重跑后再决策。")
-                    report_lines.append("")
-                    report_lines.append("**分析失败（建议重跑）**")
-                    for result in failed_results:
-                        stock_name = notification_formatting.format_stock_display_name(result.name, result.code)
-                        error_message = str(getattr(result, "error_message", "") or "未知错误")
-                        report_lines.append(f"- {stock_name}：{error_message}")
-                    report_lines.append("")
-                if blocked_results:
-                    report_lines.append(f"- 今日有 **{len(blocked_results)}** 只触发验证阻断。")
-                    report_lines.append("")
-                    report_lines.append("**不可决策（仅观察）**")
-                    for result in blocked_results:
-                        report_lines.append(self._format_blocked_result_line(result))
-                    report_lines.append("")
-                if has_mixed_price_basis:
-                    report_lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
-                report_lines.append("")
-
-        if display_non_holding_results:
-            report_lines.extend([
-                "## 新开仓 / 观察清单",
+                lines.extend(self._build_recommended_actions_table(display_holding_results))
+                lines.append("")
+                lines.extend(self._build_dashboard_observation_items_lines(display_holding_results))
+        lines.append("")
+        if display_holding_results:
+            lines.extend(
+                self._build_holding_followup_review_lines(
+                    display_holding_results,
+                    current_weight_by_code=executed_weight_by_code,
+                )
+            )
+        if uncovered_holdings or failed_results or blocked_results or has_mixed_price_basis or has_malformed_report_data:
+            lines.extend([
+                "**待补齐 / 风险提醒**",
                 "",
             ])
-            if display_non_holding_results:
-                report_lines.extend(self._build_recommended_actions_table(display_non_holding_results))
+            if malformed_holding_count:
+                lines.append(f"- 部分当前持仓记录格式异常，已跳过 {malformed_holding_count} 条；日报主体继续生成。")
+            if malformed_dashboard_codes:
+                formatted_codes = "、".join(sorted(malformed_dashboard_codes))
+                lines.append(
+                    f"- {formatted_codes} 部分 dashboard 结构异常，已按普通摘要降级展示；请结合原始分析复核。"
+                )
+            if has_malformed_report_data:
+                lines.append("")
+            if uncovered_holdings:
+                lines.append(f"- 当前持仓有 **{len(uncovered_holdings)}** 只未覆盖分析，请优先补齐。")
+                lines.append("")
+                lines.append("**未覆盖持仓**")
+                for item in uncovered_holdings:
+                    lines.append(
+                        f"- {notification_formatting.format_stock_display_name(item.get('name'), item.get('code'))}"
+                    )
+                lines.append("")
+            if failed_results:
+                lines.append(f"- 今日有 **{len(failed_results)}** 只分析失败，建议重跑后再决策。")
+                lines.append("")
+                lines.append("**分析失败（建议重跑）**")
+                for result in failed_results:
+                    stock_name = notification_formatting.format_stock_display_name(result.name, result.code)
+                    error_message = str(getattr(result, "error_message", "") or "未知错误")
+                    lines.append(f"- {stock_name}：{error_message}")
+                lines.append("")
+            if blocked_results:
+                lines.append(f"- 今日有 **{len(blocked_results)}** 只触发验证阻断。")
+                lines.append("")
+                lines.append("**不可决策（仅观察）**")
+                for result in blocked_results:
+                    lines.append(self._format_blocked_result_line(result))
+                lines.append("")
+            if has_mixed_price_basis:
+                lines.append("- ⚠️ 价格口径存在“旧日线信号 + 新实时价格”混用，请谨慎下单。")
+            lines.append("")
+        return lines
+
+    def _build_dashboard_non_holding_lines(
+        self,
+        display_non_holding_results: List[AnalysisResult],
+    ) -> List[str]:
+        if not display_non_holding_results:
+            return []
+
+        lines = [
+            "## 新开仓 / 观察清单",
+            "",
+        ]
+        lines.extend(self._build_recommended_actions_table(display_non_holding_results))
+        lines.append("")
+        observation_items = [
+            self._build_dashboard_observation_item(result)
+            for result in display_non_holding_results
+        ]
+        lines.extend(
+            self._build_dashboard_observation_appendix_lines(
+                observation_items=observation_items,
+            )
+        )
+        return lines
+
+    def _build_dashboard_detail_intelligence_lines(
+        self,
+        result: AnalysisResult,
+        dashboard: Dict[str, Any],
+    ) -> List[str]:
+        intel = dashboard.get('intelligence', {}) if dashboard else {}
+        if not intel:
+            return []
+
+        lines = [
+            "### 📰 重要信息速览",
+            "",
+        ]
+        if intel.get('sentiment_summary'):
+            sentiment_summary = self._sanitize_user_facing_ai_text(
+                result,
+                intel['sentiment_summary'],
+                strip_position_sizing=False,
+            )
+            lines.append(f"**💭 舆情情绪**: {sentiment_summary}")
+        if intel.get('earnings_outlook'):
+            earnings_outlook = self._sanitize_user_facing_ai_text(
+                result,
+                intel['earnings_outlook'],
+                strip_position_sizing=False,
+            )
+            lines.append(f"**📊 业绩预期**: {earnings_outlook}")
+        catalysts = intel.get('positive_catalysts', [])
+        if catalysts:
+            lines.append("")
+            lines.append("**✨ 利好催化**:")
+            for cat in catalysts:
+                cat_text = self._sanitize_user_facing_ai_text(result, cat, strip_position_sizing=False)
+                lines.append(f"- {cat_text}")
+        if intel.get('latest_news'):
+            lines.append("")
+            latest_news = self._sanitize_user_facing_ai_text(
+                result,
+                intel['latest_news'],
+                strip_position_sizing=False,
+            )
+            lines.append(f"**📢 最新动态**: {latest_news}")
+        lines.append("")
+        return lines
+
+    def _build_dashboard_detail_core_lines(
+        self,
+        result: AnalysisResult,
+        *,
+        dashboard: Dict[str, Any],
+        action_model: Dict[str, Any],
+        code: str,
+        holding_codes: Set[str],
+        signal_text: str,
+        signal_emoji: str,
+    ) -> List[str]:
+        intel = dashboard.get('intelligence', {}) if dashboard else {}
+        core = dashboard.get('core_conclusion', {}) if dashboard else {}
+        one_sentence = self._get_conflict_safe_core_conclusion(
+            result,
+            core.get('one_sentence', result.analysis_summary),
+        )
+        one_sentence = self._sanitize_user_facing_ai_text(result, one_sentence)
+        time_sense = core.get('time_sensitivity', '本周内')
+        pos_advice = core.get('position_advice', {})
+        reason_text = self._sanitize_user_facing_ai_text(
+            result,
+            result.buy_reason or result.analysis_summary or '暂无',
+            strip_position_sizing=False,
+        )
+
+        lines: List[str] = []
+        lines.extend([
+            "### 核心结论",
+            f"- {signal_emoji} **{signal_text}** | {result.trend_prediction}",
+            f"- {one_sentence}",
+            "",
+            "### 主动作",
+            f"- {notification_formatting.format_position_action_label(action_model['position_action'])}（{notification_formatting.format_sizing_brief(action_model['target_weight'], action_model['position_action'])}）",
+            "",
+            "### 关键理由",
+            f"- {reason_text}",
+            f"- AI补充（非执行）：{self._get_conflict_safe_ai_commentary(result)}",
+            "",
+            "### 风险",
+            f"- 时效性：{time_sense}",
+        ])
+        risk_alerts = intel.get('risk_alerts', []) if intel else []
+        canonical_risk = ""
+        for risk_item in risk_alerts:
+            risk_text = (
+                str(risk_item.get("message") or risk_item.get("title") or "").strip()
+                if isinstance(risk_item, dict) else str(risk_item or "").strip()
+            )
+            if risk_text:
+                canonical_risk = self._sanitize_user_facing_risk_text(
+                    result,
+                    risk_text,
+                    action_model=action_model,
+                )
+                break
+        if canonical_risk:
+            lines.append(f"- ⚠️ {canonical_risk}")
+        elif result.risk_warning:
+            lines.append(
+                f"- ⚠️ {self._sanitize_user_facing_risk_text(result, result.risk_warning, action_model=action_model)}"
+            )
+        lines.append("")
+        if action_model['ai_conflict']:
+            lines.extend([
+                "- ⚠️ AI解读与确定性动作不一致，请以确定性主动作作为准。",
+                "",
+            ])
+        if pos_advice:
+            is_holding = code in holding_codes
+            no_position_text = self._sanitize_user_facing_ai_text(result, pos_advice.get('no_position'))
+            has_position_text = self._sanitize_user_facing_ai_text(result, pos_advice.get('has_position'))
+            lines.append("### 持仓指引")
+            if no_position_text and has_position_text and no_position_text != has_position_text:
+                if is_holding:
+                    lines.append(f"- 持仓者怎么做：{has_position_text}")
+                    lines.append(f"- 空仓者参考：{no_position_text}")
+                else:
+                    lines.append(f"- 空仓者怎么做：{no_position_text}")
+                    lines.append(f"- 持仓者参考：{has_position_text}")
             else:
-                report_lines.append("- 今日无新开仓 / 观察标的。")
-            report_lines.append("")
-            observation_items = [
-                self._build_dashboard_observation_item(result)
-                for result in display_non_holding_results
-            ]
-            report_lines.extend(
-                self._build_dashboard_observation_appendix_lines(
-                    observation_items=observation_items,
+                primary = has_position_text if is_holding else no_position_text
+                lines.append(f"- {'持仓者' if is_holding else '空仓者'}怎么做：{primary or self._format_deterministic_sizing_text(result)}")
+            lines.append("")
+        return lines
+
+    def _build_dashboard_detail_data_perspective_lines(
+        self,
+        result: AnalysisResult,
+        dashboard: Dict[str, Any],
+    ) -> List[str]:
+        data_persp = dashboard.get('data_perspective', {}) if dashboard else {}
+        if not data_persp:
+            return []
+
+        lines = [
+            "### 证据附录（技术/数据）",
+            "",
+        ]
+        trend_data = data_persp.get('trend_status', {})
+        price_data = data_persp.get('price_position', {})
+        vol_data = data_persp.get('volume_analysis', {})
+
+        if trend_data:
+            is_bullish = "✅ 是" if trend_data.get('is_bullish', False) else "❌ 否"
+            lines.extend([
+                f"**均线排列**: {trend_data.get('ma_alignment', 'N/A')} | 多头排列: {is_bullish} | 趋势强度: {trend_data.get('trend_score', 'N/A')}/100",
+                "",
+            ])
+        if price_data:
+            bias_status = price_data.get('bias_status', 'N/A')
+            bias_emoji = "✅" if bias_status == "安全" else ("⚠️" if bias_status == "警戒" else "🚨")
+            price_metric_label = self._get_price_metric_label(result)
+            lines.extend([
+                "| 价格指标 | 数值 |",
+                "|---------|------|",
+                f"| {price_metric_label} | {price_data.get('current_price', 'N/A')} |",
+                f"| MA5 | {price_data.get('ma5', 'N/A')} |",
+                f"| MA10 | {price_data.get('ma10', 'N/A')} |",
+                f"| MA20 | {price_data.get('ma20', 'N/A')} |",
+                f"| 乖离率(MA5) | {price_data.get('bias_ma5', 'N/A')}% {bias_emoji}{bias_status} |",
+                f"| 支撑位 | {price_data.get('support_level', 'N/A')} |",
+                f"| 压力位 | {price_data.get('resistance_level', 'N/A')} |",
+                "",
+            ])
+        if vol_data:
+            volume_meaning = self._guard_volume_commentary(result, vol_data.get('volume_meaning', ''))
+            if volume_meaning == "量能数据不足（量比/换手率缺失），不做量能结论":
+                lines.extend([
+                    f"**量能**: {volume_meaning}",
+                    "",
+                ])
+            else:
+                lines.extend([
+                    f"**量能**: 量比 {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | 换手率 {vol_data.get('turnover_rate', 'N/A')}%",
+                    f"💡 *{volume_meaning}*",
+                    "",
+                ])
+        return lines
+
+    def _build_dashboard_detail_battle_plan_lines(
+        self,
+        result: AnalysisResult,
+        *,
+        dashboard: Dict[str, Any],
+        action_model: Dict[str, Any],
+    ) -> List[str]:
+        battle = dashboard.get('battle_plan', {}) if dashboard else {}
+        if not battle:
+            return []
+
+        lines = [
+            "### 条件化计划点位 / 人工复核参考",
+            "",
+        ]
+        sniper = battle.get('sniper_points', {})
+        plan_points = self._build_conditional_plan_points(result, sniper)
+        if plan_points:
+            lines.extend([
+                *render_conditional_plan_points_markdown(plan_points),
+            ])
+        position = battle.get('position_strategy', {})
+        if position:
+            position_lines = self._build_ai_position_strategy_lines(position, action_model, result)
+            if position_lines:
+                lines.extend([
+                    "**💰 AI作战计划（非执行参考）**",
+                    *position_lines,
+                    "",
+                ])
+        checklist = battle.get('action_checklist', []) if battle else []
+        if checklist:
+            lines.extend([
+                "**✅ 检查清单**",
+                "",
+            ])
+            for item in checklist:
+                lines.append(f"- {item}")
+            lines.append("")
+        return lines
+
+    def _build_dashboard_detail_legacy_lines(
+        self,
+        result: AnalysisResult,
+        *,
+        action_model: Dict[str, Any],
+        dashboard: Dict[str, Any],
+    ) -> List[str]:
+        if dashboard:
+            return []
+
+        lines: List[str] = []
+        if result.buy_reason:
+            lines.extend([
+                f"**💡 操作理由**: {self._sanitize_report_jargon(self._sanitize_unverified_backtest_claim(result, result.buy_reason))}",
+                "",
+            ])
+        if result.risk_warning:
+            lines.extend([
+                f"**⚠️ 风险提示**: {self._sanitize_user_facing_risk_text(result, result.risk_warning, action_model=action_model)}",
+                "",
+            ])
+        if result.ma_analysis or result.volume_analysis:
+            lines.extend([
+                "### 📊 技术面",
+                "",
+            ])
+            if result.ma_analysis:
+                lines.append(f"**均线**: {result.ma_analysis}")
+            if result.volume_analysis:
+                lines.append(f"**量能**: {self._guard_volume_commentary(result, result.volume_analysis)}")
+            lines.append("")
+        if result.news_summary:
+            lines.extend([
+                "### 📰 消息面",
+                f"{result.news_summary}",
+                "",
+            ])
+        return lines
+
+    def _build_dashboard_detail_lines(
+        self,
+        *,
+        display_holding_results: List[AnalysisResult],
+        display_non_holding_results: List[AnalysisResult],
+        holding_codes: Set[str],
+    ) -> List[str]:
+        if self._report_summary_only:
+            return []
+
+        lines: List[str] = []
+        detail_results = display_holding_results + display_non_holding_results
+        detail_seen_codes = set()
+        if detail_results:
+            lines.extend([
+                "## 个股详细分析",
+                "",
+                "> 以下保留每只股票的详细分析、关键理由、风险和条件化参考；证据矩阵与校准细节仍在完整归档附录。",
+                "",
+            ])
+        for result in detail_results:
+            code = canonical_stock_code(getattr(result, "code", ""))
+            if code in detail_seen_codes:
+                continue
+            detail_seen_codes.add(code)
+            signal_text, signal_emoji, _ = self._get_signal_level(result)
+            action_model = self._get_primary_action_model(result)
+            dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
+
+            stock_name = self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))
+
+            lines.extend([
+                f"## {signal_emoji} {stock_name}",
+                "",
+                f"**价格基准**：{self._get_price_basis_label(result)}",
+                "",
+            ])
+
+            lines.extend(self._build_dashboard_detail_intelligence_lines(result, dashboard))
+            lines.extend(
+                self._build_dashboard_detail_core_lines(
+                    result,
+                    dashboard=dashboard,
+                    action_model=action_model,
+                    code=code,
+                    holding_codes=holding_codes,
+                    signal_text=signal_text,
+                    signal_emoji=signal_emoji,
+                )
+            )
+            self._append_market_snapshot(lines, result)
+            lines.extend(self._build_dashboard_detail_data_perspective_lines(result, dashboard))
+            lines.extend(
+                self._build_dashboard_detail_battle_plan_lines(
+                    result,
+                    dashboard=dashboard,
+                    action_model=action_model,
+                )
+            )
+            lines.extend(
+                self._build_dashboard_detail_legacy_lines(
+                    result,
+                    action_model=action_model,
+                    dashboard=dashboard,
                 )
             )
 
-        # 逐个股票的决策仪表盘（Issue #262: summary_only 时跳过详情）
-        if not self._report_summary_only:
-            detail_results = display_holding_results + display_non_holding_results
-            detail_seen_codes = set()
-            if detail_results:
-                report_lines.extend([
-                    "## 个股详细分析",
-                    "",
-                    "> 以下保留每只股票的详细分析、关键理由、风险和条件化参考；证据矩阵与校准细节仍在完整归档附录。",
-                    "",
-                ])
-            for result in detail_results:
-                code = canonical_stock_code(getattr(result, "code", ""))
-                if code in detail_seen_codes:
-                    continue
-                detail_seen_codes.add(code)
-                signal_text, signal_emoji, signal_tag = self._get_signal_level(result)
-                action_model = self._get_primary_action_model(result)
-                dashboard = result.dashboard if hasattr(result, 'dashboard') and result.dashboard else {}
-                
-                stock_name = self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))
-                
-                report_lines.extend([
-                    f"## {signal_emoji} {stock_name}",
-                    "",
-                    f"**价格基准**：{self._get_price_basis_label(result)}",
-                    "",
-                ])
-                
-                # ========== 舆情与基本面概览（放在最前面）==========
-                intel = dashboard.get('intelligence', {}) if dashboard else {}
-                if intel:
-                    report_lines.extend([
-                        "### 📰 重要信息速览",
-                        "",
-                    ])
-                    # 舆情情绪总结
-                    if intel.get('sentiment_summary'):
-                        sentiment_summary = self._sanitize_user_facing_ai_text(
-                            result,
-                            intel['sentiment_summary'],
-                            strip_position_sizing=False,
-                        )
-                        report_lines.append(f"**💭 舆情情绪**: {sentiment_summary}")
-                    # 业绩预期
-                    if intel.get('earnings_outlook'):
-                        earnings_outlook = self._sanitize_user_facing_ai_text(
-                            result,
-                            intel['earnings_outlook'],
-                            strip_position_sizing=False,
-                        )
-                        report_lines.append(f"**📊 业绩预期**: {earnings_outlook}")
-                    # 利好催化
-                    catalysts = intel.get('positive_catalysts', [])
-                    if catalysts:
-                        report_lines.append("")
-                        report_lines.append("**✨ 利好催化**:")
-                        for cat in catalysts:
-                            cat_text = self._sanitize_user_facing_ai_text(result, cat, strip_position_sizing=False)
-                            report_lines.append(f"- {cat_text}")
-                    # 最新消息
-                    if intel.get('latest_news'):
-                        report_lines.append("")
-                        latest_news = self._sanitize_user_facing_ai_text(
-                            result,
-                            intel['latest_news'],
-                            strip_position_sizing=False,
-                        )
-                        report_lines.append(f"**📢 最新动态**: {latest_news}")
-                    report_lines.append("")
-                
-                # ========== 核心结论 ==========
-                core = dashboard.get('core_conclusion', {}) if dashboard else {}
-                one_sentence = self._get_conflict_safe_core_conclusion(
-                    result,
-                    core.get('one_sentence', result.analysis_summary),
-                )
-                one_sentence = self._sanitize_user_facing_ai_text(result, one_sentence)
-                time_sense = core.get('time_sensitivity', '本周内')
-                pos_advice = core.get('position_advice', {})
-                reason_text = self._sanitize_user_facing_ai_text(
-                    result,
-                    result.buy_reason or result.analysis_summary or '暂无',
-                    strip_position_sizing=False,
-                )
-                
-                report_lines.extend([
-                    "### 核心结论",
-                    f"- {signal_emoji} **{signal_text}** | {result.trend_prediction}",
-                    f"- {one_sentence}",
-                    "",
-                    "### 主动作",
-                    f"- {notification_formatting.format_position_action_label(action_model['position_action'])}（{notification_formatting.format_sizing_brief(action_model['target_weight'], action_model['position_action'])}）",
-                    "",
-                    "### 关键理由",
-                    f"- {reason_text}",
-                    f"- AI补充（非执行）：{self._get_conflict_safe_ai_commentary(result)}",
-                    "",
-                    "### 风险",
-                    f"- 时效性：{time_sense}",
-                ])
-                risk_alerts = intel.get('risk_alerts', []) if intel else []
-                canonical_risk = ""
-                for risk_item in risk_alerts:
-                    risk_text = (
-                        str(risk_item.get("message") or risk_item.get("title") or "").strip()
-                        if isinstance(risk_item, dict) else str(risk_item or "").strip()
-                    )
-                    if risk_text:
-                        canonical_risk = self._sanitize_user_facing_risk_text(
-                            result,
-                            risk_text,
-                            action_model=action_model,
-                        )
-                        break
-                if canonical_risk:
-                    report_lines.append(f"- ⚠️ {canonical_risk}")
-                elif result.risk_warning:
-                    report_lines.append(
-                        f"- ⚠️ {self._sanitize_user_facing_risk_text(result, result.risk_warning, action_model=action_model)}"
-                    )
-                report_lines.append("")
-                if action_model['ai_conflict']:
-                    report_lines.extend([
-                        "- ⚠️ AI解读与确定性动作不一致，请以确定性主动作作为准。",
-                        "",
-                    ])
-                # 持仓分类建议（仅在确有差异时双分支展示）
-                if pos_advice:
-                    is_holding = code in holding_codes
-                    no_position_text = self._sanitize_user_facing_ai_text(result, pos_advice.get('no_position'))
-                    has_position_text = self._sanitize_user_facing_ai_text(result, pos_advice.get('has_position'))
-                    report_lines.append("### 持仓指引")
-                    if no_position_text and has_position_text and no_position_text != has_position_text:
-                        if is_holding:
-                            report_lines.append(f"- 持仓者怎么做：{has_position_text}")
-                            report_lines.append(f"- 空仓者参考：{no_position_text}")
-                        else:
-                            report_lines.append(f"- 空仓者怎么做：{no_position_text}")
-                            report_lines.append(f"- 持仓者参考：{has_position_text}")
-                    else:
-                        primary = has_position_text if is_holding else no_position_text
-                        report_lines.append(f"- {'持仓者' if is_holding else '空仓者'}怎么做：{primary or self._format_deterministic_sizing_text(result)}")
-                    report_lines.append("")
+            lines.extend([
+                "---",
+                "",
+            ])
+        return lines
 
-                self._append_market_snapshot(report_lines, result)
-                
-                # ========== 数据透视 ==========
-                data_persp = dashboard.get('data_perspective', {}) if dashboard else {}
-                if data_persp:
-                    trend_data = data_persp.get('trend_status', {})
-                    price_data = data_persp.get('price_position', {})
-                    vol_data = data_persp.get('volume_analysis', {})
-                    
-                    report_lines.extend([
-                        "### 证据附录（技术/数据）",
-                        "",
-                    ])
-                    # 趋势状态
-                    if trend_data:
-                        is_bullish = "✅ 是" if trend_data.get('is_bullish', False) else "❌ 否"
-                        report_lines.extend([
-                            f"**均线排列**: {trend_data.get('ma_alignment', 'N/A')} | 多头排列: {is_bullish} | 趋势强度: {trend_data.get('trend_score', 'N/A')}/100",
-                            "",
-                        ])
-                    # 价格位置
-                    if price_data:
-                        bias_status = price_data.get('bias_status', 'N/A')
-                        bias_emoji = "✅" if bias_status == "安全" else ("⚠️" if bias_status == "警戒" else "🚨")
-                        price_metric_label = self._get_price_metric_label(result)
-                        report_lines.extend([
-                            "| 价格指标 | 数值 |",
-                            "|---------|------|",
-                            f"| {price_metric_label} | {price_data.get('current_price', 'N/A')} |",
-                            f"| MA5 | {price_data.get('ma5', 'N/A')} |",
-                            f"| MA10 | {price_data.get('ma10', 'N/A')} |",
-                            f"| MA20 | {price_data.get('ma20', 'N/A')} |",
-                            f"| 乖离率(MA5) | {price_data.get('bias_ma5', 'N/A')}% {bias_emoji}{bias_status} |",
-                            f"| 支撑位 | {price_data.get('support_level', 'N/A')} |",
-                            f"| 压力位 | {price_data.get('resistance_level', 'N/A')} |",
-                            "",
-                        ])
-                    # 量能分析
-                    if vol_data:
-                        volume_meaning = self._guard_volume_commentary(result, vol_data.get('volume_meaning', ''))
-                        if volume_meaning == "量能数据不足（量比/换手率缺失），不做量能结论":
-                            report_lines.extend([
-                                f"**量能**: {volume_meaning}",
-                                "",
-                            ])
-                        else:
-                            report_lines.extend([
-                                f"**量能**: 量比 {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | 换手率 {vol_data.get('turnover_rate', 'N/A')}%",
-                                f"💡 *{volume_meaning}*",
-                                "",
-                            ])
-                # ========== 作战计划 ==========
-                battle = dashboard.get('battle_plan', {}) if dashboard else {}
-                if battle:
-                    report_lines.extend([
-                        "### 条件化计划点位 / 人工复核参考",
-                        "",
-                    ])
-                    # 狙击点位
-                    sniper = battle.get('sniper_points', {})
-                    plan_points = self._build_conditional_plan_points(result, sniper)
-                    if plan_points:
-                        report_lines.extend([
-                            *render_conditional_plan_points_markdown(plan_points),
-                        ])
-                    # 仓位策略
-                    position = battle.get('position_strategy', {})
-                    if position:
-                        position_lines = self._build_ai_position_strategy_lines(position, action_model, result)
-                        if position_lines:
-                            report_lines.extend([
-                                "**💰 AI作战计划（非执行参考）**",
-                                *position_lines,
-                                "",
-                            ])
-                    # 检查清单
-                    checklist = battle.get('action_checklist', []) if battle else []
-                    if checklist:
-                        report_lines.extend([
-                            "**✅ 检查清单**",
-                            "",
-                        ])
-                        for item in checklist:
-                            report_lines.append(f"- {item}")
-                        report_lines.append("")
-                
-                # 如果没有 dashboard，显示传统格式
-                if not dashboard:
-                    # 操作理由
-                    if result.buy_reason:
-                        report_lines.extend([
-                            f"**💡 操作理由**: {self._sanitize_report_jargon(self._sanitize_unverified_backtest_claim(result, result.buy_reason))}",
-                            "",
-                        ])
-                    # 风险提示
-                    if result.risk_warning:
-                        report_lines.extend([
-                            f"**⚠️ 风险提示**: {self._sanitize_user_facing_risk_text(result, result.risk_warning, action_model=action_model)}",
-                            "",
-                        ])
-                    # 技术面分析
-                    if result.ma_analysis or result.volume_analysis:
-                        report_lines.extend([
-                            "### 📊 技术面",
-                            "",
-                        ])
-                        if result.ma_analysis:
-                            report_lines.append(f"**均线**: {result.ma_analysis}")
-                        if result.volume_analysis:
-                            report_lines.append(f"**量能**: {self._guard_volume_commentary(result, result.volume_analysis)}")
-                        report_lines.append("")
-                    # 消息面
-                    if result.news_summary:
-                        report_lines.extend([
-                            "### 📰 消息面",
-                            f"{result.news_summary}",
-                            "",
-                        ])
-                
-                report_lines.extend([
-                    "---",
-                    "",
-                ])
-
-        appendix_lines = [
+    def _build_dashboard_audit_appendix_lines(
+        self,
+        *,
+        results: List[AnalysisResult],
+        generated_at: datetime,
+        daily_summary: Dict[str, Any],
+        holdings: List[Dict[str, Any]],
+        effective_actionable_results: List[AnalysisResult],
+        executed_weight_by_code: Dict[str, float],
+        successful_results_for_summary: List[AnalysisResult],
+        failed_results_for_summary: List[AnalysisResult],
+        blocked_results_for_summary: List[AnalysisResult],
+    ) -> List[str]:
+        lines = [
             self.AUDIT_APPENDIX_HEADING,
             "",
             "### 审计范围 / 数据基准",
@@ -2933,15 +3115,15 @@ class NotificationService:
             ),
             "",
         ]
-        appendix_lines.extend(self._build_data_baseline_lines(results, generated_at, title="### 数据时间基准"))
+        lines.extend(self._build_data_baseline_lines(results, generated_at, title="### 数据时间基准"))
         if holdings:
-            appendix_lines.extend([
+            lines.extend([
                 "### 持仓估值与覆盖（附录）",
                 "",
                 "> 用于审计账户快照、报告时点估值来源与今日分析覆盖范围。",
                 "",
             ])
-            appendix_lines.extend(
+            lines.extend(
                 build_holdings_audit_table(
                     holdings=holdings,
                     format_stock_display_name=notification_formatting.format_stock_display_name,
@@ -2950,35 +3132,126 @@ class NotificationService:
                     to_markdown_table_cell=self._to_markdown_table_cell,
                 )
             )
-            appendix_lines.append("")
+            lines.append("")
         if effective_actionable_results:
-            appendix_lines.extend([
+            lines.extend([
                 "### 计划仓位模拟（附录）",
                 "",
                 "> 以下目标仓位仅为模拟计划；正文动作表优先用于开盘前阅读。",
                 "",
             ])
-            appendix_lines.extend(
+            lines.extend(
                 self._build_simulated_target_allocation_table(
                     effective_actionable_results,
                     executed_weight_by_code=executed_weight_by_code,
                 )
             )
-            appendix_lines.extend(
+            lines.extend(
                 self._build_section_c_reconciliation_lines(
                     results=effective_actionable_results,
                     overview_holdings=holdings,
                 )
             )
-            appendix_lines.append("")
-        appendix_lines.extend(render_preopen_decision_appendix(daily_summary, include_heading=False))
-        report_lines.extend(appendix_lines)
+            lines.append("")
+        lines.extend(render_preopen_decision_appendix(daily_summary, include_heading=False))
+        return lines
+
+    def generate_dashboard_report(
+        self,
+        results: List[AnalysisResult],
+        report_date: Optional[str] = None,
+        portfolio_summary_section: Optional[str] = None,
+    ) -> str:
+        """
+        生成决策仪表盘格式的日报（详细版）
+
+        格式：市场概览 + 重要信息 + 核心结论 + 数据透视 + 作战计划
+
+        Args:
+            results: 分析结果列表
+            report_date: 报告日期（默认今天）
+
+        Returns:
+            Markdown 格式的决策仪表盘日报
+        """
+        timing = self._resolve_dashboard_report_timing(report_date)
+        malformed_dashboard_codes = self._sanitize_dashboards_for_render(results)
+        sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
+        portfolio = self._load_dashboard_portfolio_snapshot(results)
+        summary_groups = self._build_dashboard_summary_groups(
+            sorted_results=sorted_results,
+            timing=timing,
+            overview=portfolio.overview,
+            paper_portfolio_overview=portfolio.paper_portfolio_overview,
+        )
+        action_groups = self._build_dashboard_action_groups(
+            sorted_results=sorted_results,
+            holding_codes=portfolio.holding_codes,
+        )
+        risk_groups = self._build_dashboard_risk_groups(
+            results=results,
+            sorted_results=sorted_results,
+            holdings=portfolio.holdings,
+        )
+        report_lines = [
+            f"# 🎯 {timing.report_date} 决策仪表盘",
+            "",
+        ]
+        report_lines.extend(render_preopen_decision_dashboard(summary_groups.daily_summary))
+        if portfolio_summary_section:
+            report_lines.extend([portfolio_summary_section.rstrip(), "", "---", ""])
+
+        report_lines.extend(
+            self._build_paper_portfolio_readonly_lines(
+                portfolio.paper_portfolio_overview,
+                has_plan_actions=bool(action_groups.effective_actionable_results),
+                report_date=timing.report_date,
+            )
+        )
+        report_lines.extend(
+            self._build_dashboard_current_holdings_lines(
+                overview=portfolio.overview,
+                holdings=portfolio.holdings,
+                actionable_holding_results=action_groups.actionable_holding_results,
+                display_holding_results=action_groups.display_holding_results,
+                uncovered_holdings=risk_groups.uncovered_holdings,
+                failed_results=risk_groups.failed_results,
+                blocked_results=risk_groups.blocked_results,
+                has_mixed_price_basis=risk_groups.has_mixed_price_basis,
+                executed_weight_by_code=portfolio.executed_weight_by_code,
+                malformed_holding_count=portfolio.malformed_holding_count,
+                malformed_dashboard_codes=malformed_dashboard_codes,
+            )
+        )
+        report_lines.extend(
+            self._build_dashboard_non_holding_lines(action_groups.display_non_holding_results)
+        )
+        report_lines.extend(
+            self._build_dashboard_detail_lines(
+                display_holding_results=action_groups.display_holding_results,
+                display_non_holding_results=action_groups.display_non_holding_results,
+                holding_codes=portfolio.holding_codes,
+            )
+        )
+        report_lines.extend(
+            self._build_dashboard_audit_appendix_lines(
+                results=results,
+                generated_at=timing.generated_at,
+                daily_summary=summary_groups.daily_summary,
+                holdings=portfolio.holdings,
+                effective_actionable_results=action_groups.effective_actionable_results,
+                executed_weight_by_code=portfolio.executed_weight_by_code,
+                successful_results_for_summary=summary_groups.successful_results_for_summary,
+                failed_results_for_summary=summary_groups.failed_results_for_summary,
+                blocked_results_for_summary=summary_groups.blocked_results_for_summary,
+            )
+        )
         
         # 底部免责声明与时间
         report_lines.extend([
             "",
             "*免责声明：仅作计划，供人工决策辅助；系统不自动下单。*",
-            f"*报告生成时间：{generated_at.strftime('%Y-%m-%d %H:%M:%S')}*",
+            f"*报告生成时间：{timing.generated_at.strftime('%Y-%m-%d %H:%M:%S')}*",
         ])
         
         return "\n".join(report_lines)
