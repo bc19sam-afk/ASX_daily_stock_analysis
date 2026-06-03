@@ -1766,7 +1766,7 @@ class StockAnalysisPipeline:
             logger.warning("模拟盘写入失败，报告将继续生成但不更新模拟账本: %s", exc)
             return False
     
-    def _send_notifications(self, results: List[AnalysisResult], skip_push: bool = False) -> None:
+    def _send_notifications(self, results: List[AnalysisResult], skip_push: bool = False) -> Dict[str, Any]:
         """
         发送分析结果通知
         
@@ -1776,6 +1776,20 @@ class StockAnalysisPipeline:
             results: 分析结果列表
             skip_push: 是否跳过推送（仅保存到本地，用于单股推送模式）
         """
+        delivery_health: Dict[str, Any] = {
+            "report_saved": False,
+            "html_saved": False,
+            "json_saved": False,
+            "notification_attempted": False,
+            "notification_failed": False,
+            "notification_failure_stage": None,
+            "notification_failure_message": None,
+            "report_path": None,
+            "html_path": None,
+            "summary_path": None,
+            "notification_channels": [],
+        }
+        notification_stage: Optional[str] = None
         try:
             logger.info("生成决策仪表盘日报...")
 
@@ -1828,6 +1842,8 @@ class StockAnalysisPipeline:
             
             # 保存到本地
             filepath = self.notifier.save_report_to_file(report, report_date=report_date or None)
+            delivery_health["report_saved"] = True
+            delivery_health["report_path"] = filepath
             logger.info(f"决策仪表盘日报已保存: {filepath}")
             try:
                 html_path = self.notifier.save_report_archive_html(
@@ -1835,25 +1851,45 @@ class StockAnalysisPipeline:
                     markdown_filepath=filepath,
                     report_date=report_date or None,
                 )
+                delivery_health["html_saved"] = True
+                delivery_health["html_path"] = html_path
                 logger.info(f"HTML归档日报已保存: {html_path}")
-                if daily_summary:
-                    summary_path = self.notifier.save_daily_decision_summary_to_file(daily_summary)
-                    logger.info(f"daily_decision_summary 已保存: {summary_path}")
             except Exception as e:
-                logger.warning(f"日报归档输出生成失败（Markdown 已保存）: {e}")
+                delivery_health["html_failed"] = True
+                delivery_health["html_failure_message"] = str(e)
+                logger.warning("日报HTML归档输出生成失败（Markdown 已保存）: %s", e, exc_info=True)
+
+            if daily_summary:
+                try:
+                    summary_path = self.notifier.save_daily_decision_summary_to_file(daily_summary)
+                    delivery_health["json_saved"] = True
+                    delivery_health["summary_path"] = summary_path
+                    logger.info(f"daily_decision_summary 已保存: {summary_path}")
+                except Exception as e:
+                    delivery_health["json_failed"] = True
+                    delivery_health["json_failure_message"] = str(e)
+                    logger.warning("daily_decision_summary 输出生成失败（Markdown 已保存）: %s", e, exc_info=True)
+            else:
+                delivery_health["json_failure_message"] = "daily_decision_summary unavailable"
             
             # 跳过推送（单股推送模式）
             if skip_push:
-                return
+                return delivery_health
             
             # 推送通知
             if self.notifier.is_available():
                 channels = self.notifier.get_available_channels()
+                delivery_health["notification_attempted"] = True
+                delivery_health["notification_channels"] = [
+                    getattr(channel, "value", str(channel)) for channel in channels
+                ]
+                notification_stage = "context"
                 context_success = self.notifier.send_to_context(report)
 
                 # 企业微信：只发精简版（平台限制）
                 wechat_success = False
                 if NotificationChannel.WECHAT in channels:
+                    notification_stage = "wechat"
                     dashboard_content = self.notifier.generate_wechat_dashboard(
                         results,
                         report_date=report_date or None,
@@ -1869,10 +1905,13 @@ class StockAnalysisPipeline:
                     if channel == NotificationChannel.WECHAT:
                         continue
                     if channel == NotificationChannel.FEISHU:
+                        notification_stage = "feishu"
                         non_wechat_success = self.notifier.send_to_feishu(report) or non_wechat_success
                     elif channel == NotificationChannel.TELEGRAM:
+                        notification_stage = "telegram"
                         non_wechat_success = self.notifier.send_to_telegram(report) or non_wechat_success
                     elif channel == NotificationChannel.EMAIL:
+                        notification_stage = "email"
                         if stock_email_groups:
                             code_to_emails: Dict[str, Optional[List[str]]] = {}
                             for r in results:
@@ -1906,16 +1945,22 @@ class StockAnalysisPipeline:
                             email_report = self.notifier.build_email_report_body(report)
                             non_wechat_success = self.notifier.send_to_email(email_report) or non_wechat_success
                     elif channel == NotificationChannel.CUSTOM:
+                        notification_stage = "custom"
                         non_wechat_success = self.notifier.send_to_custom(report) or non_wechat_success
                     elif channel == NotificationChannel.PUSHPLUS:
+                        notification_stage = "pushplus"
                         non_wechat_success = self.notifier.send_to_pushplus(report) or non_wechat_success
                     elif channel == NotificationChannel.SERVERCHAN3:
+                        notification_stage = "serverchan3"
                         non_wechat_success = self.notifier.send_to_serverchan3(report) or non_wechat_success
                     elif channel == NotificationChannel.DISCORD:
+                        notification_stage = "discord"
                         non_wechat_success = self.notifier.send_to_discord(report) or non_wechat_success
                     elif channel == NotificationChannel.PUSHOVER:
+                        notification_stage = "pushover"
                         non_wechat_success = self.notifier.send_to_pushover(report) or non_wechat_success
                     elif channel == NotificationChannel.ASTRBOT:
+                        notification_stage = "astrbot"
                         non_wechat_success = self.notifier.send_to_astrbot(report) or non_wechat_success
                     else:
                         logger.warning(f"未知通知渠道: {channel}")
@@ -1924,9 +1969,42 @@ class StockAnalysisPipeline:
                 if success:
                     logger.info("决策仪表盘推送成功")
                 else:
+                    delivery_health["notification_failed"] = True
+                    delivery_health["notification_failure_stage"] = notification_stage or "notification"
+                    delivery_health[
+                        "notification_failure_message"
+                    ] = "all configured notification channels returned false"
                     logger.warning("决策仪表盘推送失败")
             else:
                 logger.info("通知渠道未配置，跳过推送")
                 
         except Exception as e:
-            logger.error("发送通知失败: %s", e, exc_info=True)
+            if delivery_health.get("notification_attempted"):
+                delivery_health["notification_failed"] = True
+                delivery_health["notification_failure_stage"] = notification_stage or "notification"
+                delivery_health["notification_failure_message"] = str(e)
+            else:
+                delivery_health["report_generation_failed"] = True
+                delivery_health["report_generation_failure_message"] = str(e)
+            logger.error(
+                "发送通知失败；日报交付健康检查失败: stage=%s health=%s",
+                notification_stage or "report_generation",
+                delivery_health,
+                exc_info=True,
+            )
+        finally:
+            logger.info(
+                "日报交付健康检查: report_saved=%s html_saved=%s json_saved=%s "
+                "notification_attempted=%s notification_failed=%s report_path=%s html_path=%s "
+                "summary_path=%s failure_stage=%s",
+                delivery_health.get("report_saved"),
+                delivery_health.get("html_saved"),
+                delivery_health.get("json_saved"),
+                delivery_health.get("notification_attempted"),
+                delivery_health.get("notification_failed"),
+                delivery_health.get("report_path"),
+                delivery_health.get("html_path"),
+                delivery_health.get("summary_path"),
+                delivery_health.get("notification_failure_stage"),
+            )
+        return delivery_health

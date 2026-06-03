@@ -1,12 +1,14 @@
+import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
 from src.core.pipeline import StockAnalysisPipeline
-from src.notification import NotificationChannel
+from src.notification import NotificationChannel, NotificationService
 
 
 class PipelineSummaryDateFilterTestCase(unittest.TestCase):
@@ -107,7 +109,7 @@ class PipelineSummaryDateFilterTestCase(unittest.TestCase):
         pipeline.notifier.generate_dashboard_report.return_value = archive_report
         pipeline.notifier.build_email_report_body.return_value = email_report
 
-        pipeline._send_notifications([self._build_result("2026-05-15")], skip_push=False)
+        health = pipeline._send_notifications([self._build_result("2026-05-15")], skip_push=False)
 
         pipeline.notifier.save_report_to_file.assert_called_once_with(
             archive_report,
@@ -118,6 +120,111 @@ class PipelineSummaryDateFilterTestCase(unittest.TestCase):
         pipeline.notifier.send_to_context.assert_called_once_with(archive_report)
         pipeline.notifier.build_email_report_body.assert_called_once_with(archive_report)
         pipeline.notifier.send_to_email.assert_called_once_with(email_report)
+        self.assertTrue(health["report_saved"])
+        self.assertTrue(health["html_saved"])
+        self.assertTrue(health["json_saved"])
+        self.assertTrue(health["notification_attempted"])
+        self.assertFalse(health["notification_failed"])
+        self.assertEqual(health["report_path"], "/tmp/report.md")
+        self.assertEqual(health["html_path"], "/tmp/report.html")
+        self.assertEqual(health["summary_path"], "/tmp/summary.json")
+
+    def test_delivery_health_marks_email_render_failure_after_artifacts_saved(self) -> None:
+        pipeline = self._build_pipeline_for_email_split()
+        pipeline.notifier.generate_dashboard_report.return_value = "# report"
+        pipeline.notifier.build_email_report_body.side_effect = RuntimeError("email body render failed")
+
+        with patch("src.core.pipeline.logger.error") as mock_error:
+            health = pipeline._send_notifications([self._build_result("2026-05-15")], skip_push=False)
+
+        self.assertTrue(health["report_saved"])
+        self.assertTrue(health["html_saved"])
+        self.assertTrue(health["json_saved"])
+        self.assertTrue(health["notification_attempted"])
+        self.assertTrue(health["notification_failed"])
+        self.assertEqual(health["notification_failure_stage"], "email")
+        self.assertIn("email body render failed", health["notification_failure_message"])
+        self.assertTrue(
+            any(
+                "日报交付健康检查失败" in call.args[0]
+                and call.kwargs.get("exc_info")
+                for call in mock_error.call_args_list
+            )
+        )
+
+    @patch("src.notification.get_db")
+    def test_malformed_dashboard_data_still_saves_all_daily_artifacts(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {
+            "cash": 10000.0,
+            "equity_value": 0.0,
+            "total_value": 10000.0,
+            "holdings": [],
+        }
+        mock_get_db.return_value.get_paper_portfolio_overview.return_value = {"initialized": False}
+        pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+        pipeline.config = SimpleNamespace(market_timezone="Australia/Sydney")
+        pipeline.analyzer = MagicMock()
+        pipeline.analyzer.generate_portfolio_summary.return_value = ""
+        service = NotificationService.__new__(NotificationService)
+        service._report_summary_only = False
+        service._report_timezone = "Australia/Sydney"
+        service._last_daily_decision_summary = None
+        service._now_in_report_tz = lambda: datetime(2026, 6, 3, 8, 30, tzinfo=ZoneInfo("Australia/Sydney"))
+        pipeline.notifier = service
+        result = AnalysisResult(
+            code="GMG.AX",
+            name="GOOD GROUP",
+            sentiment_score=70,
+            trend_prediction="震荡",
+            operation_advice="观察",
+            final_decision="HOLD",
+            position_action="HOLD",
+            market_snapshot={"date": "2026-06-02", "close": "10.00", "source": "yfinance"},
+            dashboard={"core_conclusion": "string-shaped core block"},
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_reports_dir = Path(tmpdir)
+
+            def save_report(content, filename=None, reports_dir=None, *, report_date=None):
+                return NotificationService.save_report_to_file(
+                    service,
+                    content,
+                    filename=filename,
+                    reports_dir=tmp_reports_dir,
+                    report_date=report_date,
+                )
+
+            def save_html(content, filename=None, *, markdown_filepath=None, reports_dir=None, report_date=None):
+                return NotificationService.save_report_archive_html(
+                    service,
+                    content,
+                    filename=filename,
+                    markdown_filepath=markdown_filepath,
+                    reports_dir=tmp_reports_dir,
+                    report_date=report_date,
+                )
+
+            def save_summary(summary, filename=None, *, reports_dir=None):
+                return NotificationService.save_daily_decision_summary_to_file(
+                    service,
+                    summary,
+                    filename=filename,
+                    reports_dir=tmp_reports_dir,
+                )
+
+            service.save_report_to_file = save_report
+            service.save_report_archive_html = save_html
+            service.save_daily_decision_summary_to_file = save_summary
+            health = pipeline._send_notifications([result], skip_push=True)
+
+        self.assertTrue(health["report_saved"])
+        self.assertTrue(health["html_saved"])
+        self.assertTrue(health["json_saved"])
+        self.assertFalse(health["notification_attempted"])
+        self.assertIn("report_20260603.md", health["report_path"])
+        self.assertIn("report_20260603.html", health["html_path"])
+        self.assertIn("daily_decision_summary_20260603.json", health["summary_path"])
 
     def test_stock_email_groups_use_concise_group_body(self) -> None:
         pipeline = self._build_pipeline_for_email_split(
