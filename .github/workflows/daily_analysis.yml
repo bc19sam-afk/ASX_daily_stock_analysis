@@ -135,6 +135,7 @@ jobs:
           # ==========================================
           TAVILY_API_KEYS: ${{ secrets.TAVILY_API_KEYS }}
           SERPAPI_API_KEYS: ${{ secrets.SERPAPI_API_KEYS }}
+          SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED: ${{ vars.SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED || 'false' }}
           
           # ==========================================
           # 通知渠道（可同时配置多个，全部推送）

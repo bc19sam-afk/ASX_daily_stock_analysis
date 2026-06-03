@@ -244,6 +244,148 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         self.assertEqual(p1.call_count, 1)
         self.assertEqual(p2.call_count, 1)
 
+    def test_market_review_default_skips_serpapi_when_primary_results_filter_empty(self) -> None:
+        """大盘复盘前两层有结果但过滤为空时，默认不应消耗 SerpAPI。"""
+        undated_market = SearchResponse(
+            query="undated",
+            results=[
+                SearchResult(
+                    title="ASX market commodity update",
+                    snippet="Market context without provider published time",
+                    url="https://example.com/undated-market",
+                    source="example.com",
+                )
+            ],
+            provider="primary",
+            success=True,
+        )
+        serpapi_market = SearchResponse(
+            query="serpapi",
+            results=[
+                SearchResult(
+                    title="ASX market commodity prices today",
+                    snippet="Market update for iron ore copper and gold",
+                    url="https://example.com/serpapi-market",
+                    source="example.com",
+                    published_date=self.fresh_published_date,
+                )
+            ],
+            provider="SerpAPI",
+            success=True,
+        )
+        tavily = FakeSearchProvider("Tavily", [undated_market])
+        gemini = FakeSearchProvider("Gemini Grounding", [undated_market])
+        serpapi = FakeSearchProvider("SerpAPI", [serpapi_market])
+        serpapi.requires_market_review_fallback_opt_in = True
+        self.service._providers = [tavily, gemini, serpapi]
+
+        response = self.service.search_stock_news(
+            stock_code="market",
+            stock_name="大盘",
+            max_results=3,
+            focus_keywords=["Iron", "ore", "copper", "gold", "price", "news"],
+        )
+
+        self.assertFalse(response.success)
+        self.assertEqual(response.provider, "None")
+        self.assertEqual(tavily.call_count, 1)
+        self.assertEqual(gemini.call_count, 1)
+        self.assertEqual(serpapi.call_count, 0)
+
+    def test_market_review_allows_serpapi_when_explicitly_enabled(self) -> None:
+        """显式开启后，大盘复盘仍保留 SerpAPI 最后兜底。"""
+        service = SearchService(serpapi_market_review_fallback_enabled=True)
+        undated_market = SearchResponse(
+            query="undated",
+            results=[
+                SearchResult(
+                    title="ASX market commodity update",
+                    snippet="Market context without provider published time",
+                    url="https://example.com/undated-market-enabled",
+                    source="example.com",
+                )
+            ],
+            provider="primary",
+            success=True,
+        )
+        serpapi_market = SearchResponse(
+            query="serpapi",
+            results=[
+                SearchResult(
+                    title="ASX market commodity prices today",
+                    snippet="Market update for iron ore copper and gold",
+                    url="https://example.com/serpapi-market-enabled",
+                    source="example.com",
+                    published_date=self.fresh_published_date,
+                )
+            ],
+            provider="SerpAPI",
+            success=True,
+        )
+        tavily = FakeSearchProvider("Tavily", [undated_market])
+        gemini = FakeSearchProvider("Gemini Grounding", [undated_market])
+        serpapi = FakeSearchProvider("SerpAPI", [serpapi_market])
+        serpapi.requires_market_review_fallback_opt_in = True
+        service._providers = [tavily, gemini, serpapi]
+
+        response = service.search_stock_news(
+            stock_code="market",
+            stock_name="大盘",
+            max_results=3,
+            focus_keywords=["Iron", "ore", "copper", "gold", "price", "news"],
+        )
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.provider, "SerpAPI")
+        self.assertEqual(response.results[0].url, "https://example.com/serpapi-market-enabled")
+        self.assertEqual(tavily.call_count, 1)
+        self.assertEqual(gemini.call_count, 1)
+        self.assertEqual(serpapi.call_count, 1)
+
+    def test_stock_news_keeps_serpapi_last_fallback_for_individual_stocks(self) -> None:
+        """普通个股 search_stock_news 仍可在前两层过滤为空后走 SerpAPI。"""
+        undated_stock = SearchResponse(
+            query="undated",
+            results=[
+                SearchResult(
+                    title="CBA.AX banking update",
+                    snippet="Commonwealth Bank of Australia item without published time",
+                    url="https://example.com/undated-stock",
+                    source="example.com",
+                )
+            ],
+            provider="primary",
+            success=True,
+        )
+        serpapi_stock = SearchResponse(
+            query="serpapi",
+            results=[
+                SearchResult(
+                    title="ASX: CBA.AX banking news today",
+                    snippet="Commonwealth Bank of Australia market update",
+                    url="https://example.com/serpapi-stock",
+                    source="example.com",
+                    published_date=self.fresh_published_date,
+                )
+            ],
+            provider="SerpAPI",
+            success=True,
+        )
+        tavily = FakeSearchProvider("Tavily", [undated_stock])
+        gemini = FakeSearchProvider("Gemini Grounding", [undated_stock])
+        serpapi = FakeSearchProvider("SerpAPI", [serpapi_stock])
+        serpapi.requires_market_review_fallback_opt_in = True
+        self.service._providers = [tavily, gemini, serpapi]
+
+        response = self.service.search_stock_news("CBA.AX", "Commonwealth Bank of Australia", max_results=3)
+
+        self.assertTrue(response.success)
+        self.assertEqual(response.provider, "SerpAPI")
+        self.assertEqual(response.results[0].url, "https://example.com/serpapi-stock")
+        self.assertEqual(tavily.call_count, 1)
+        self.assertEqual(gemini.call_count, 1)
+        self.assertEqual(serpapi.call_count, 1)
+
     def test_search_comprehensive_intel_uses_one_provider_per_dimension(self) -> None:
         """某维度过滤为空时，不应继续在同一维度铺开更多 provider。"""
         wrong_market = SearchResponse(
@@ -334,6 +476,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         gemini = FakeSearchProvider("Gemini Grounding", [make_response(f"gemini-{i}") for i in range(2)])
         serpapi = FakeSearchProvider("SerpAPI", [make_response(f"serpapi-{i}") for i in range(5)])
         serpapi.supports_comprehensive_intel_rotation = False
+        self.service.serpapi_market_review_fallback_enabled = True
         self.service._providers = [tavily, gemini, serpapi]
 
         intel = self.service.search_comprehensive_intel(self.code, self.name, max_searches=5)
@@ -374,6 +517,7 @@ class SearchEntityDisambiguationTestCase(unittest.TestCase):
         provider = SerpAPISearchProvider(["fake-key"])
 
         self.assertFalse(provider.supports_comprehensive_intel_rotation)
+        self.assertTrue(provider.requires_market_review_fallback_opt_in)
 
     def test_search_comprehensive_intel_keeps_undated_non_news_dimension(self) -> None:
         """非新闻类维度不应因为 provider 未给发布日期就被时效过滤清空。"""

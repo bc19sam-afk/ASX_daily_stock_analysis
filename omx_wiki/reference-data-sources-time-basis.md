@@ -24,6 +24,9 @@ Current ASX-oriented evidence may include:
 - ASX official Market Announcements listing metadata as read-only evidence.
 - Tavily, Gemini Grounding, SerpAPI, and news_intel cache for news/search
   evidence, depending on configuration and quota.
+- SerpAPI is a low-frequency final fallback. Ordinary stock-news search keeps
+  the Tavily -> Gemini Grounding -> SerpAPI order, but market review search
+  skips SerpAPI by default unless `SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED=true`.
 - Gemini 3.5 Flash for analysis or explanation work, subject to configured
   keys and rate limits.
 
@@ -40,4 +43,3 @@ Current ASX-oriented evidence may include:
 
 Keep source links and stable summaries here. Do not store API keys, credentials,
 account identifiers, raw broker exports, or real order information.
-

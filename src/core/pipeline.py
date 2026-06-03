@@ -141,6 +141,11 @@ class StockAnalysisPipeline:
             gemini_grounding_max_results=self.config.gemini_grounding_max_results,
             news_max_age_days=self.config.news_max_age_days,
             market_timezone=self.config.market_timezone,
+            serpapi_market_review_fallback_enabled=getattr(
+                self.config,
+                "serpapi_market_review_fallback_enabled",
+                False,
+            ),
         )
         
         logger.info(f"调度器初始化完成，最大并发数: {self.max_workers}")

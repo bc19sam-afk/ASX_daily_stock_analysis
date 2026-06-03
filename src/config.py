@@ -122,6 +122,7 @@ class Config:
     tavily_api_keys: List[str] = field(default_factory=list)  # Tavily API Keys
     brave_api_keys: List[str] = field(default_factory=list)  # Legacy Brave Search API Keys，日常搜索链路不再使用
     serpapi_keys: List[str] = field(default_factory=list)  # SerpAPI Keys
+    serpapi_market_review_fallback_enabled: bool = False  # 大盘复盘默认不使用 SerpAPI，显式开启才兜底
 
     # === 新闻与分析筛选配置 ===
     news_max_age_days: int = 3   # 新闻最大时效（天）
@@ -461,6 +462,7 @@ class Config:
             tavily_api_keys=tavily_api_keys,
             brave_api_keys=brave_api_keys,
             serpapi_keys=serpapi_keys,
+            serpapi_market_review_fallback_enabled=os.getenv('SERPAPI_MARKET_REVIEW_FALLBACK_ENABLED', 'false').lower() == 'true',
             wechat_webhook_url=os.getenv('WECHAT_WEBHOOK_URL'),
             feishu_webhook_url=os.getenv('FEISHU_WEBHOOK_URL'),
             telegram_bot_token=os.getenv('TELEGRAM_BOT_TOKEN'),
