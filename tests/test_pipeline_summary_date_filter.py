@@ -158,6 +158,17 @@ class PipelineSummaryDateFilterTestCase(unittest.TestCase):
         self.assertIn(["aaa@example.com"], sent_receivers)
         self.assertIn(["bbb@example.com"], sent_receivers)
 
+    def test_notification_failure_logs_traceback_context(self) -> None:
+        pipeline = self._build_pipeline_for_email_split()
+        pipeline.notifier.generate_dashboard_report.side_effect = RuntimeError("string-shaped data")
+
+        with patch("src.core.pipeline.logger.error") as mock_error:
+            pipeline._send_notifications([self._build_result("2026-06-02")], skip_push=True)
+
+        mock_error.assert_called_once()
+        self.assertTrue(mock_error.call_args.kwargs.get("exc_info"))
+        self.assertIn("发送通知失败", mock_error.call_args.args[0])
+
 
 if __name__ == "__main__":
     unittest.main()
