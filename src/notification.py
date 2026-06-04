@@ -59,7 +59,7 @@ from src.conditional_plan import (
     format_conditional_plan_points_inline,
     render_conditional_plan_points_markdown,
 )
-from src.final_action_display import build_final_action_display
+from src.final_action_display import build_final_action_display, sanitize_action_reason_for_display
 from src.core.risk_sizing import risk_sizing_settings_from_config
 from src.formatters import (
     format_feishu_markdown,
@@ -2317,6 +2317,151 @@ class NotificationService:
             "reference_line": f"- 条件化计划点位：{ref_text}",
         }
 
+    def _attach_homepage_stock_decision_rows(
+        self,
+        daily_summary: Dict[str, Any],
+        *,
+        display_results: List[AnalysisResult],
+        blocked_results: List[AnalysisResult],
+        holding_codes: Set[str],
+    ) -> None:
+        """Attach display-only first-screen stock rows without changing actions."""
+        rows: List[Dict[str, str]] = []
+        triage_notes = self._homepage_triage_notes_by_code(daily_summary)
+        seen_codes: Set[str] = set()
+        for result in list(display_results) + list(blocked_results):
+            code = canonical_stock_code(getattr(result, "code", ""))
+            if not code or code in seen_codes or is_failed_analysis(result):
+                continue
+            seen_codes.add(code)
+            rows.append(
+                self._build_homepage_stock_decision_row(
+                    result,
+                    holding_codes=holding_codes,
+                    triage_notes=triage_notes.get(code, []),
+                )
+            )
+        daily_summary["stock_decision_rows"] = rows
+
+    @staticmethod
+    def _homepage_triage_notes_by_code(daily_summary: Dict[str, Any]) -> Dict[str, List[str]]:
+        triage = daily_summary.get("triage_card") or {}
+        notes: Dict[str, List[str]] = {}
+        for section in ("high_value_low_confidence", "data_quality_attention"):
+            for item in triage.get(section) or []:
+                code = canonical_stock_code(item.get("code"))
+                if not code:
+                    continue
+                note = str(item.get("confidence_note") or item.get("reason") or "").strip()
+                if note:
+                    notes.setdefault(code, []).append(note)
+        return notes
+
+    def _build_homepage_stock_decision_row(
+        self,
+        result: AnalysisResult,
+        *,
+        holding_codes: Set[str],
+        triage_notes: List[str],
+    ) -> Dict[str, str]:
+        action_model = self._get_primary_action_model(result)
+        action = str(action_model.get("position_action") or "HOLD").upper()
+        plan_points = self._build_conditional_plan_points(
+            result,
+            ((getattr(result, "dashboard", None) or {}).get("battle_plan", {}) or {}).get("sniper_points", {}),
+        )
+        current_weight = float(getattr(result, "current_weight", 0.0) or 0.0)
+        is_holding = canonical_stock_code(getattr(result, "code", "")) in holding_codes or current_weight > 0
+        target_weight = float(action_model.get("target_weight") or current_weight or 0.0)
+        delta_amount = float(action_model.get("delta_amount") or 0.0)
+        return {
+            "name": notification_formatting.format_stock_display_name(result.name, result.code),
+            "action_label": (
+                "不可决策/仅观察"
+                if _is_validation_blocked(result)
+                else notification_formatting.format_position_action_label(action)
+            ),
+            "score_trend": self._homepage_score_trend_text(result),
+            "current_holding": f"{current_weight:.2%}" if is_holding else "空仓/未持有",
+            "target_plan": f"{target_weight:.2%} / {self._format_report_signed_money(delta_amount)}",
+            "trigger_price": self._homepage_trigger_price(action, plan_points),
+            "risk_price": self._display_conditional_point_value(plan_points, "stop_loss"),
+            "main_risk": self._compact_homepage_cell(self._homepage_main_risk_text(result, action_model)),
+            "evidence_gap": self._compact_homepage_cell(self._homepage_evidence_gap_text(result, triage_notes)),
+        }
+
+    @staticmethod
+    def _homepage_score_trend_text(result: AnalysisResult) -> str:
+        score = getattr(result, "sentiment_score", "")
+        try:
+            score_text = str(int(float(score)))
+        except (TypeError, ValueError):
+            score_text = str(score or "-")
+        trend = str(getattr(result, "trend_prediction", "") or "-").strip()
+        return f"{score_text} / {trend}"
+
+    def _homepage_trigger_price(self, action: str, plan_points: List[Any]) -> str:
+        if action in {"OPEN", "ADD"}:
+            for label in ("ideal_buy", "secondary_buy"):
+                value = self._display_conditional_point_value(plan_points, label)
+                if value != "暂无明确点位":
+                    return value
+        if action in {"REDUCE", "CLOSE"}:
+            for label in ("take_profit", "stop_loss"):
+                value = self._display_conditional_point_value(plan_points, label)
+                if value != "暂无明确点位":
+                    return value
+        return "开盘后确认"
+
+    def _homepage_main_risk_text(self, result: AnalysisResult, action_model: Dict[str, Any]) -> str:
+        return self._holding_followup_review_focus(result, action_model=action_model)
+
+    def _homepage_evidence_gap_text(self, result: AnalysisResult, triage_notes: List[str]) -> str:
+        gaps: List[str] = []
+        flag = str(getattr(result, "data_quality_flag", "") or "").strip().upper()
+        if flag and flag != "OK":
+            if "NEWS" in flag:
+                gaps.append("新闻证据需复核")
+            elif flag == "MISSING":
+                gaps.append("关键数据缺失")
+            else:
+                gaps.append("数据质量需复核")
+        for note in triage_notes:
+            normalized = self._humanize_homepage_gap_note(note)
+            if normalized and normalized not in gaps:
+                gaps.append(normalized)
+            if len(gaps) >= 2:
+                break
+        return "；".join(gaps) if gaps else "暂无明显缺口"
+
+    @staticmethod
+    def _humanize_homepage_gap_note(note: str) -> str:
+        text = str(note or "").replace(";", "；")
+        if "回测" in text:
+            return "回测证据需复核"
+        if "估值" in text:
+            return "估值证据需复核"
+        if "新闻" in text:
+            return "新闻证据需复核"
+        if "行情" in text or "价格" in text:
+            return "价格/行情需复核"
+        if "验证阻断" in text:
+            return "验证阻断"
+        if "风险仓位" in text:
+            return "风险仓位需复核"
+        if "样本" in text:
+            return "历史样本偏少"
+        return ""
+
+    @staticmethod
+    def _compact_homepage_cell(text: Any, limit: int = 36) -> str:
+        normalized = " ".join(str(text or "").split())
+        if not normalized:
+            return "-"
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[: limit - 3].rstrip() + "..."
+
     def _build_holding_followup_review_lines(
         self,
         results: List[AnalysisResult],
@@ -2402,7 +2547,9 @@ class NotificationService:
                 return self._sanitize_user_facing_risk_text(result, text, action_model=action_model)
         return self._sanitize_user_facing_risk_text(
             result,
-            getattr(result, "risk_warning", "") or getattr(result, "action_reason", "") or "开盘后复核价格、公告和新闻。",
+            getattr(result, "risk_warning", "")
+            or sanitize_action_reason_for_display(getattr(result, "action_reason", ""))
+            or "开盘后复核价格、公告和新闻。",
             action_model=action_model,
         )
 
@@ -2859,6 +3006,17 @@ class NotificationService:
                 f"- ⚠️ {self._sanitize_user_facing_risk_text(result, result.risk_warning, action_model=action_model)}"
             )
         lines.append("")
+        raw_summary = self._sanitize_user_facing_ai_text(
+            result,
+            getattr(result, "analysis_summary", ""),
+            strip_position_sizing=False,
+        )
+        if raw_summary and raw_summary not in {one_sentence, reason_text}:
+            lines.extend([
+                "### 完整摘要",
+                f"- {raw_summary}",
+                "",
+            ])
         if action_model['ai_conflict']:
             lines.extend([
                 "- ⚠️ AI解读与确定性动作不一致，请以确定性主动作作为准。",
@@ -3193,6 +3351,12 @@ class NotificationService:
             sorted_results=sorted_results,
             holdings=portfolio.holdings,
         )
+        self._attach_homepage_stock_decision_rows(
+            summary_groups.daily_summary,
+            display_results=action_groups.display_holding_results + action_groups.display_non_holding_results,
+            blocked_results=risk_groups.blocked_results,
+            holding_codes=portfolio.holding_codes,
+        )
         report_lines = [
             f"# 🎯 {timing.report_date} 决策仪表盘",
             "",
@@ -3201,13 +3365,6 @@ class NotificationService:
         if portfolio_summary_section:
             report_lines.extend([portfolio_summary_section.rstrip(), "", "---", ""])
 
-        report_lines.extend(
-            self._build_paper_portfolio_readonly_lines(
-                portfolio.paper_portfolio_overview,
-                has_plan_actions=bool(action_groups.effective_actionable_results),
-                report_date=timing.report_date,
-            )
-        )
         report_lines.extend(
             self._build_dashboard_current_holdings_lines(
                 overview=portfolio.overview,
@@ -3225,6 +3382,13 @@ class NotificationService:
         )
         report_lines.extend(
             self._build_dashboard_non_holding_lines(action_groups.display_non_holding_results)
+        )
+        report_lines.extend(
+            self._build_paper_portfolio_readonly_lines(
+                portfolio.paper_portfolio_overview,
+                has_plan_actions=bool(action_groups.effective_actionable_results),
+                report_date=timing.report_date,
+            )
         )
         report_lines.extend(
             self._build_dashboard_detail_lines(

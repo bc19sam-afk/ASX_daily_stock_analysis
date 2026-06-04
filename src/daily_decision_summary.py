@@ -36,6 +36,7 @@ from src.final_action_display import (
     EXECUTABLE_ACTIONS,
     build_final_action_display,
     is_effective_executable_action,
+    sanitize_action_reason_for_display,
 )
 from src.report_reliability import (
     LEVEL_LABELS,
@@ -138,7 +139,7 @@ def _build_item(
         "delta_amount": safe_float(action_model.get("delta_amount")),
         "is_current_holding": is_current_holding,
         "price_basis": classify_price_basis(result),
-        "reason": str(getattr(result, "action_reason", "") or ""),
+        "reason": sanitize_action_reason_for_display(getattr(result, "action_reason", "") or ""),
     }
     item["final_action_display"] = build_final_action_display(
         result,
@@ -570,6 +571,20 @@ def _human_data_gap_reason(*, category: str, status: str) -> str:
     return f"{category_label}{status_label}"
 
 
+def _human_result_data_quality_flag(flag: Any) -> str:
+    normalized = str(flag or "").strip().upper()
+    if not normalized or normalized == "OK":
+        return ""
+    labels = {
+        "MISSING": "关键数据缺失",
+        "STALE": "数据可能过期",
+        "STALE_NEWS": "新闻证据需复核",
+        "MANUAL": "人工录入数据需复核",
+        "TEXT": "文本解析数据需复核",
+    }
+    return labels.get(normalized, "数据质量需复核")
+
+
 def build_daily_decision_summary(
     *,
     results: List[Any],
@@ -756,11 +771,12 @@ def build_daily_decision_summary(
     for result in successful_results:
         flag = str(getattr(result, "data_quality_flag", "") or "").upper()
         if flag and flag != "OK":
+            flag_label = _human_result_data_quality_flag(flag)
             data_quality_flags.append(
                 {
                     "code": "result_data_quality",
                     "severity": "warning",
-                    "message": f"{_display_name(result, format_stock_display_name)} 数据质量标记：{flag}",
+                    "message": f"{_display_name(result, format_stock_display_name)} {flag_label or '数据质量需复核'}。",
                 }
             )
 
@@ -952,6 +968,34 @@ def _render_action_table_lines(items: List[Dict[str, Any]]) -> List[str]:
             f"{_table_cell(fields['amount_text'])} | "
             f"{_table_cell(fields['review_text'])} |"
         )
+    return lines
+
+
+def _render_stock_decision_overview_lines(rows: List[Dict[str, Any]]) -> List[str]:
+    if not rows:
+        return []
+    lines = [
+        "",
+        "**个股决策速览**",
+        "| 标的 | 主动作 | 评分/趋势 | 当前持仓 | 目标/计划金额 | 关键触发价 | 失效/风险位 | 主要风险 | 证据缺口 |",
+        "| --- | --- | --- | ---: | --- | --- | --- | --- | --- |",
+    ]
+    for row in rows[:HOMEPAGE_ACTIONABLE_LIMIT]:
+        lines.append(
+            "| "
+            f"{_table_cell(row.get('name'))} | "
+            f"{_table_cell(row.get('action_label'))} | "
+            f"{_table_cell(row.get('score_trend'))} | "
+            f"{_table_cell(row.get('current_holding'))} | "
+            f"{_table_cell(row.get('target_plan'))} | "
+            f"{_table_cell(row.get('trigger_price'))} | "
+            f"{_table_cell(row.get('risk_price'))} | "
+            f"{_table_cell(row.get('main_risk'))} | "
+            f"{_table_cell(row.get('evidence_gap'))} |"
+        )
+    omitted = len(rows) - HOMEPAGE_ACTIONABLE_LIMIT
+    if omitted > 0:
+        lines.append(f"- 另有 {omitted} 只重点标的保留在后续正文/归档中。")
     return lines
 
 
@@ -1307,14 +1351,15 @@ def _morning_review_risk_sizing_text(summary: Dict[str, Any]) -> str:
     comparisons = summary.get("risk_sizing_comparison") or {}
     significant = _significant_risk_sizing_diff_count(comparisons)
     unavailable = sum(1 for item in previews if item.get("capped_risk_target_weight") is None)
+    available = max(len(previews) - unavailable, 0)
 
     parts: List[str] = []
     if significant > 0:
         parts.append(f"{significant} 只与当前目标差异较大")
-    if previews:
-        parts.append(f"{len(previews)} 只已有试算提示")
+    if available > 0:
+        parts.append(f"可用 {available} 只")
     if unavailable > 0:
-        parts.append(f"{unavailable} 只输入不足或不可用")
+        parts.append(f"不可用 {unavailable} 只")
     if not parts:
         parts.append("未生成风险仓位试算")
     return "；".join(parts) + "；仅试算，不改变主动作/目标仓位。"
@@ -1367,6 +1412,7 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
         f"- **今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
         f"- **今日动作数量**：{_format_action_counts_inline(counts)}",
     ])
+    lines.extend(_render_stock_decision_overview_lines(summary.get("stock_decision_rows") or []))
     lines.extend([
         "",
         "**当前持仓需要处理什么**",
