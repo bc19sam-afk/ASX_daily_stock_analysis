@@ -240,6 +240,32 @@ def test_morning_review_card_marks_risk_sizing_as_preview_without_mutating_actio
     assert "目标股数" not in card
 
 
+def test_morning_review_card_separates_available_and_unavailable_risk_sizing_counts():
+    summary = {
+        "action_counts": {},
+        "actionable_items": [],
+        "watch_items": [],
+        "blocked_items": [],
+        "data_quality_flags": [],
+        "triage_card": {},
+        "report_reliability": {"score": 100, "level": "high_preopen_plan", "flags": []},
+        "evidence_summary": {},
+        "risk_sizing_comparison": {},
+        "risk_sizing_previews": [
+            {"code": "BHP.AX", "capped_risk_target_weight": 0.12},
+            {"code": "CSL.AX", "capped_risk_target_weight": None},
+        ],
+        "technical_basis_date": "2026-04-28",
+    }
+
+    value = _row_value(_card_text(summary), "风险仓位试算")
+
+    assert "可用 1 只" in value
+    assert "不可用 1 只" in value
+    assert "2 只已有试算提示" not in value
+    assert "仅试算，不改变主动作/目标仓位" in value
+
+
 @patch("src.notification.get_db")
 def test_legacy_daily_report_body_also_includes_morning_review_card(mock_get_db):
     mock_get_db.return_value.get_portfolio_overview.return_value = _overview()

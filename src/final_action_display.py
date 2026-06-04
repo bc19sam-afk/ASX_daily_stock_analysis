@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Dict
 
 from src.core.utils import is_failed_analysis, safe_float
@@ -52,7 +53,7 @@ def build_final_action_display(
             target_weight=current_weight,
             current_weight=current_weight,
             delta_amount=0.0,
-            reason=str(getattr(result, "error_message", "") or "分析失败，需重跑。"),
+            reason=sanitize_action_reason_for_display(getattr(result, "error_message", "") or "分析失败，需重跑。"),
             display_label="分析失败 / 需重跑",
             can_show_sizing=False,
             can_show_plan_points=False,
@@ -69,7 +70,9 @@ def build_final_action_display(
             target_weight=current_weight,
             current_weight=current_weight,
             delta_amount=0.0,
-            reason=format_validation_issue_text(result) or "验证未通过，已暂停动作，仅观察。",
+            reason=sanitize_action_reason_for_display(
+                format_validation_issue_text(result) or "验证未通过，已暂停动作，仅观察。"
+            ),
             display_label="不可决策 / 仅观察",
             can_show_sizing=False,
             can_show_plan_points=False,
@@ -88,7 +91,9 @@ def build_final_action_display(
             target_weight=safe_float(action_model.get("target_weight"), current_weight),
             current_weight=current_weight,
             delta_amount=safe_float(action_model.get("delta_amount")) if show_holding_sizing else 0.0,
-            reason=str(getattr(result, "action_reason", "") or "未达到可执行动作阈值，仅观察。"),
+            reason=sanitize_action_reason_for_display(
+                getattr(result, "action_reason", "") or "未达到可执行动作阈值，仅观察。"
+            ),
             display_label="持有 / 观察",
             can_show_sizing=show_holding_sizing,
             can_show_plan_points=True,
@@ -106,7 +111,7 @@ def build_final_action_display(
         target_weight=safe_float(action_model.get("target_weight")),
         current_weight=current_weight,
         delta_amount=safe_float(action_model.get("delta_amount")),
-        reason=str(getattr(result, "action_reason", "") or ""),
+        reason=sanitize_action_reason_for_display(getattr(result, "action_reason", "") or ""),
         display_label=_action_label(action),
         can_show_sizing=True,
         can_show_plan_points=True,
@@ -144,6 +149,29 @@ def _display(
         "can_show_sizing": can_show_sizing,
         "can_show_plan_points": can_show_plan_points,
     }
+
+
+def sanitize_action_reason_for_display(value: Any) -> str:
+    """Remove internal action-chain tokens from user-facing report text."""
+    original = str(value or "").strip()
+    if not original:
+        return ""
+    cleaned = original
+    patterns = (
+        r"\bfinal_decision\s*=\s*[A-Z_]+\b",
+        r"\bposition_action\s*=\s*[A-Z_]+\b",
+        r"\bexecution_blocked\s*=\s*[A-Za-z0-9_:\-]+\b",
+        r"\bvalidation_status\s*=\s*[A-Z_]+\b",
+        r"\banalysis_status\s*=\s*[A-Z_]+\b",
+    )
+    for pattern in patterns:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[\s,，;；|/]+", " ", cleaned).strip(" ：:、，,；;。")
+    if cleaned:
+        return cleaned
+    if re.search(r"(?:final_decision|position_action|execution_blocked|validation_status|analysis_status)\s*=", original, re.IGNORECASE):
+        return "动作链路已由确定性仓位模型重排；开盘前人工复核。"
+    return original
 
 
 def _action_label(action: str) -> str:

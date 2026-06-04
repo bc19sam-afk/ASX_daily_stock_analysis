@@ -577,6 +577,134 @@ def test_non_holding_action_mentions_when_paper_ledger_already_holds_symbol(mock
 
 
 @patch("src.notification.get_db")
+def test_dashboard_homepage_layers_stock_decisions_into_scannable_table_without_dropping_details(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    result = _result(
+        code="BHP.AX",
+        name="BHP GROUP [BHP]",
+        final_decision="BUY",
+        position_action="ADD",
+        current_weight=0.20,
+        target_weight=0.24,
+        delta_amount=4000.0,
+        sentiment_score=72,
+        trend_prediction="震荡上行",
+        operation_advice="AI补充：偏观望，等待确认",
+        analysis_summary="完整分析正文必须保留，不要为了首屏摘要删除。",
+        buy_reason="关键理由完整文本保留在详细区。",
+        risk_warning="若跌破 MA10 支撑，暂停动作并人工复核。",
+        data_quality_flag="STALE_NEWS",
+        market_snapshot={"date": "2026-04-28", "close": "50.00", "source": "yfinance"},
+        dashboard={
+            "core_conclusion": {"one_sentence": "趋势转强但仍需确认。"},
+            "intelligence": {
+                "risk_alerts": [{"message": "若跌破 MA10 支撑，暂停动作并人工复核。"}],
+                "positive_catalysts": ["铁矿石价格企稳"],
+            },
+            "data_perspective": {
+                "trend_status": {"ma_alignment": "多头排列", "is_bullish": True, "trend_score": 72},
+                "price_position": {"current_price": "50.00", "support_level": "49.20", "resistance_level": "53.00"},
+            },
+            "battle_plan": {
+                "sniper_points": {
+                    "ideal_buy": {
+                        "price": "49.80",
+                        "source_type": "ai",
+                        "source_detail": "AI原文提取的长说明，系统未验证为执行价",
+                        "condition": "开盘后仍站上 MA10 且无新增重大利空",
+                        "invalidation": "跌破 48.60 或出现价格敏感公告",
+                    },
+                    "stop_loss": "48.60",
+                },
+                "action_checklist": ["开盘后确认价格", "复核 ASX 公告"],
+            },
+        },
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-04-29")
+    landing = _landing_section(report)
+
+    assert "**个股决策速览**" in landing
+    assert (
+        "| 标的 | 主动作 | 评分/趋势 | 当前持仓 | 目标/计划金额 | "
+        "关键触发价 | 失效/风险位 | 主要风险 | 证据缺口 |"
+    ) in landing
+    assert "| BHP GROUP [BHP] (BHP.AX) | 加仓 | 72 / 震荡上行 | 20.00% | 24.00% / +4,000.00 | 49.80 | 48.60 |" in landing
+    assert "STALE_NEWS" not in landing
+    assert "final_decision=HOLD" not in landing
+    assert "AI原文提取的长说明" not in landing
+    assert "开盘后仍站上 MA10" not in landing
+
+    detail_section = _section_between(report, "## 个股详细分析", "## 详情 / 审计附录")
+    assert "完整分析正文必须保留" in detail_section
+    assert "关键理由完整文本保留在详细区" in detail_section
+    assert "AI原文提取的长说明" in detail_section
+    assert "开盘后仍站上 MA10" in detail_section
+
+
+@patch("src.notification.get_db")
+def test_paper_ledger_detail_sits_below_real_stock_decision_sections(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    mock_get_db.return_value.get_paper_portfolio_overview.return_value = {
+        "initialized": True,
+        "snapshot_date": "2026-04-29",
+        "cash": 1000.0,
+        "equity_value": 2000.0,
+        "total_value": 3000.0,
+        "holdings": [{"code": "BHP.AX", "quantity": 10, "avg_cost": 48.0, "current_price": 50.0, "market_value": 500.0}],
+        "latest_simulated_trades": [
+            {
+                "code": "BHP.AX",
+                "action": "ADD",
+                "executed": True,
+                "reason": "Applied",
+                "quantity_delta": 2,
+                "price": 50.0,
+                "cash_delta": -100.0,
+                "simulation_time": "2026-04-29T09:30:00",
+            }
+        ],
+        "last_simulation_time": "2026-04-29T09:30:00",
+    }
+    service = _service()
+
+    report = service.generate_dashboard_report(_readability_results(), report_date="2026-04-29")
+
+    assert report.index("## 当前持仓动作") < report.index("## 新开仓 / 观察清单")
+    assert report.index("## 新开仓 / 观察清单") < report.index("## 模拟盘账本（只读）")
+    assert report.index("## 模拟盘账本（只读）") < report.index("## 个股详细分析")
+
+
+@patch("src.notification.get_db")
+def test_reduce_action_display_sanitizes_internal_hold_reason_tokens(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    result = _result(
+        code="CSL.AX",
+        name="CSL",
+        final_decision="SELL",
+        position_action="REDUCE",
+        current_weight=0.18,
+        target_weight=0.12,
+        delta_amount=-6000.0,
+        action_reason="final_decision=HOLD, execution_blocked=min_delta_amount",
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-04-29")
+    summary = service.get_last_daily_decision_summary()
+    item = summary["actionable_items"][0]
+
+    assert item["position_action"] == "REDUCE"
+    assert item["final_action_display"]["final_decision"] == "SELL"
+    assert "减仓" in _landing_section(report)
+    assert "final_decision=HOLD" not in report
+    assert "execution_blocked=min_delta_amount" not in report
+    assert "final_decision=HOLD" not in item["reason"]
+    assert "execution_blocked=min_delta_amount" not in item["final_action_display"]["reason"]
+
+
+@patch("src.notification.get_db")
 def test_dashboard_homepage_conclusion_mentions_current_and_non_holding_actions(mock_get_db):
     mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
     service = _service()
