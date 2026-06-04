@@ -644,6 +644,48 @@ def test_dashboard_homepage_layers_stock_decisions_into_scannable_table_without_
 
 
 @patch("src.notification.get_db")
+def test_dashboard_homepage_preserves_zero_target_weight_for_close_actions(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    result = _result(
+        code="TLS.AX",
+        name="TLS",
+        final_decision="SELL",
+        position_action="CLOSE",
+        current_weight=0.12,
+        target_weight=0.0,
+        delta_amount=-12000.0,
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-04-29")
+    landing = _landing_section(report)
+
+    assert "| TLS (TLS.AX) | 清仓 | 70 / 震荡上行 | 12.00% | 0.00% / -12,000.00 |" in landing
+    assert "| TLS (TLS.AX) | 清仓 | 70 / 震荡上行 | 12.00% | 12.00% / -12,000.00 |" not in landing
+
+
+@patch("src.notification.get_db")
+def test_dashboard_homepage_keeps_current_weight_for_unsized_hold_rows(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
+    service = _service()
+    result = _result(
+        code="CSL.AX",
+        name="CSL",
+        final_decision="HOLD",
+        position_action="HOLD",
+        current_weight=0.18,
+        target_weight=0.0,
+        delta_amount=0.0,
+    )
+
+    report = service.generate_dashboard_report([result], report_date="2026-04-29")
+    landing = _landing_section(report)
+
+    assert "| CSL (CSL.AX) | 持有观察 | 70 / 震荡上行 | 18.00% | 18.00% / +0.00 |" in landing
+    assert "| CSL (CSL.AX) | 持有观察 | 70 / 震荡上行 | 18.00% | 0.00% / +0.00 |" not in landing
+
+
+@patch("src.notification.get_db")
 def test_paper_ledger_detail_sits_below_real_stock_decision_sections(mock_get_db):
     mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
     mock_get_db.return_value.get_paper_portfolio_overview.return_value = {
