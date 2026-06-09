@@ -151,6 +151,20 @@ def test_config_registry_exposes_serpapi_market_review_fallback_default_off():
     assert enabled["is_sensitive"] is False
 
 
+def test_config_registry_exposes_single_buy_cash_cap_defaults():
+    fraction = get_field_definition("MAX_SINGLE_BUY_CASH_FRACTION")
+    amount = get_field_definition("MAX_SINGLE_BUY_CASH_AMOUNT")
+
+    assert fraction["category"] == "system"
+    assert fraction["default_value"] == "0.34"
+    assert fraction["validation"] == {"min": 0.0, "max": 1.0}
+    assert fraction["is_sensitive"] is False
+    assert amount["category"] == "system"
+    assert amount["default_value"] is None
+    assert amount["validation"] == {"min": 0.0}
+    assert amount["is_sensitive"] is False
+
+
 def test_runtime_config_exposes_news_intel_cache_defaults(monkeypatch, tmp_path):
     env_path = tmp_path / ".env"
     env_path.write_text("", encoding="utf-8")

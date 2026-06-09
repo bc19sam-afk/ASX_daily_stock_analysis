@@ -259,6 +259,10 @@ class Config:
     min_position_delta_amount: float = 20.0
     # ASX 可执行性约束：最小订单名义金额（小于该值则不产生可执行买卖动作）
     min_order_notional: float = 20.0
+    # ASX 可执行性约束：单笔新开仓最多使用当前可见买入预算的比例
+    max_single_buy_cash_fraction: float = 0.34
+    # ASX 可执行性约束：单笔新开仓名义金额上限（空值表示只使用比例上限）
+    max_single_buy_cash_amount: Optional[float] = None
     # 风险仓位参考：默认 shadow，只用于报告展示，不改变实际 deterministic sizing
     max_single_position_weight: float = 0.35
     max_trade_risk_pct: float = 0.005
@@ -565,6 +569,13 @@ class Config:
             execution_price_policy=cls._resolve_execution_price_policy(),
             min_position_delta_amount=max(0.0, float(os.getenv('MIN_POSITION_DELTA_AMOUNT', '20.0'))),
             min_order_notional=max(0.0, float(os.getenv('MIN_ORDER_NOTIONAL', '20.0'))),
+            max_single_buy_cash_fraction=min(
+                1.0,
+                max(0.0, float(os.getenv('MAX_SINGLE_BUY_CASH_FRACTION', '0.34'))),
+            ),
+            max_single_buy_cash_amount=cls._parse_optional_nonnegative_float(
+                os.getenv('MAX_SINGLE_BUY_CASH_AMOUNT')
+            ),
             max_single_position_weight=max(0.0, float(os.getenv('MAX_SINGLE_POSITION_WEIGHT', '0.35'))),
             max_trade_risk_pct=max(0.0, float(os.getenv('MAX_TRADE_RISK_PCT', '0.005'))),
             atr_stop_multiplier=max(0.0, float(os.getenv('ATR_STOP_MULTIPLIER', '1.5'))),
@@ -741,6 +752,13 @@ class Config:
             return ReportType.normalize(value).value
         except ValueError:
             return ReportType.FULL.value
+
+    @staticmethod
+    def _parse_optional_nonnegative_float(value: Optional[str]) -> Optional[float]:
+        """Parse optional non-negative numeric env values; empty means disabled."""
+        if value is None or str(value).strip() == "":
+            return None
+        return max(0.0, float(value))
     
     def validate(self) -> List[str]:
         """

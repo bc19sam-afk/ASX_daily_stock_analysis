@@ -78,6 +78,8 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
             execution_price_policy="realtime_if_available",
             min_position_delta_amount=0.0,
             min_order_notional=0.0,
+            max_single_buy_cash_fraction=0.34,
+            max_single_buy_cash_amount=None,
         )
         self.pipeline.max_workers = 1
         self.pipeline.save_context_snapshot = False
@@ -271,12 +273,105 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         ]
 
         self.assertLessEqual(sum(buy_deltas), 1043.73 + 0.01)
-        self.assertAlmostEqual(by_code["EGH.AX"].delta_amount, 1040.0, places=2)
         self.assertEqual(by_code["EGH.AX"].position_action, "OPEN")
-        self.assertEqual(by_code["BHP.AX"].position_action, "HOLD")
-        self.assertEqual(by_code["GMG.AX"].position_action, "HOLD")
-        self.assertAlmostEqual(by_code["BHP.AX"].delta_amount, 0.0, places=2)
-        self.assertAlmostEqual(by_code["GMG.AX"].delta_amount, 0.0, places=2)
+        self.assertEqual(by_code["BHP.AX"].position_action, "OPEN")
+        self.assertEqual(by_code["GMG.AX"].position_action, "OPEN")
+        self.assertAlmostEqual(by_code["EGH.AX"].delta_amount, 350.0, places=2)
+        self.assertAlmostEqual(by_code["BHP.AX"].delta_amount, 230.0, places=2)
+        self.assertAlmostEqual(by_code["GMG.AX"].delta_amount, 150.0, places=2)
+
+    def test_single_open_small_cash_account_respects_single_buy_cash_fraction(self):
+        self.pipeline.config = SimpleNamespace(
+            min_position_delta_amount=0.0,
+            min_order_notional=0.0,
+            max_single_buy_cash_fraction=0.34,
+            max_single_buy_cash_amount=None,
+        )
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=1043.73, equity_value=10000, total_value=11043.73)
+
+        result = self._result("SMALL.AX", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=result,
+            query_id="q_single_buy_cash_fraction",
+            current_price=10.0,
+            persist=False,
+        )
+
+        self.assertEqual(result.position_action, "OPEN")
+        self.assertLessEqual(result.delta_amount, 1043.73 * 0.34 + 0.01)
+        self.assertLess(result.delta_amount, 1043.73 * 0.5)
+        self.assertIn("sizing_cap=single_buy_cash_cap(limit=354.87)", result.action_reason)
+
+    def test_single_open_large_cash_account_keeps_ten_percent_target_when_cap_not_binding(self):
+        self.pipeline.config = SimpleNamespace(
+            min_position_delta_amount=0.0,
+            min_order_notional=0.0,
+            max_single_buy_cash_fraction=0.34,
+            max_single_buy_cash_amount=None,
+        )
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+
+        result = self._result("LARGE.AX", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=result,
+            query_id="q_large_single_buy_cash_fraction",
+            current_price=10.0,
+            persist=False,
+        )
+
+        self.assertEqual(result.position_action, "OPEN")
+        self.assertAlmostEqual(result.target_weight, 0.1, places=4)
+        self.assertAlmostEqual(result.delta_amount, 1000.0, places=2)
+        self.assertNotIn("sizing_cap=single_buy_cash_cap", result.action_reason)
+
+    def test_single_open_respects_absolute_cash_amount_cap(self):
+        self.pipeline.config = SimpleNamespace(
+            min_position_delta_amount=0.0,
+            min_order_notional=0.0,
+            max_single_buy_cash_fraction=1.0,
+            max_single_buy_cash_amount=250.0,
+        )
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=10000, equity_value=0, total_value=10000)
+
+        result = self._result("CAP.AX", final_decision="BUY")
+        self.pipeline._apply_position_management(
+            result=result,
+            query_id="q_single_buy_amount_cap",
+            current_price=10.0,
+            persist=False,
+        )
+
+        self.assertEqual(result.position_action, "OPEN")
+        self.assertAlmostEqual(result.delta_amount, 250.0, places=2)
+        self.assertLess(result.target_weight, 0.1)
+        self.assertIn("sizing_cap=single_buy_cash_cap(limit=250.00)", result.action_reason)
+
+    def test_batch_shared_cash_pool_stacks_with_single_buy_cash_fraction(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=1043.73, equity_value=10000, total_value=11043.73)
+        results = self._run_read_only_batch(
+            {
+                "EGH.AX": self._result("EGH.AX", final_decision="BUY", sentiment_score=88),
+                "GMG.AX": self._result("GMG.AX", final_decision="BUY", sentiment_score=61),
+                "BHP.AX": self._result("BHP.AX", final_decision="BUY", sentiment_score=76),
+            },
+            {"EGH.AX": 10.0, "GMG.AX": 10.0, "BHP.AX": 10.0},
+        )
+
+        by_code = {result.code: result for result in results}
+        first_budget = 1043.73
+        first_delta = by_code["EGH.AX"].delta_amount
+        second_budget = first_budget - first_delta
+        second_delta = by_code["BHP.AX"].delta_amount
+        third_budget = second_budget - second_delta
+        third_delta = by_code["GMG.AX"].delta_amount
+
+        self.assertEqual(by_code["EGH.AX"].position_action, "OPEN")
+        self.assertEqual(by_code["BHP.AX"].position_action, "OPEN")
+        self.assertEqual(by_code["GMG.AX"].position_action, "OPEN")
+        self.assertLessEqual(first_delta, first_budget * 0.34 + 0.01)
+        self.assertLessEqual(second_delta, second_budget * 0.34 + 0.01)
+        self.assertLessEqual(third_delta, third_budget * 0.34 + 0.01)
+        self.assertLessEqual(first_delta + second_delta + third_delta, 1043.73 + 0.01)
 
     def test_single_stock_notify_batch_sends_shared_cash_sized_results(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=1043.73, equity_value=10000, total_value=11043.73)
@@ -305,8 +400,11 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertEqual(set(sent_by_code), {"EGH.AX", "GMG.AX", "BHP.AX"})
         self.assertLessEqual(sum(sent_buy_deltas), 1043.73 + 0.01)
         self.assertEqual(sent_by_code["EGH.AX"], (by_code["EGH.AX"].delta_amount, by_code["EGH.AX"].position_action))
-        self.assertEqual(sent_by_code["BHP.AX"], (0.0, "HOLD"))
-        self.assertEqual(sent_by_code["GMG.AX"], (0.0, "HOLD"))
+        self.assertEqual(sent_by_code["BHP.AX"], (by_code["BHP.AX"].delta_amount, by_code["BHP.AX"].position_action))
+        self.assertEqual(sent_by_code["GMG.AX"], (by_code["GMG.AX"].delta_amount, by_code["GMG.AX"].position_action))
+        self.assertAlmostEqual(by_code["EGH.AX"].delta_amount, 350.0, places=2)
+        self.assertAlmostEqual(by_code["BHP.AX"].delta_amount, 230.0, places=2)
+        self.assertAlmostEqual(by_code["GMG.AX"].delta_amount, 150.0, places=2)
 
     def test_batch_position_management_failure_does_not_drop_other_histories(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=1000, equity_value=10000, total_value=11000)
@@ -440,7 +538,8 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         by_code = {result.code: result for result in results}
         self.assertAlmostEqual(by_code["RED.AX"].delta_amount, -900.0, places=2)
         self.assertEqual(by_code["BUY.AX"].position_action, "OPEN")
-        self.assertAlmostEqual(by_code["BUY.AX"].delta_amount, 400.0, places=2)
+        self.assertAlmostEqual(by_code["BUY.AX"].delta_amount, 100.0, places=2)
+        self.assertLessEqual(by_code["BUY.AX"].delta_amount, 400.0 * 0.34 + 0.01)
 
     def test_high_event_risk_downgrades_buy_to_hold(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=8000, equity_value=2000, total_value=10000)
@@ -1084,6 +1183,34 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         self.assertEqual(result.target_quantity, 1)
         self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
         self.assertIn("execution_blocked=min_delta_amount", result.action_reason)
+
+    def test_config_defaults_single_buy_cash_cap(self):
+        env_path = os.path.join(self.tmp.name, "default_single_buy_cap.env")
+        with open(env_path, "w", encoding="utf-8") as handle:
+            handle.write("")
+
+        with patch.dict(os.environ, {"ENV_FILE": env_path}, clear=True):
+            Config.reset_instance()
+            config = get_config()
+
+        self.assertEqual(config.max_single_buy_cash_fraction, 0.34)
+        self.assertIsNone(config.max_single_buy_cash_amount)
+
+    def test_env_parses_single_buy_cash_caps(self):
+        env_path = os.path.join(self.tmp.name, "configured_single_buy_cap.env")
+        with open(env_path, "w", encoding="utf-8") as handle:
+            handle.write(
+                "STOCK_LIST=BHP.AX\n"
+                "MAX_SINGLE_BUY_CASH_FRACTION=0.25\n"
+                "MAX_SINGLE_BUY_CASH_AMOUNT=500\n"
+            )
+
+        with patch.dict(os.environ, {"ENV_FILE": env_path}, clear=True):
+            Config.reset_instance()
+            config = get_config()
+
+        self.assertEqual(config.max_single_buy_cash_fraction, 0.25)
+        self.assertEqual(config.max_single_buy_cash_amount, 500.0)
 
     @patch.dict(
         os.environ,
