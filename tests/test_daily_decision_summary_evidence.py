@@ -244,6 +244,155 @@ def test_ai_observe_and_technical_weakness_feed_review_reasons_without_changing_
     assert nhf["final_action_display"]["confirmation_gap"] is True
 
 
+def test_cash_budget_overcommit_selects_best_affordable_buy_and_defers_the_rest():
+    results = [
+        _result(
+            code="GMG.AX",
+            name="GMG",
+            sentiment_score=61,
+            final_decision="BUY",
+            position_action="OPEN",
+            target_weight=0.0934,
+            delta_amount=1026.30,
+        ),
+        _result(
+            code="EGH.AX",
+            name="EGH",
+            sentiment_score=88,
+            final_decision="BUY",
+            position_action="OPEN",
+            target_weight=0.095,
+            delta_amount=1043.71,
+        ),
+        _result(
+            code="BHP.AX",
+            name="BHP",
+            sentiment_score=76,
+            final_decision="BUY",
+            position_action="OPEN",
+            target_weight=0.0948,
+            delta_amount=1041.08,
+        ),
+    ]
+
+    summary = build_daily_decision_summary(
+        results=results,
+        report_date="2026-06-09",
+        generated_at=datetime(2026, 6, 9, 9, 43, tzinfo=ZoneInfo("Australia/Sydney")),
+        overview={"cash": 1043.73, "equity_value": 9044.12, "total_value": 10087.85, "holdings": []},
+        get_primary_action_model=_model,
+        classify_price_basis=lambda result: result.execution_price_source,
+        format_stock_display_name=lambda name, code: f"{name} ({code})",
+        format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
+    )
+
+    cash_review = summary["cash_budget_review"]
+    assert cash_review["overcommitted"] is True
+    assert cash_review["buy_action_count"] == 3
+    assert cash_review["total_buy_delta"] == 3111.09
+    assert cash_review["available_budget"] == 1043.73
+    assert cash_review["sequential_affordable_count"] == 1
+    assert cash_review["selected_codes"] == ["EGH.AX"]
+    assert cash_review["deferred_codes"] == ["BHP.AX", "GMG.AX"]
+    assert cash_review["selection_basis"] == "sentiment_score_desc_then_input_order"
+    assert not any(flag["code"] == "cash_budget_overcommitted" for flag in summary["data_quality_flags"])
+    selected = next(item for item in summary["actionable_items"] if item["code"] == "EGH.AX")
+    deferred = [item for item in summary["actionable_items"] if item["code"] in {"GMG.AX", "BHP.AX"}]
+    assert selected["cash_budget_status"] == "selected_within_budget"
+    assert selected["cash_budget_label"] == "预算内首选"
+    assert selected["cash_budget_reasons"] == ["现金预算内首选；其他预算外买入候选已递延。"]
+    assert all(item["cash_budget_status"] == "deferred_cash_budget" for item in deferred)
+    assert all(item["cash_budget_label"] == "现金不足递延" for item in deferred)
+    assert all(
+        item["cash_budget_reasons"] == ["现金预算不足；该候选递延，除非先卖出释放现金或补充资金。"]
+        for item in deferred
+    )
+    assert all(
+        item["final_action_display"]["review_label"] != item["cash_budget_label"]
+        for item in [selected] + deferred
+    )
+
+    dashboard = "\n".join(render_preopen_decision_dashboard(summary))
+    assert "今日有 3 个买入候选，现金预算只覆盖 1 个；首选 EGH.AX，递延 BHP.AX、GMG.AX。" in dashboard
+    assert "现金预算选择：预算内首选 EGH.AX；递延 BHP.AX、GMG.AX。" in dashboard
+    assert "预算内首选买入" in dashboard
+    assert "递延候选/现金不足" in dashboard
+    assert "预算内投入约 1,043.71" in dashboard
+    assert "递延候选约 1,041.08" in dashboard
+
+
+def test_cash_budget_review_counts_planned_sell_release_before_flagging_overcommit():
+    affordable_with_release = build_daily_decision_summary(
+        results=[
+            _result(
+                code="EGH.AX",
+                name="EGH",
+                final_decision="BUY",
+                position_action="OPEN",
+                target_weight=0.15,
+                delta_amount=1500.0,
+            ),
+            _result(
+                code="TLS.AX",
+                name="TLS",
+                final_decision="SELL",
+                position_action="REDUCE",
+                current_weight=0.2,
+                target_weight=0.14,
+                delta_amount=-600.0,
+            ),
+        ],
+        report_date="2026-06-09",
+        generated_at=datetime(2026, 6, 9, 9, 43, tzinfo=ZoneInfo("Australia/Sydney")),
+        overview={"cash": 1000.0, "equity_value": 9000.0, "total_value": 10000.0, "holdings": []},
+        get_primary_action_model=_model,
+        classify_price_basis=lambda result: result.execution_price_source,
+        format_stock_display_name=lambda name, code: f"{name} ({code})",
+        format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
+    )
+
+    cash_review = affordable_with_release["cash_budget_review"]
+    assert cash_review["planned_release"] == 600.0
+    assert cash_review["available_budget"] == 1600.0
+    assert cash_review["total_buy_delta"] == 1500.0
+    assert cash_review["overcommitted"] is False
+
+    still_overcommitted = build_daily_decision_summary(
+        results=[
+            _result(
+                code="EGH.AX",
+                name="EGH",
+                final_decision="BUY",
+                position_action="OPEN",
+                target_weight=0.17,
+                delta_amount=1700.0,
+            ),
+            _result(
+                code="TLS.AX",
+                name="TLS",
+                final_decision="SELL",
+                position_action="REDUCE",
+                current_weight=0.2,
+                target_weight=0.14,
+                delta_amount=-600.0,
+            ),
+        ],
+        report_date="2026-06-09",
+        generated_at=datetime(2026, 6, 9, 9, 43, tzinfo=ZoneInfo("Australia/Sydney")),
+        overview={"cash": 1000.0, "equity_value": 9000.0, "total_value": 10000.0, "holdings": []},
+        get_primary_action_model=_model,
+        classify_price_basis=lambda result: result.execution_price_source,
+        format_stock_display_name=lambda name, code: f"{name} ({code})",
+        format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
+    )
+
+    cash_review = still_overcommitted["cash_budget_review"]
+    assert cash_review["planned_release"] == 600.0
+    assert cash_review["available_budget"] == 1600.0
+    assert cash_review["shortfall"] == 100.0
+    assert cash_review["overcommitted"] is True
+
+
 def test_strong_consistent_action_is_not_marked_as_weak_confirmation():
     result = _result(
         code="GMG.AX",

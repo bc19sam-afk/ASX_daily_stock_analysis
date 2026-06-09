@@ -2371,13 +2371,15 @@ class NotificationService:
             ((getattr(result, "dashboard", None) or {}).get("battle_plan", {}) or {}).get("sniper_points", {}),
         )
         current_weight = float(getattr(result, "current_weight", 0.0) or 0.0)
-        is_holding = canonical_stock_code(getattr(result, "code", "")) in holding_codes or current_weight > 0
+        code = canonical_stock_code(getattr(result, "code", ""))
+        is_holding = code in holding_codes or current_weight > 0
         delta_amount = float(action_model.get("delta_amount") or 0.0)
         raw_target_weight = action_model.get("target_weight")
         target_weight = current_weight if raw_target_weight is None else float(raw_target_weight or 0.0)
         if action == "HOLD" and current_weight > 0 and target_weight == 0.0 and delta_amount == 0.0:
             target_weight = current_weight
         return {
+            "code": code or str(getattr(result, "code", "") or ""),
             "name": notification_formatting.format_stock_display_name(result.name, result.code),
             "action_label": (
                 "不可决策/仅观察"

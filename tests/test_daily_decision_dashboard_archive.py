@@ -497,12 +497,13 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
         "score_bucket_calibration",
         "risk_sizing_previews",
         "risk_sizing_comparison",
+        "cash_budget_review",
         "triage_card",
         "execution_checklist",
         "watch_trigger_rule",
     }
     assert set(summary.keys()) == expected_top_level_keys
-    assert summary["schema_version"] == "daily_decision_summary.v1.8"
+    assert summary["schema_version"] == "daily_decision_summary.v1.10"
     assert set(summary["action_counts"].keys()) == {
         "buy",
         "add",
@@ -531,10 +532,14 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
     assert set(summary["actionable_items"][0].keys()) == {
         "code",
         "name",
+        "sentiment_score",
         "position_action",
         "target_weight",
         "current_weight",
         "delta_amount",
+        "cash_budget_status",
+        "cash_budget_label",
+        "cash_budget_reasons",
         "is_current_holding",
         "price_basis",
         "reason",
@@ -551,10 +556,14 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
     assert set(summary["watch_items"][0].keys()) == {
         "code",
         "name",
+        "sentiment_score",
         "position_action",
         "target_weight",
         "current_weight",
         "delta_amount",
+        "cash_budget_status",
+        "cash_budget_label",
+        "cash_budget_reasons",
         "is_current_holding",
         "price_basis",
         "reason",
@@ -575,6 +584,26 @@ def test_daily_decision_summary_schema_is_stable(mock_get_db):
     }
     assert summary["blocked_items"][0]["final_action_display"]["actionability"] == "blocked"
     assert summary["blocked_items"][0]["final_action_display"]["can_show_sizing"] is False
+    assert set(summary["cash_budget_review"].keys()) == {
+        "available_cash",
+        "planned_release",
+        "available_budget",
+        "buy_action_count",
+        "total_buy_delta",
+        "shortfall",
+        "sequential_affordable_count",
+        "selected_buy_delta",
+        "deferred_buy_delta",
+        "remaining_budget",
+        "overcommitted",
+        "codes",
+        "selected_codes",
+        "deferred_codes",
+        "status_by_code",
+        "selection_basis",
+        "message",
+    }
+    assert summary["cash_budget_review"]["overcommitted"] is False
 
 
 @patch("src.notification.get_db")

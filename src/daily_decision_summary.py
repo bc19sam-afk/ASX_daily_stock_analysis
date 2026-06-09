@@ -133,10 +133,14 @@ def _build_item(
     item = {
         "code": str(getattr(result, "code", "") or ""),
         "name": _display_name(result, format_stock_display_name),
+        "sentiment_score": safe_float(getattr(result, "sentiment_score", 0.0), 0.0),
         "position_action": str(action_model.get("position_action") or "HOLD"),
         "target_weight": safe_float(action_model.get("target_weight")),
         "current_weight": safe_float(getattr(result, "current_weight", 0.0)),
         "delta_amount": safe_float(action_model.get("delta_amount")),
+        "cash_budget_status": "not_applicable",
+        "cash_budget_label": "",
+        "cash_budget_reasons": [],
         "is_current_holding": is_current_holding,
         "price_basis": classify_price_basis(result),
         "reason": sanitize_action_reason_for_display(getattr(result, "action_reason", "") or ""),
@@ -175,6 +179,156 @@ def _attach_action_review_reasons(
         display["confirmation_gap"] = confirmation_gap
         display["review_label"] = "需二次确认" if confirmation_gap else ("执行前复核" if reasons else "无明显复核缺口")
         display["display_only"] = True
+
+
+def _build_cash_budget_review(
+    *,
+    overview: Dict[str, Any],
+    actionable_items: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Review whether same-day buy plans overcommit the shared cash budget."""
+    cash = max(safe_float((overview or {}).get("cash")), 0.0)
+    planned_release = sum(
+        abs(safe_float(item.get("delta_amount")))
+        for item in actionable_items
+        if str(item.get("position_action") or "").upper() in {"REDUCE", "CLOSE"}
+        and safe_float(item.get("delta_amount")) < 0
+    )
+    available_budget = round(cash + planned_release, 2)
+    buy_items = [
+        item
+        for item in actionable_items
+        if str(item.get("position_action") or "").upper() in {"OPEN", "ADD"}
+        and safe_float(item.get("delta_amount")) > 0
+    ]
+    total_buy_delta = round(sum(safe_float(item.get("delta_amount")) for item in buy_items), 2)
+    ranked_buy_items = _rank_cash_budget_buy_items(buy_items)
+    remaining = available_budget
+    selected_items: List[Dict[str, Any]] = []
+    deferred_items: List[Dict[str, Any]] = []
+    for item in ranked_buy_items:
+        delta = round(safe_float(item.get("delta_amount")), 2)
+        if delta <= remaining + 0.01:
+            selected_items.append(item)
+            remaining = round(remaining - delta, 2)
+        else:
+            deferred_items.append(item)
+    overcommitted = bool(buy_items and total_buy_delta > available_budget + 0.01)
+    selected_delta = round(sum(safe_float(item.get("delta_amount")) for item in selected_items), 2)
+    deferred_delta = round(sum(safe_float(item.get("delta_amount")) for item in deferred_items), 2)
+    selected_code_set = {canonical_stock_code(item.get("code")) for item in selected_items}
+    deferred_code_set = {canonical_stock_code(item.get("code")) for item in deferred_items}
+    status_by_code: Dict[str, str] = {}
+    for item in buy_items:
+        code = str(item.get("code") or "")
+        canonical = canonical_stock_code(code)
+        if overcommitted and canonical in selected_code_set:
+            status = "selected_within_budget"
+        elif overcommitted and canonical in deferred_code_set:
+            status = "deferred_cash_budget"
+        else:
+            status = "within_budget"
+        if code:
+            status_by_code[code] = status
+    review = {
+        "available_cash": round(cash, 2),
+        "planned_release": round(planned_release, 2),
+        "available_budget": available_budget,
+        "buy_action_count": len(buy_items),
+        "total_buy_delta": total_buy_delta,
+        "shortfall": round(max(total_buy_delta - available_budget, 0.0), 2),
+        "sequential_affordable_count": len(selected_items),
+        "selected_buy_delta": selected_delta,
+        "deferred_buy_delta": deferred_delta,
+        "remaining_budget": round(max(remaining, 0.0), 2),
+        "overcommitted": overcommitted,
+        "codes": [str(item.get("code") or "") for item in buy_items],
+        "selected_codes": [str(item.get("code") or "") for item in selected_items],
+        "deferred_codes": [str(item.get("code") or "") for item in deferred_items],
+        "status_by_code": status_by_code,
+        "selection_basis": "sentiment_score_desc_then_input_order",
+    }
+    if overcommitted:
+        if selected_items:
+            review["message"] = (
+                f"{len(buy_items)} 笔买入候选合计 {_format_cash_amount(total_buy_delta)}，"
+                f"高于可用/计划释放资金 {_format_cash_amount(available_budget)}；"
+                f"预算内首选 {_join_codes(review['selected_codes'])}，"
+                f"递延 {_join_codes(review['deferred_codes'])}。"
+            )
+        else:
+            review["message"] = (
+                f"{len(buy_items)} 笔买入候选合计 {_format_cash_amount(total_buy_delta)}，"
+                f"高于可用/计划释放资金 {_format_cash_amount(available_budget)}；"
+                "现金不足以覆盖任一候选，需先卖出释放现金或补充资金。"
+            )
+    else:
+        review["message"] = (
+            f"{len(buy_items)} 笔买入候选合计 {_format_cash_amount(total_buy_delta)}，"
+            f"可用/计划释放资金 {_format_cash_amount(available_budget)}。"
+        )
+    return review
+
+
+def _rank_cash_budget_buy_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    indexed_items = list(enumerate(items or []))
+    ranked = sorted(
+        indexed_items,
+        key=lambda pair: (-safe_float(pair[1].get("sentiment_score"), 0.0), pair[0]),
+    )
+    return [item for _, item in ranked]
+
+
+def _cash_budget_overcommitted(cash_budget_review: Optional[Dict[str, Any]]) -> bool:
+    return bool(isinstance(cash_budget_review, dict) and cash_budget_review.get("overcommitted"))
+
+
+def _join_codes(codes: Any) -> str:
+    values = [str(code or "").strip() for code in (codes or []) if str(code or "").strip()]
+    return "、".join(values) if values else "无"
+
+
+def _format_cash_amount(value: Any) -> str:
+    return f"{safe_float(value):,.2f}"
+
+
+def _attach_cash_budget_review_reasons(
+    *,
+    actionable_items: List[Dict[str, Any]],
+    cash_budget_review: Dict[str, Any],
+) -> None:
+    """Mark same-day buy candidates that compete for the same cash pool."""
+    if not _cash_budget_overcommitted(cash_budget_review):
+        return
+    selected_codes = {
+        code
+        for code in (canonical_stock_code(value) for value in (cash_budget_review.get("selected_codes") or []))
+        if code
+    }
+    deferred_codes = {
+        code
+        for code in (canonical_stock_code(value) for value in (cash_budget_review.get("deferred_codes") or []))
+        if code
+    }
+    selected_reason = "现金预算内首选；其他预算外买入候选已递延。"
+    deferred_reason = "现金预算不足；该候选递延，除非先卖出释放现金或补充资金。"
+    for item in actionable_items:
+        action = str(item.get("position_action") or "").upper()
+        if action not in {"OPEN", "ADD"} or safe_float(item.get("delta_amount")) <= 0:
+            continue
+        code = canonical_stock_code(item.get("code"))
+        if code in selected_codes:
+            item["cash_budget_status"] = "selected_within_budget"
+            item["cash_budget_label"] = "预算内首选"
+            item["cash_budget_reasons"] = [selected_reason]
+        elif code in deferred_codes:
+            item["cash_budget_status"] = "deferred_cash_budget"
+            item["cash_budget_label"] = "现金不足递延"
+            item["cash_budget_reasons"] = [deferred_reason]
+        else:
+            item["cash_budget_status"] = "cash_budget_review"
+            item["cash_budget_label"] = "现金预算需复核"
+            item["cash_budget_reasons"] = [str(cash_budget_review.get("message") or "现金预算不足，需人工重排。")]
 
 
 def _build_review_reasons(
@@ -468,7 +622,7 @@ def _triage_item(
     confidence_note: str,
     source_fields: List[str],
 ) -> Dict[str, Any]:
-    return {
+    triage_item = {
         "code": str(item.get("code") or ""),
         "name": str(item.get("name") or item.get("code") or ""),
         "section": section,
@@ -480,6 +634,18 @@ def _triage_item(
         "price_basis": str(item.get("price_basis") or "unknown"),
         "is_current_holding": bool(item.get("is_current_holding")),
     }
+    if "sentiment_score" in item:
+        triage_item["sentiment_score"] = safe_float(item.get("sentiment_score"), 0.0)
+    triage_item["cash_budget_status"] = str(item.get("cash_budget_status") or "not_applicable")
+    triage_item["cash_budget_label"] = str(item.get("cash_budget_label") or "")
+    triage_item["cash_budget_reasons"] = [
+        str(reason).strip()
+        for reason in (item.get("cash_budget_reasons") or [])
+        if str(reason).strip()
+    ]
+    if triage_item["cash_budget_status"] != "not_applicable":
+        triage_item["source_fields"] = list(dict.fromkeys(triage_item["source_fields"] + ["cash_budget_review"]))
+    return triage_item
 
 
 def _must_review_reason(item: Dict[str, Any]) -> str:
@@ -491,7 +657,14 @@ def _must_review_reason(item: Dict[str, Any]) -> str:
         "CLOSE": "清仓当前持仓",
     }.get(action, "人工复核")
     delta = safe_float(item.get("delta_amount"))
-    if delta > 0:
+    cash_budget_status = str(item.get("cash_budget_status") or "")
+    if cash_budget_status == "selected_within_budget" and delta > 0:
+        action_label = "预算内首选买入"
+        amount_text = f"预算内计划投入约 {abs(delta):,.2f}"
+    elif cash_budget_status == "deferred_cash_budget" and delta > 0:
+        action_label = "现金不足递延候选"
+        amount_text = f"递延候选约 {abs(delta):,.2f}"
+    elif delta > 0:
         amount_text = f"计划投入约 {abs(delta):,.2f}"
     elif delta < 0:
         amount_text = f"计划调出约 {abs(delta):,.2f}"
@@ -713,6 +886,10 @@ def build_daily_decision_summary(
 
     counts = _basis_counts(successful_results, classify_price_basis)
     price_policy = _resolve_price_policy(counts)
+    cash_budget_review = _build_cash_budget_review(
+        overview=overview,
+        actionable_items=actionable_items,
+    )
 
     data_quality_flags: List[Dict[str, Any]] = []
     if len(technical_dates) > 1:
@@ -747,7 +924,6 @@ def build_daily_decision_summary(
                 "message": f"{len(failed_results)} 只标的分析失败，建议重跑。",
             }
         )
-
     uncovered_holdings = []
     for item in holdings:
         code = canonical_stock_code(item.get("code"))
@@ -858,6 +1034,10 @@ def build_daily_decision_summary(
         evidence_matrix=evidence_matrix,
         risk_sizing_comparison=risk_sizing_comparison,
     )
+    _attach_cash_budget_review_reasons(
+        actionable_items=actionable_items,
+        cash_budget_review=cash_budget_review,
+    )
     triage_card = _build_triage_card(
         actionable_items=actionable_items,
         watch_items=watch_items,
@@ -872,7 +1052,7 @@ def build_daily_decision_summary(
     )
 
     return {
-        "schema_version": "daily_decision_summary.v1.8",
+        "schema_version": "daily_decision_summary.v1.10",
         "report_date": report_date,
         "technical_basis_date": technical_basis_date,
         "technical_basis_dates": technical_dates,
@@ -896,6 +1076,7 @@ def build_daily_decision_summary(
         "score_bucket_calibration": score_bucket_calibration,
         "risk_sizing_previews": risk_sizing_previews,
         "risk_sizing_comparison": risk_sizing_comparison,
+        "cash_budget_review": cash_budget_review,
         "triage_card": triage_card,
         "execution_checklist": list(EXECUTION_CHECKLIST),
         "watch_trigger_rule": WATCH_TRIGGER_RULE,
@@ -920,7 +1101,14 @@ def _action_display_fields(item: Dict[str, Any]) -> Dict[str, str]:
     }.get(action, "持有观察")
     target_weight = safe_float(item.get("target_weight"))
     delta_amount = safe_float(item.get("delta_amount"))
-    if delta_amount > 0:
+    cash_budget_status = str(item.get("cash_budget_status") or "")
+    if cash_budget_status == "selected_within_budget" and delta_amount > 0:
+        action_label = "预算内首选买入"
+        amount_text = f"预算内投入约 {abs(delta_amount):,.2f}"
+    elif cash_budget_status == "deferred_cash_budget" and delta_amount > 0:
+        action_label = "递延候选/现金不足"
+        amount_text = f"递延候选约 {abs(delta_amount):,.2f}"
+    elif delta_amount > 0:
         amount_text = f"计划投入约 {abs(delta_amount):,.2f}"
     elif delta_amount < 0:
         amount_text = f"计划调出约 {abs(delta_amount):,.2f}"
@@ -936,29 +1124,51 @@ def _action_display_fields(item: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _action_review_text(item: Dict[str, Any]) -> str:
+    cash_budget_text = _cash_budget_review_text(item)
     display = item.get("final_action_display")
-    if not isinstance(display, dict):
-        return ""
-    reasons = [str(reason).strip() for reason in (display.get("review_reasons") or []) if str(reason).strip()]
-    if reasons:
-        label = str(display.get("review_label") or "执行前复核").strip()
-        review_text = f"{label}：{'；'.join(reasons[:2])}"
+    if isinstance(display, dict):
+        reasons = [str(reason).strip() for reason in (display.get("review_reasons") or []) if str(reason).strip()]
+        if reasons:
+            label = str(display.get("review_label") or "执行前复核").strip()
+            review_text = f"{label}：{'；'.join(reasons[:2])}"
+        else:
+            review_text = str(display.get("review_label") or "").strip()
     else:
-        review_text = str(display.get("review_label") or "").strip()
+        review_text = ""
+    if cash_budget_text and review_text:
+        review_text = f"{cash_budget_text}；{review_text}"
+    elif cash_budget_text:
+        review_text = cash_budget_text
     scope_note = str(item.get("account_scope_note") or "").strip()
     if scope_note and review_text:
         return f"{scope_note}；{review_text}"
     return scope_note or review_text
 
 
+def _cash_budget_review_text(item: Dict[str, Any]) -> str:
+    status = str(item.get("cash_budget_status") or "not_applicable")
+    if status == "not_applicable":
+        return ""
+    label = str(item.get("cash_budget_label") or "现金预算复核").strip()
+    reasons = [
+        str(reason).strip()
+        for reason in (item.get("cash_budget_reasons") or [])
+        if str(reason).strip()
+    ]
+    if reasons:
+        return f"{label}：{'；'.join(reasons[:2])}"
+    return label
+
+
 def _render_action_table_lines(items: List[Dict[str, Any]]) -> List[str]:
     if not items:
         return []
+    display_items = _cash_budget_display_order(items)
     lines = [
         "| 标的 | 今天怎么处理 | 目标仓位 | 计划金额 | 复核提示 |",
         "| --- | --- | ---: | ---: | --- |",
     ]
-    for item in items[:HOMEPAGE_ACTIONABLE_LIMIT]:
+    for item in display_items[:HOMEPAGE_ACTIONABLE_LIMIT]:
         fields = _action_display_fields(item)
         lines.append(
             "| "
@@ -969,6 +1179,29 @@ def _render_action_table_lines(items: List[Dict[str, Any]]) -> List[str]:
             f"{_table_cell(fields['review_text'])} |"
         )
     return lines
+
+
+def _cash_budget_display_order(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    budget_review_statuses = {"selected_within_budget", "deferred_cash_budget", "cash_budget_review"}
+    if not any(str(item.get("cash_budget_status") or "") in budget_review_statuses for item in items or []):
+        return items
+    order = {
+        "selected_within_budget": 0,
+        "not_applicable": 1,
+        "": 1,
+        "cash_budget_review": 2,
+        "deferred_cash_budget": 3,
+    }
+    indexed_items = list(enumerate(items or []))
+    sorted_items = sorted(
+        indexed_items,
+        key=lambda pair: (
+            order.get(str(pair[1].get("cash_budget_status") or ""), 2),
+            -safe_float(pair[1].get("sentiment_score"), 0.0),
+            pair[0],
+        ),
+    )
+    return [item for _, item in sorted_items]
 
 
 def _render_stock_decision_overview_lines(rows: List[Dict[str, Any]]) -> List[str]:
@@ -997,6 +1230,63 @@ def _render_stock_decision_overview_lines(rows: List[Dict[str, Any]]) -> List[st
     if omitted > 0:
         lines.append(f"- 另有 {omitted} 只重点标的保留在后续正文/归档中。")
     return lines
+
+
+def _stock_decision_rows_with_cash_budget_review(summary: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows = summary.get("stock_decision_rows") or []
+    status_by_code = _cash_budget_status_by_code(summary)
+    if not rows or not status_by_code:
+        return rows
+    adjusted: List[Dict[str, Any]] = []
+    for row in rows:
+        display_row = dict(row)
+        status = status_by_code.get(canonical_stock_code(display_row.get("code")))
+        if status == "selected_within_budget":
+            display_row["action_label"] = "买入首选/预算内"
+            display_row["target_plan"] = _cash_budget_target_plan(display_row.get("target_plan"), prefix="预算内")
+        elif status == "deferred_cash_budget":
+            display_row["action_label"] = "递延候选/现金不足"
+            display_row["target_plan"] = _cash_budget_target_plan(display_row.get("target_plan"), prefix="递延")
+        adjusted.append(display_row)
+    return adjusted
+
+
+def _cash_budget_status_by_code(summary: Dict[str, Any]) -> Dict[str, str]:
+    cash_budget_review = summary.get("cash_budget_review") if isinstance(summary, dict) else None
+    if not _cash_budget_overcommitted(cash_budget_review):
+        return {}
+    raw_statuses = cash_budget_review.get("status_by_code")
+    if isinstance(raw_statuses, dict):
+        return {
+            code: str(status or "")
+            for code, status in (
+                (canonical_stock_code(code), value)
+                for code, value in raw_statuses.items()
+            )
+            if code and str(status or "") in {"selected_within_budget", "deferred_cash_budget", "cash_budget_review"}
+        }
+    statuses: Dict[str, str] = {}
+    for code in (canonical_stock_code(value) for value in (cash_budget_review.get("selected_codes") or [])):
+        if code:
+            statuses[code] = "selected_within_budget"
+    for code in (canonical_stock_code(value) for value in (cash_budget_review.get("deferred_codes") or [])):
+        if code:
+            statuses[code] = "deferred_cash_budget"
+    return statuses
+
+
+def _cash_budget_target_plan(target_plan: Any, *, prefix: str) -> str:
+    text = str(target_plan or "").strip()
+    if " / " not in text:
+        return f"{prefix}投入需复核"
+    target, amount = text.split(" / ", 1)
+    amount = amount.strip()
+    if amount.startswith("+"):
+        amount = amount[1:].strip()
+    target = target.strip()
+    if not amount:
+        return f"{target} / {prefix}投入需复核" if target else f"{prefix}投入需复核"
+    return f"{target} / {prefix} {amount}" if target else f"{prefix} {amount}"
 
 
 def _remaining_action_items(items: List[Dict[str, Any]], already_listed: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1030,7 +1320,18 @@ def _today_conclusion(
     actionable_items: List[Dict[str, Any]],
     current_holding_actions: List[Dict[str, Any]],
     blocked_items: List[Dict[str, Any]],
+    cash_budget_review: Optional[Dict[str, Any]] = None,
 ) -> str:
+    if _cash_budget_overcommitted(cash_budget_review):
+        buy_count = int(cash_budget_review.get("buy_action_count") or 0)
+        selected_codes = cash_budget_review.get("selected_codes") or []
+        deferred_codes = cash_budget_review.get("deferred_codes") or []
+        if selected_codes:
+            return (
+                f"今日有 {buy_count} 个买入候选，现金预算只覆盖 {len(selected_codes)} 个；"
+                f"首选 {_join_codes(selected_codes)}，递延 {_join_codes(deferred_codes)}。"
+            )
+        return f"今日有 {buy_count} 个买入候选，但现金预算不足覆盖任一候选；先释放现金或补充资金。"
     if current_holding_actions:
         other_actions = _remaining_action_items(actionable_items, current_holding_actions)
         if other_actions:
@@ -1190,7 +1491,7 @@ def _render_triage_card_lines(card: Dict[str, Any]) -> List[str]:
 
 def _format_triage_preview(items: List[Dict[str, Any]]) -> str:
     preview = []
-    for item in items[:TRIAGE_CARD_PREVIEW_LIMIT]:
+    for item in _cash_budget_display_order(items)[:TRIAGE_CARD_PREVIEW_LIMIT]:
         name = str(item.get("name") or item.get("code") or "未知标的")
         reason = _compact_reason(str(item.get("reason") or ""))
         preview.append(f"{name}（{reason}）" if reason else name)
@@ -1228,7 +1529,7 @@ def render_morning_review_card_lines(summary: Dict[str, Any]) -> List[str]:
         (
             "今日总判断",
             (
-                f"{_today_conclusion(actionable_items=actionable_items, current_holding_actions=current_holding_actions, blocked_items=blocked_items)} "
+                f"{_today_conclusion(actionable_items=actionable_items, current_holding_actions=current_holding_actions, blocked_items=blocked_items, cash_budget_review=summary.get('cash_budget_review'))} "
                 f"动作数量：{_format_action_counts_inline(summary.get('action_counts') or {})}。"
             ),
         ),
@@ -1260,6 +1561,13 @@ def render_morning_review_card_lines(summary: Dict[str, Any]) -> List[str]:
 
 
 def _morning_review_priority_text(summary: Dict[str, Any]) -> str:
+    cash_budget_review = summary.get("cash_budget_review") if isinstance(summary, dict) else None
+    if _cash_budget_overcommitted(cash_budget_review):
+        selected_text = _cash_budget_selection_text(cash_budget_review)
+        candidate_text = _triage_section_text(summary, "today_must_review", "")
+        if candidate_text:
+            return f"现金预算选择：{selected_text} {cash_budget_review.get('message')} 候选：{candidate_text}"
+        return f"现金预算选择：{selected_text} {cash_budget_review.get('message')}"
     text = _triage_section_text(summary, "today_must_review", "")
     if text:
         return text
@@ -1268,6 +1576,14 @@ def _morning_review_priority_text(summary: Dict[str, Any]) -> str:
     if summary.get("watch_items"):
         return "今日无可执行动作，先观察；只在价格、公告或新闻触发时再打开观察名单。"
     return "今日无可执行动作，先观察。"
+
+
+def _cash_budget_selection_text(cash_budget_review: Dict[str, Any]) -> str:
+    selected_codes = cash_budget_review.get("selected_codes") or []
+    deferred_codes = cash_budget_review.get("deferred_codes") or []
+    if selected_codes:
+        return f"预算内首选 {_join_codes(selected_codes)}；递延 {_join_codes(deferred_codes)}。"
+    return f"无预算内买入；递延 {_join_codes(deferred_codes)}。"
 
 
 def _morning_review_low_priority_text(summary: Dict[str, Any]) -> str:
@@ -1409,10 +1725,10 @@ def render_preopen_decision_dashboard(summary: Dict[str, Any]) -> List[str]:
     lines.extend(render_morning_review_card_lines(summary))
     lines.extend([
         "**开盘前快照**",
-        f"- **今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items)}",
+        f"- **今日结论**：{_today_conclusion(actionable_items=summary.get('actionable_items') or [], current_holding_actions=current_holding_actions, blocked_items=blocked_items, cash_budget_review=summary.get('cash_budget_review'))}",
         f"- **今日动作数量**：{_format_action_counts_inline(counts)}",
     ])
-    lines.extend(_render_stock_decision_overview_lines(summary.get("stock_decision_rows") or []))
+    lines.extend(_render_stock_decision_overview_lines(_stock_decision_rows_with_cash_budget_review(summary)))
     lines.extend([
         "",
         "**当前持仓需要处理什么**",
