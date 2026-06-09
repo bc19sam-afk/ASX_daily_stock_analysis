@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 from datetime import date, datetime
+from datetime import timezone
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
@@ -38,11 +39,17 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         DatabaseManager.reset_instance()
         self.tmp.cleanup()
 
-    def _result(self, code: str, final_decision: str, market_regime: str = "NEUTRAL") -> AnalysisResult:
+    def _result(
+        self,
+        code: str,
+        final_decision: str,
+        market_regime: str = "NEUTRAL",
+        sentiment_score: int = 60,
+    ) -> AnalysisResult:
         r = AnalysisResult(
             code=code,
             name=f"股票{code}",
-            sentiment_score=60,
+            sentiment_score=sentiment_score,
             trend_prediction="震荡",
             operation_advice="持有",
         )
@@ -51,6 +58,84 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
         r.event_risk = "LOW"
         r.data_quality_flag = "OK"
         return r
+
+    def _run_read_only_batch(
+        self,
+        results_by_code: dict[str, AnalysisResult],
+        prices_by_code: dict[str, float],
+        *,
+        single_stock_notify: bool = False,
+        send_notification: bool = False,
+    ):
+        self.pipeline.config = SimpleNamespace(
+            analysis_read_only=True,
+            save_context_snapshot=False,
+            single_stock_notify=single_stock_notify,
+            report_type=ReportType.SIMPLE.value,
+            analysis_delay=0,
+            market_timezone="Australia/Sydney",
+            market_calendar="ASX",
+            execution_price_policy="realtime_if_available",
+            min_position_delta_amount=0.0,
+            min_order_notional=0.0,
+        )
+        self.pipeline.max_workers = 1
+        self.pipeline.save_context_snapshot = False
+        self.pipeline._now_for_testing = datetime(2026, 4, 15, 0, 30, tzinfo=timezone.utc)
+        self.pipeline.fetcher_manager = SimpleNamespace(
+            get_realtime_quote=lambda code: SimpleNamespace(
+                name=f"股票{code}",
+                price=prices_by_code[code],
+                change_pct=0.0,
+            ),
+            prefetch_realtime_quotes=lambda codes: 0,
+        )
+        self.pipeline.search_service = SimpleNamespace(is_available=False)
+        self.pipeline.trend_analyzer = MagicMock()
+        self.sent_single_notifications = []
+
+        def fake_single_report(result):
+            self.sent_single_notifications.append((result.code, result.delta_amount, result.position_action))
+            return f"{result.code}:{result.delta_amount}:{result.position_action}"
+
+        self.pipeline.notifier = SimpleNamespace(
+            is_available=lambda: True,
+            generate_dashboard_report=lambda results: "dashboard",
+            generate_single_stock_report=fake_single_report,
+            send=lambda report, email_stock_codes=None: True,
+        )
+        self.pipeline.analyzer = MagicMock()
+
+        def fake_analyze(enhanced_context, news_context=None):
+            return results_by_code[enhanced_context["code"]]
+
+        self.pipeline.analyzer.analyze.side_effect = fake_analyze
+
+        def mark_pass(*, result, enhanced_context):
+            result.validation_status = "PASS"
+            result.validation_issues = []
+
+        with patch.object(
+            self.pipeline,
+            "fetch_and_save_stock_data",
+            return_value=(True, None, {}),
+        ), patch.object(self.pipeline, "_fetch_market_overview", return_value={}), patch.object(
+            self.pipeline,
+            "_apply_decision_structure",
+        ), patch.object(
+            self.pipeline,
+            "_apply_validation_gate",
+            side_effect=mark_pass,
+        ), patch.object(
+            self.pipeline,
+            "_send_notifications",
+            return_value={},
+        ):
+            return self.pipeline.run(
+                stock_codes=list(results_by_code.keys()),
+                dry_run=False,
+                send_notification=send_notification,
+            )
 
     def _run_parallel_position_updates(self, *, pipeline: StockAnalysisPipeline, codes: list[str], query_prefix: str) -> None:
         start_gate = threading.Event()
@@ -166,6 +251,196 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
 
         holdings = self.db.get_portfolio_positions(only_open=True)
         self.assertEqual(len(holdings), 2)
+
+    def test_read_only_daily_batch_shares_cash_across_same_day_buy_candidates(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=1043.73, equity_value=10000, total_value=11043.73)
+        results = self._run_read_only_batch(
+            {
+                "EGH.AX": self._result("EGH.AX", final_decision="BUY", sentiment_score=88),
+                "GMG.AX": self._result("GMG.AX", final_decision="BUY", sentiment_score=61),
+                "BHP.AX": self._result("BHP.AX", final_decision="BUY", sentiment_score=76),
+            },
+            {"EGH.AX": 10.0, "GMG.AX": 10.0, "BHP.AX": 10.0},
+        )
+
+        by_code = {result.code: result for result in results}
+        buy_deltas = [
+            result.delta_amount
+            for result in by_code.values()
+            if result.position_action in {"OPEN", "ADD"} and result.delta_amount > 0
+        ]
+
+        self.assertLessEqual(sum(buy_deltas), 1043.73 + 0.01)
+        self.assertAlmostEqual(by_code["EGH.AX"].delta_amount, 1040.0, places=2)
+        self.assertEqual(by_code["EGH.AX"].position_action, "OPEN")
+        self.assertEqual(by_code["BHP.AX"].position_action, "HOLD")
+        self.assertEqual(by_code["GMG.AX"].position_action, "HOLD")
+        self.assertAlmostEqual(by_code["BHP.AX"].delta_amount, 0.0, places=2)
+        self.assertAlmostEqual(by_code["GMG.AX"].delta_amount, 0.0, places=2)
+
+    def test_single_stock_notify_batch_sends_shared_cash_sized_results(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=1043.73, equity_value=10000, total_value=11043.73)
+        results = self._run_read_only_batch(
+            {
+                "EGH.AX": self._result("EGH.AX", final_decision="BUY", sentiment_score=88),
+                "GMG.AX": self._result("GMG.AX", final_decision="BUY", sentiment_score=61),
+                "BHP.AX": self._result("BHP.AX", final_decision="BUY", sentiment_score=76),
+            },
+            {"EGH.AX": 10.0, "GMG.AX": 10.0, "BHP.AX": 10.0},
+            single_stock_notify=True,
+            send_notification=True,
+        )
+
+        by_code = {result.code: result for result in results}
+        sent_by_code = {
+            code: (delta_amount, position_action)
+            for code, delta_amount, position_action in self.sent_single_notifications
+        }
+        sent_buy_deltas = [
+            delta_amount
+            for delta_amount, position_action in sent_by_code.values()
+            if position_action in {"OPEN", "ADD"} and delta_amount > 0
+        ]
+
+        self.assertEqual(set(sent_by_code), {"EGH.AX", "GMG.AX", "BHP.AX"})
+        self.assertLessEqual(sum(sent_buy_deltas), 1043.73 + 0.01)
+        self.assertEqual(sent_by_code["EGH.AX"], (by_code["EGH.AX"].delta_amount, by_code["EGH.AX"].position_action))
+        self.assertEqual(sent_by_code["BHP.AX"], (0.0, "HOLD"))
+        self.assertEqual(sent_by_code["GMG.AX"], (0.0, "HOLD"))
+
+    def test_batch_position_management_failure_does_not_drop_other_histories(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=1000, equity_value=10000, total_value=11000)
+        original_apply = self.pipeline._apply_position_management
+
+        def fail_one_symbol(*, result, **kwargs):
+            if result.code == "FAIL.AX":
+                raise RuntimeError("forced sizing failure")
+            return original_apply(result=result, **kwargs)
+
+        with patch.object(self.pipeline, "_apply_position_management", side_effect=fail_one_symbol):
+            results = self._run_read_only_batch(
+                {
+                    "FAIL.AX": self._result("FAIL.AX", final_decision="BUY", sentiment_score=90),
+                    "OK.AX": self._result("OK.AX", final_decision="BUY", sentiment_score=80),
+                },
+                {"FAIL.AX": 10.0, "OK.AX": 10.0},
+            )
+
+        by_code = {result.code: result for result in results}
+        self.assertEqual(by_code["FAIL.AX"].position_action, "HOLD")
+        self.assertAlmostEqual(by_code["FAIL.AX"].delta_amount, 0.0, places=2)
+        self.assertEqual(by_code["FAIL.AX"].action_reason, "position_management_failed")
+        self.assertEqual(by_code["OK.AX"].position_action, "OPEN")
+        self.assertGreater(by_code["OK.AX"].delta_amount, 0.0)
+
+        histories = self.db.get_analysis_history(limit=10)
+        histories_by_code = {history.code: history for history in histories}
+        self.assertEqual(set(histories_by_code), {"FAIL.AX", "OK.AX"})
+        self.assertEqual(histories_by_code["FAIL.AX"].position_action, "HOLD")
+        self.assertEqual(histories_by_code["FAIL.AX"].action_reason, "position_management_failed")
+        self.assertEqual(histories_by_code["OK.AX"].position_action, "OPEN")
+
+    def test_read_only_daily_batch_adds_same_day_reduce_release_to_buy_budget(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=100, equity_value=2000, total_value=2100)
+        self.db.upsert_portfolio_position(
+            code="RED.AX",
+            name="RED",
+            quantity=20,
+            avg_cost=100,
+            current_price=100,
+            weight=2000 / 2100,
+            market_value=2000,
+        )
+
+        results = self._run_read_only_batch(
+            {
+                "RED.AX": self._result("RED.AX", final_decision="HOLD", market_regime="RISK_OFF"),
+                "BUY.AX": self._result("BUY.AX", final_decision="BUY", sentiment_score=80),
+            },
+            {"RED.AX": 100.0, "BUY.AX": 100.0},
+        )
+
+        by_code = {result.code: result for result in results}
+        self.assertEqual(by_code["RED.AX"].position_action, "REDUCE")
+        self.assertLess(by_code["RED.AX"].delta_amount, 0.0)
+        self.assertEqual(by_code["BUY.AX"].position_action, "OPEN")
+        self.assertGreater(by_code["BUY.AX"].delta_amount, 100.0)
+        self.assertLessEqual(
+            by_code["BUY.AX"].delta_amount,
+            100.0 + abs(by_code["RED.AX"].delta_amount) + 0.01,
+        )
+
+    def test_read_only_daily_batch_groups_by_effective_event_risk_decision(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=100, equity_value=2000, total_value=2100)
+        self.db.upsert_portfolio_position(
+            code="RISK.AX",
+            name="RISK",
+            quantity=20,
+            avg_cost=100,
+            current_price=100,
+            weight=2000 / 2100,
+            market_value=2000,
+        )
+        high_event_risk = self._result(
+            "RISK.AX",
+            final_decision="BUY",
+            market_regime="RISK_OFF",
+            sentiment_score=10,
+        )
+        high_event_risk.event_risk = "HIGH"
+
+        results = self._run_read_only_batch(
+            {
+                "BUY.AX": self._result("BUY.AX", final_decision="BUY", sentiment_score=90),
+                "RISK.AX": high_event_risk,
+            },
+            {"BUY.AX": 100.0, "RISK.AX": 100.0},
+        )
+
+        by_code = {result.code: result for result in results}
+        self.assertEqual(by_code["RISK.AX"].final_decision, "HOLD")
+        self.assertEqual(by_code["RISK.AX"].position_action, "REDUCE")
+        self.assertLess(by_code["RISK.AX"].delta_amount, 0.0)
+        self.assertEqual(by_code["BUY.AX"].position_action, "OPEN")
+        self.assertGreater(by_code["BUY.AX"].delta_amount, 100.0)
+        self.assertLessEqual(
+            by_code["BUY.AX"].delta_amount,
+            100.0 + abs(by_code["RISK.AX"].delta_amount) + 0.01,
+        )
+
+    def test_read_only_daily_batch_subtracts_cash_deficit_before_buy_selection(self):
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=-500, equity_value=10000, total_value=9500)
+        self.db.upsert_portfolio_position(
+            code="RED.AX",
+            name="RED",
+            quantity=19,
+            avg_cost=100,
+            current_price=100,
+            weight=1900 / 9500,
+            market_value=1900,
+        )
+        self.db.upsert_portfolio_position(
+            code="KEEP.AX",
+            name="KEEP",
+            quantity=81,
+            avg_cost=100,
+            current_price=100,
+            weight=8100 / 9500,
+            market_value=8100,
+        )
+
+        results = self._run_read_only_batch(
+            {
+                "RED.AX": self._result("RED.AX", final_decision="HOLD", market_regime="RISK_OFF"),
+                "BUY.AX": self._result("BUY.AX", final_decision="BUY", sentiment_score=80),
+            },
+            {"RED.AX": 100.0, "BUY.AX": 100.0},
+        )
+
+        by_code = {result.code: result for result in results}
+        self.assertAlmostEqual(by_code["RED.AX"].delta_amount, -900.0, places=2)
+        self.assertEqual(by_code["BUY.AX"].position_action, "OPEN")
+        self.assertAlmostEqual(by_code["BUY.AX"].delta_amount, 400.0, places=2)
 
     def test_high_event_risk_downgrades_buy_to_hold(self):
         self.db.save_account_snapshot(snapshot_date=date.today(), cash=8000, equity_value=2000, total_value=10000)
