@@ -644,6 +644,66 @@ def test_dashboard_homepage_layers_stock_decisions_into_scannable_table_without_
 
 
 @patch("src.notification.get_db")
+def test_dashboard_homepage_stock_decision_rows_show_cash_budget_conflicts(mock_get_db):
+    mock_get_db.return_value.get_portfolio_overview.return_value = {
+        "cash": 1043.73,
+        "equity_value": 9044.12,
+        "total_value": 10087.85,
+        "holdings": [],
+    }
+    service = _service()
+    results = [
+        _result(
+            code="EGH.AX",
+            name="EGH",
+            sentiment_score=88,
+            final_decision="BUY",
+            position_action="OPEN",
+            target_weight=0.095,
+            delta_amount=1043.71,
+        ),
+        _result(
+            code="GMG.AX",
+            name="GMG",
+            sentiment_score=61,
+            final_decision="BUY",
+            position_action="OPEN",
+            target_weight=0.0934,
+            delta_amount=1026.30,
+        ),
+        _result(
+            code="BHP.AX",
+            name="BHP",
+            sentiment_score=76,
+            final_decision="BUY",
+            position_action="OPEN",
+            target_weight=0.0948,
+            delta_amount=1041.08,
+        ),
+    ]
+
+    report = service.generate_dashboard_report(results, report_date="2026-06-09")
+    landing = _landing_section(report)
+
+    assert (
+        "| EGH (EGH.AX) | 买入首选/预算内 | 88 / 震荡上行 | "
+        "空仓/未持有 | 9.50% / 预算内 1,043.71 |"
+    ) in landing
+    assert (
+        "| GMG (GMG.AX) | 递延候选/现金不足 | 61 / 震荡上行 | "
+        "空仓/未持有 | 9.34% / 递延 1,026.30 |"
+    ) in landing
+    assert (
+        "| BHP (BHP.AX) | 递延候选/现金不足 | 76 / 震荡上行 | "
+        "空仓/未持有 | 9.48% / 递延 1,041.08 |"
+    ) in landing
+    assert (
+        "| EGH (EGH.AX) | 建议新开仓 | 70 / 震荡上行 | "
+        "空仓/未持有 | 9.50% / +1,043.71 |"
+    ) not in landing
+
+
+@patch("src.notification.get_db")
 def test_dashboard_homepage_preserves_zero_target_weight_for_close_actions(mock_get_db):
     mock_get_db.return_value.get_portfolio_overview.return_value = _overview()
     service = _service()
