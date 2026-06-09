@@ -928,8 +928,16 @@ class StockAnalysisPipeline:
         return str(getattr(result, "validation_status", "") or "").upper() == "BLOCK"
 
     @staticmethod
-    def _is_buy_position_candidate(result: AnalysisResult) -> bool:
-        return str(getattr(result, "final_decision", "") or "").upper() == "BUY"
+    def _effective_position_management_decision(result: AnalysisResult) -> str:
+        final_decision = str(getattr(result, "final_decision", "") or "").upper()
+        event_risk = str(getattr(result, "event_risk", "") or "").upper()
+        if event_risk == "HIGH" and final_decision in {"BUY", "SELL"}:
+            return "HOLD"
+        return final_decision
+
+    @classmethod
+    def _is_buy_position_candidate(cls, result: AnalysisResult) -> bool:
+        return cls._effective_position_management_decision(result) == "BUY"
 
     @staticmethod
     def _analysis_history_payload(result: AnalysisResult) -> Optional[Dict[str, Any]]:
@@ -967,12 +975,16 @@ class StockAnalysisPipeline:
         initial_cash = float(latest_snapshot.cash) if latest_snapshot else 10000.0
         planned_release = 0.0
         for result in non_buy_results:
-            self._apply_position_management(
-                result=result,
-                query_id=self._deferred_query_id(result),
-                current_price=getattr(result, "current_price", None),
-                persist=persist,
-            )
+            try:
+                self._apply_position_management(
+                    result=result,
+                    query_id=self._deferred_query_id(result),
+                    current_price=getattr(result, "current_price", None),
+                    persist=persist,
+                )
+            except Exception as exc:
+                self._mark_position_management_failed(result, exc)
+                continue
             delta = float(getattr(result, "delta_amount", 0.0) or 0.0)
             if delta < 0:
                 planned_release = round(planned_release + abs(delta), 2)
@@ -980,25 +992,38 @@ class StockAnalysisPipeline:
         remaining_cash_budget = round(max(initial_cash + planned_release, 0.0), 2)
         ranked_buy_results = sorted(
             enumerate(buy_results),
-            # This is a deterministic priority rule, not an optimizer for capital allocation.
+            # Effective BUY candidates share cash by deterministic priority; this is not
+            # an optimizer for capital allocation.
             key=lambda pair: (
                 -float(getattr(pair[1], "sentiment_score", 0) or 0),
                 order_by_code.get(canonical_stock_code(pair[1].code), pair[0]),
             ),
         )
         for _, result in ranked_buy_results:
-            self._apply_position_management(
-                result=result,
-                query_id=self._deferred_query_id(result),
-                current_price=getattr(result, "current_price", None),
-                persist=persist,
-                cash_budget_override=remaining_cash_budget,
-            )
+            try:
+                self._apply_position_management(
+                    result=result,
+                    query_id=self._deferred_query_id(result),
+                    current_price=getattr(result, "current_price", None),
+                    persist=persist,
+                    cash_budget_override=remaining_cash_budget,
+                )
+            except Exception as exc:
+                self._mark_position_management_failed(result, exc)
+                continue
             delta = round(float(getattr(result, "delta_amount", 0.0) or 0.0), 2)
             if delta > 0:
                 remaining_cash_budget = round(max(remaining_cash_budget - delta, 0.0), 2)
             elif delta < 0:
                 remaining_cash_budget = round(remaining_cash_budget + abs(delta), 2)
+
+    @staticmethod
+    def _mark_position_management_failed(result: AnalysisResult, exc: Exception) -> None:
+        result.position_action = "HOLD"
+        result.target_weight = round(float(getattr(result, "current_weight", 0.0) or 0.0), 4)
+        result.delta_amount = 0.0
+        result.action_reason = "position_management_failed"
+        logger.exception("[%s] 批量仓位管理失败，已保守降级为 HOLD: %s", result.code, exc)
 
     def _save_deferred_analysis_histories(self, results: List[AnalysisResult]) -> None:
         for result in results or []:
@@ -1718,6 +1743,30 @@ class StockAnalysisPipeline:
             logger.warning(f"[大盘] 大盘数据获取失败（已跳过）: {e}")
             return {}
 
+    def _send_single_stock_notifications(
+        self,
+        results: List[AnalysisResult],
+        *,
+        report_type: ReportType,
+    ) -> None:
+        if not self.notifier.is_available():
+            return
+        for result in results:
+            code = canonical_stock_code(result.code)
+            try:
+                if send_single_stock_notification(
+                    notifier=self.notifier,
+                    result=result,
+                    report_type=report_type,
+                    code=code,
+                    logger=logger,
+                ):
+                    logger.info(f"[{code}] 单股推送成功")
+                else:
+                    logger.warning(f"[{code}] 单股推送失败")
+            except Exception as e:
+                logger.error(f"[{code}] 单股推送异常: {e}")
+
     def run(
         self,
         stock_codes: Optional[List[str]] = None,
@@ -1782,9 +1831,11 @@ class StockAnalysisPipeline:
         analysis_delay = getattr(self.config, 'analysis_delay', 0)
 
         if single_stock_notify:
-            logger.info(f"已启用单股推送模式：每分析完一只股票立即推送（报告类型: {report_type_str}）")
+            logger.info(f"已启用单股推送模式：批量仓位计算后逐只推送（报告类型: {report_type_str}）")
         single_stock_notify_active = bool(single_stock_notify and send_notification)
-        defer_batch_position_management = bool(not dry_run and not single_stock_notify_active)
+        # Batch runs must size all symbols against the shared cash pool before any
+        # per-stock notification can expose action amounts.
+        defer_batch_position_management = bool(not dry_run)
         
         results: List[AnalysisResult] = []
         
@@ -1797,7 +1848,7 @@ class StockAnalysisPipeline:
                     self.process_single_stock,
                     code,
                     skip_analysis=dry_run,
-                    single_stock_notify=single_stock_notify_active,
+                    single_stock_notify=single_stock_notify_active and not defer_batch_position_management,
                     report_type=report_type,  # Issue #119: 传递报告类型
                     analysis_query_id=uuid.uuid4().hex,
                     market_overview=market_overview,
@@ -1839,12 +1890,17 @@ class StockAnalysisPipeline:
         logger.info(f"成功: {success_count}, 失败: {fail_count}, 耗时: {elapsed_time:.2f} 秒")
 
         if results and defer_batch_position_management:
-            self._apply_batch_position_management(
-                results=results,
-                stock_codes=stock_codes,
-                persist=not getattr(self.config, "analysis_read_only", True),
-            )
-            self._save_deferred_analysis_histories(results)
+            try:
+                self._apply_batch_position_management(
+                    results=results,
+                    stock_codes=stock_codes,
+                    persist=not getattr(self.config, "analysis_read_only", True),
+                )
+            finally:
+                self._save_deferred_analysis_histories(results)
+
+        if results and single_stock_notify_active and not dry_run:
+            self._send_single_stock_notifications(results, report_type=report_type)
 
         if results and not dry_run:
             self._apply_paper_portfolio_simulation(results)
