@@ -187,14 +187,14 @@ def _build_cash_budget_review(
     actionable_items: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """Review whether same-day buy plans overcommit the shared cash budget."""
-    cash = max(safe_float((overview or {}).get("cash")), 0.0)
+    cash = safe_float((overview or {}).get("cash"), 0.0)
     planned_release = sum(
         abs(safe_float(item.get("delta_amount")))
         for item in actionable_items
         if str(item.get("position_action") or "").upper() in {"REDUCE", "CLOSE"}
         and safe_float(item.get("delta_amount")) < 0
     )
-    available_budget = round(cash + planned_release, 2)
+    available_budget = round(max(cash + planned_release, 0.0), 2)
     buy_items = [
         item
         for item in actionable_items

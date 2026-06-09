@@ -393,6 +393,50 @@ def test_cash_budget_review_counts_planned_sell_release_before_flagging_overcomm
     assert cash_review["overcommitted"] is True
 
 
+def test_cash_budget_review_subtracts_cash_deficit_before_selecting_buys():
+    summary = build_daily_decision_summary(
+        results=[
+            _result(
+                code="EGH.AX",
+                name="EGH",
+                sentiment_score=88,
+                final_decision="BUY",
+                position_action="OPEN",
+                target_weight=0.06,
+                delta_amount=600.0,
+            ),
+            _result(
+                code="TLS.AX",
+                name="TLS",
+                final_decision="SELL",
+                position_action="REDUCE",
+                current_weight=0.2,
+                target_weight=0.14,
+                delta_amount=-600.0,
+            ),
+        ],
+        report_date="2026-06-09",
+        generated_at=datetime(2026, 6, 9, 9, 43, tzinfo=ZoneInfo("Australia/Sydney")),
+        overview={"cash": -500.0, "equity_value": 9500.0, "total_value": 9000.0, "holdings": []},
+        get_primary_action_model=_model,
+        classify_price_basis=lambda result: result.execution_price_source,
+        format_stock_display_name=lambda name, code: f"{name} ({code})",
+        format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
+    )
+
+    cash_review = summary["cash_budget_review"]
+    assert cash_review["available_cash"] == -500.0
+    assert cash_review["planned_release"] == 600.0
+    assert cash_review["available_budget"] == 100.0
+    assert cash_review["total_buy_delta"] == 600.0
+    assert cash_review["selected_codes"] == []
+    assert cash_review["deferred_codes"] == ["EGH.AX"]
+    assert cash_review["overcommitted"] is True
+
+    buy_item = next(item for item in summary["actionable_items"] if item["code"] == "EGH.AX")
+    assert buy_item["cash_budget_status"] == "deferred_cash_budget"
+
+
 def test_strong_consistent_action_is_not_marked_as_weak_confirmation():
     result = _result(
         code="GMG.AX",
