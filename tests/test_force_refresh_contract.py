@@ -70,7 +70,15 @@ def test_process_single_stock_forwards_force_refresh_to_fetcher(monkeypatch):
         captured["fetch"] = {"code": code, "force_refresh": force_refresh}
         return True, None, {"stock_name": "BHP"}
 
-    def fake_analyze_stock(code, report_type, query_id, df_attrs=None, market_overview=None, force_refresh=False):
+    def fake_analyze_stock(
+        code,
+        report_type,
+        query_id,
+        df_attrs=None,
+        market_overview=None,
+        force_refresh=False,
+        defer_position_management=False,
+    ):
         captured["analyze"] = {
             "code": code,
             "report_type": report_type,
@@ -78,6 +86,7 @@ def test_process_single_stock_forwards_force_refresh_to_fetcher(monkeypatch):
             "df_attrs": df_attrs,
             "market_overview": market_overview,
             "force_refresh": force_refresh,
+            "defer_position_management": defer_position_management,
         }
         return SimpleNamespace(operation_advice="HOLD", sentiment_score=70)
 
@@ -95,6 +104,7 @@ def test_process_single_stock_forwards_force_refresh_to_fetcher(monkeypatch):
     assert captured["fetch"] == {"code": "BHP.AX", "force_refresh": True}
     assert captured["analyze"]["df_attrs"] == {"stock_name": "BHP"}
     assert captured["analyze"]["force_refresh"] is True
+    assert captured["analyze"]["defer_position_management"] is False
 
 
 def test_fetch_and_save_stock_data_uses_market_timezone_for_cache_date(monkeypatch):
