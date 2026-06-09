@@ -16,7 +16,7 @@ class PositionDecision:
 
 
 class PositionManager:
-    """Minimal deterministic rules for position-aware actions."""
+    """Nominal target-weight rules; pipeline applies executable sizing constraints."""
 
     def decide(
         self,

@@ -1113,6 +1113,11 @@ class StockAnalysisPipeline:
                 event_risk=result.event_risk,
                 data_quality_flag=result.data_quality_flag,
             )
+            max_delta_amount = self._get_single_buy_max_delta_amount(
+                result=result,
+                quantity=portfolio_state["quantity"],
+                available_cash=cash_for_buy_budget,
+            )
             calc = self._calculate_position_transition(
                 existing=existing,
                 quantity=portfolio_state["quantity"],
@@ -1124,6 +1129,7 @@ class StockAnalysisPipeline:
                 current_value=portfolio_state["current_position_value"],
                 min_delta_amount=self._get_min_position_delta_amount(),
                 min_order_notional=self._get_min_order_notional(),
+                max_delta_amount=max_delta_amount,
             )
             if calc is None:
                 result.position_action = "HOLD"
@@ -1142,10 +1148,9 @@ class StockAnalysisPipeline:
                 else 0.0
             )
             result.delta_amount = calc["delta_amount"]
-            result.action_reason = (
-                f"{decision.reason}, execution_blocked={calc['suppressed_by']}"
-                if calc.get("suppressed_by")
-                else decision.reason
+            result.action_reason = self._compose_position_action_reason(
+                decision_reason=decision.reason,
+                calc=calc,
             )
             logger.info("[%s] 分析只读模式：仅计算仓位建议，不写入账户状态", result.code)
             return
@@ -1180,6 +1185,11 @@ class StockAnalysisPipeline:
                     event_risk=result.event_risk,
                     data_quality_flag=result.data_quality_flag,
                 )
+                max_delta_amount = self._get_single_buy_max_delta_amount(
+                    result=result,
+                    quantity=portfolio_state["quantity"],
+                    available_cash=cash_for_buy_budget,
+                )
                 calc = self._calculate_position_transition(
                     existing=existing,
                     quantity=portfolio_state["quantity"],
@@ -1191,6 +1201,7 @@ class StockAnalysisPipeline:
                     current_value=portfolio_state["current_position_value"],
                     min_delta_amount=self._get_min_position_delta_amount(),
                     min_order_notional=self._get_min_order_notional(),
+                    max_delta_amount=max_delta_amount,
                 )
                 if calc is None:
                     result.position_action = "HOLD"
@@ -1211,10 +1222,9 @@ class StockAnalysisPipeline:
                     else 0.0
                 )
                 result.delta_amount = calc["delta_amount"]
-                result.action_reason = (
-                    f"{decision.reason}, execution_blocked={calc['suppressed_by']}"
-                    if calc.get("suppressed_by")
-                    else decision.reason
+                result.action_reason = self._compose_position_action_reason(
+                    decision_reason=decision.reason,
+                    calc=calc,
                 )
 
                 self.db.upsert_portfolio_position_in_session(
@@ -1283,14 +1293,17 @@ class StockAnalysisPipeline:
         current_value: Optional[float] = None,
         min_delta_amount: float = 0.0,
         min_order_notional: float = 0.0,
+        max_delta_amount: Optional[float] = None,
     ) -> Optional[Dict[str, float | str]]:
         # Deterministic precedence order for executable sizing:
+        # The pipeline owns executable sizing because it has same-day cash-pool context.
         # 1) normalize executable sizing to whole shares
-        # 2) compute delta/notional from normalized values
-        # 3) apply affordability safeguard (floor, never round-up)
-        # 4) apply MIN_POSITION_DELTA_AMOUNT
-        # 5) apply MIN_ORDER_NOTIONAL
-        # 6) if blocked, suppress to HOLD/no-action with consistent accounting fields
+        # 2) cap positive delta notional when an upstream sizing constraint supplies one
+        # 3) compute delta/notional from normalized values
+        # 4) apply affordability safeguard (floor, never round-up)
+        # 5) apply MIN_POSITION_DELTA_AMOUNT
+        # 6) apply MIN_ORDER_NOTIONAL
+        # 7) if blocked, suppress to HOLD/no-action with consistent accounting fields
         price = float(current_price) if current_price and current_price > 0 else 0.0
         if price <= 0 and existing and existing.current_price and existing.current_price > 0:
             price = float(existing.current_price)
@@ -1301,6 +1314,14 @@ class StockAnalysisPipeline:
         target_value = decision.target_weight * total_value
         target_quantity = int(round(target_value / price, 0))
         delta_amount = round(target_quantity * price - current_value, 2)
+        sizing_cap_reason = ""
+        if max_delta_amount is not None and delta_amount > max(max_delta_amount, 0.0):
+            cap_delta_amount = max(max_delta_amount, 0.0)
+            capped_target_value = current_value + cap_delta_amount
+            target_quantity = int(math.floor(max(capped_target_value, 0.0) / price))
+            target_value = round(target_quantity * price, 2)
+            delta_amount = round(target_value - current_value, 2)
+            sizing_cap_reason = f"single_buy_cash_cap(limit={cap_delta_amount:.2f})"
         cash_after = round(cash - delta_amount, 2)
         if cash_after < 0:
             affordable_target_value = current_value + cash
@@ -1372,7 +1393,19 @@ class StockAnalysisPipeline:
             "action": action,
             "current_weight": current_weight,
             "suppressed_by": suppressed_by,
+            "sizing_cap_reason": sizing_cap_reason,
         }
+
+    @staticmethod
+    def _compose_position_action_reason(*, decision_reason: str, calc: Dict[str, float | str]) -> str:
+        parts = [str(decision_reason or "").strip()]
+        sizing_cap_reason = str(calc.get("sizing_cap_reason") or "").strip()
+        if sizing_cap_reason:
+            parts.append(f"sizing_cap={sizing_cap_reason}")
+        suppressed_by = str(calc.get("suppressed_by") or "").strip()
+        if suppressed_by:
+            parts.append(f"execution_blocked={suppressed_by}")
+        return ", ".join(part for part in parts if part)
 
     def _get_min_position_delta_amount(self) -> float:
         config = getattr(self, "config", None)
@@ -1385,6 +1418,43 @@ class StockAnalysisPipeline:
         if config is None:
             return 0.0
         return max(float(getattr(config, "min_order_notional", 0.0) or 0.0), 0.0)
+
+    def _get_max_single_buy_cash_fraction(self) -> float:
+        config = getattr(self, "config", None)
+        if config is None or not hasattr(config, "max_single_buy_cash_fraction"):
+            return 1.0
+        value = float(getattr(config, "max_single_buy_cash_fraction", 1.0) or 0.0)
+        return min(max(value, 0.0), 1.0)
+
+    def _get_max_single_buy_cash_amount(self) -> Optional[float]:
+        config = getattr(self, "config", None)
+        if config is None:
+            return None
+        value = getattr(config, "max_single_buy_cash_amount", None)
+        if value in (None, ""):
+            return None
+        return max(float(value), 0.0)
+
+    def _get_single_buy_max_delta_amount(
+        self,
+        *,
+        result: AnalysisResult,
+        quantity: float,
+        available_cash: float,
+    ) -> Optional[float]:
+        if quantity > 0 or str(getattr(result, "final_decision", "") or "").upper() != "BUY":
+            return None
+
+        fraction = self._get_max_single_buy_cash_fraction()
+        amount_cap = self._get_max_single_buy_cash_amount()
+        if fraction >= 1.0 and amount_cap is None:
+            return None
+
+        available_cash = max(float(available_cash or 0.0), 0.0)
+        cash_cap = round(available_cash * fraction, 2)
+        if amount_cap is not None:
+            cash_cap = min(cash_cap, amount_cap)
+        return round(max(cash_cap, 0.0), 2)
 
     @staticmethod
     def _build_live_portfolio_state(
