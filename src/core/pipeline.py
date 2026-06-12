@@ -26,6 +26,7 @@ from src.storage import get_db
 from data_provider import DataFetcherManager
 from src.analysis_context import build_analysis_context_pack
 from src.analyzer import GeminiAnalyzer, AnalysisResult, STOCK_NAME_MAP
+from src.backtest_summary import normalize_verified_backtest_summary
 from src.notification import NotificationService, NotificationChannel
 from src.search_service import SearchService
 from src.enums import ReportType
@@ -375,15 +376,15 @@ class StockAnalysisPipeline:
                 from src.services.backtest_service import BacktestService
                 bt_service = BacktestService()
                 summary = bt_service.get_summary(scope='stock', code=code)
-                if summary and summary.get('completed_count', 0) >= 3:
-                    context['backtest_summary'] = {
-                        'total': summary.get('completed_count', 0),
-                        'win_rate': summary.get('win_rate_pct'),
-                        'direction_accuracy': summary.get('direction_accuracy_pct'),
-                        'avg_return': summary.get('avg_stock_return_pct'),
-                        'stop_loss_rate': summary.get('stop_loss_trigger_rate'),
-                    }
-                    logger.info(f"[{code}] 历史胜率已注入: 胜率={summary.get('win_rate_pct')}% 样本={summary.get('completed_count')}")
+                verified_summary = normalize_verified_backtest_summary(summary)
+                if verified_summary:
+                    context['backtest_summary'] = verified_summary
+                    logger.info(
+                        "[%s] 历史胜率已注入: 胜率=%s%% 样本=%s",
+                        code,
+                        verified_summary.get('win_rate_pct'),
+                        verified_summary.get('sample_size'),
+                    )
                 else:
                     context['backtest_summary'] = None
             except Exception as e:
@@ -456,6 +457,10 @@ class StockAnalysisPipeline:
                     result=result,
                     enhanced_context=enhanced_context,
                     trend_result=trend_result,
+                )
+                self._attach_backtest_summary(
+                    result=result,
+                    enhanced_context=enhanced_context,
                 )
                 self._apply_backtest_guard(
                     result=result,
@@ -709,10 +714,11 @@ class StockAnalysisPipeline:
     @staticmethod
     def _classify_backtest_quality(backtest_summary: Optional[Dict[str, Any]]) -> str:
         """Classify backtest quality for deterministic risk guard."""
-        if not isinstance(backtest_summary, dict):
+        summary = normalize_verified_backtest_summary(backtest_summary, min_sample_size=1)
+        if summary is None:
             return "INSUFFICIENT"
 
-        completed_count = backtest_summary.get("completed_count", backtest_summary.get("total"))
+        completed_count = summary.get("sample_size")
         try:
             completed_count = int(completed_count)
         except (TypeError, ValueError):
@@ -726,9 +732,9 @@ class StockAnalysisPipeline:
             except (TypeError, ValueError):
                 return None
 
-        direction_accuracy = _to_float(backtest_summary.get("direction_accuracy"))
-        win_rate = _to_float(backtest_summary.get("win_rate"))
-        stop_loss_rate = _to_float(backtest_summary.get("stop_loss_rate"))
+        direction_accuracy = _to_float(summary.get("direction_accuracy_pct"))
+        win_rate = _to_float(summary.get("win_rate_pct"))
+        stop_loss_rate = _to_float(summary.get("stop_loss_trigger_rate"))
 
         if direction_accuracy is not None and direction_accuracy < 50:
             return "WEAK"
@@ -767,6 +773,15 @@ class StockAnalysisPipeline:
             result.risk_warning = (
                 f"{result.risk_warning}；{downgrade_note}" if result.risk_warning else downgrade_note
             )
+
+    @staticmethod
+    def _attach_backtest_summary(
+        *,
+        result: AnalysisResult,
+        enhanced_context: Dict[str, Any],
+    ) -> None:
+        summary = enhanced_context.get("backtest_summary") if isinstance(enhanced_context, dict) else None
+        result.backtest_summary = normalize_verified_backtest_summary(summary)
 
     def _apply_runtime_price_fields(
         self,

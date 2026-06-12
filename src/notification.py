@@ -25,7 +25,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, Tuple
 from zoneinfo import ZoneInfo
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -44,6 +44,11 @@ except ImportError:
 from src.config import get_config
 from src.analyzer import AnalysisResult
 from src.asx_announcements import ASXAnnouncementCheck, build_asx_announcement_checks, is_asx_ticker
+from src.backtest_summary import (
+    backtest_claim_matches_summary,
+    looks_like_backtest_claim,
+    normalize_verified_backtest_summary,
+)
 from src.core.utils import is_failed_analysis
 from src.core.validator import normalize_validation_status
 from src.security_logging import redact_log_text, summarize_http_response_for_log
@@ -800,7 +805,7 @@ class NotificationService:
                 _, emoji, _ = self._get_signal_level(r)
                 report_lines.append(
                     f"{emoji} **{r.name}({r.code})**: {self._get_canonical_operation_advice(r)} | "
-                    f"评分 {r.sentiment_score} | {r.trend_prediction} | 价格基准：{self._get_price_basis_label(r)}"
+                    f"评分 {r.sentiment_score} | {self._sanitize_trend_prediction_text(r)} | 价格基准：{self._get_price_basis_label(r)}"
                 )
             if blocked_results:
                 report_lines.extend(["", "## ⚠️ 不可决策（仅观察）", ""])
@@ -818,7 +823,7 @@ class NotificationService:
                     "",
                     f"**价格基准**：{self._get_price_basis_label(result)}",
                     "",
-                    f"**操作建议：{self._get_canonical_operation_advice(result)}** | **综合评分：{result.sentiment_score}分** | **趋势预测：{result.trend_prediction}** | **置信度：{confidence_stars}**",
+                    f"**操作建议：{self._get_canonical_operation_advice(result)}** | **综合评分：{result.sentiment_score}分** | **趋势预测：{self._sanitize_trend_prediction_text(result)}** | **置信度：{confidence_stars}**",
                     "",
                 ])
 
@@ -827,7 +832,7 @@ class NotificationService:
                 # 核心看点
                 if hasattr(result, 'key_points') and result.key_points:
                     report_lines.extend([
-                        f"**🎯 核心看点**：{result.key_points}",
+                        f"**🎯 核心看点**：{self._sanitize_user_facing_ai_text(result, result.key_points, strip_position_sizing=False)}",
                         "",
                     ])
                 
@@ -842,16 +847,20 @@ class NotificationService:
                 if hasattr(result, 'trend_analysis') and result.trend_analysis:
                     report_lines.extend([
                         "#### 📉 走势分析",
-                        f"{result.trend_analysis}",
+                        self._sanitize_user_facing_ai_text(result, result.trend_analysis, strip_position_sizing=False),
                         "",
                     ])
                 
                 # 短期/中期展望
                 outlook_lines = []
                 if hasattr(result, 'short_term_outlook') and result.short_term_outlook:
-                    outlook_lines.append(f"- **短期（1-3日）**：{result.short_term_outlook}")
+                    outlook_lines.append(
+                        f"- **短期（1-3日）**：{self._sanitize_user_facing_ai_text(result, result.short_term_outlook, strip_position_sizing=False)}"
+                    )
                 if hasattr(result, 'medium_term_outlook') and result.medium_term_outlook:
-                    outlook_lines.append(f"- **中期（1-2周）**：{result.medium_term_outlook}")
+                    outlook_lines.append(
+                        f"- **中期（1-2周）**：{self._sanitize_user_facing_ai_text(result, result.medium_term_outlook, strip_position_sizing=False)}"
+                    )
                 if outlook_lines:
                     report_lines.extend([
                         "#### 🔮 市场展望",
@@ -862,15 +871,26 @@ class NotificationService:
                 # 技术面分析
                 tech_lines = []
                 if result.technical_analysis:
+                    technical_analysis = self._guard_technical_analysis_volume_commentary(
+                        result,
+                        result.technical_analysis,
+                    )
                     tech_lines.append(
-                        f"**综合**：{self._guard_technical_analysis_volume_commentary(result, result.technical_analysis)}"
+                        f"**综合**：{self._sanitize_user_facing_ai_text(result, technical_analysis, strip_position_sizing=False)}"
                     )
                 if hasattr(result, 'ma_analysis') and result.ma_analysis:
-                    tech_lines.append(f"**均线**：{result.ma_analysis}")
+                    tech_lines.append(
+                        f"**均线**：{self._sanitize_user_facing_ai_text(result, result.ma_analysis, strip_position_sizing=False)}"
+                    )
                 if hasattr(result, 'volume_analysis') and result.volume_analysis:
-                    tech_lines.append(f"**量能**：{self._guard_volume_commentary(result, result.volume_analysis)}")
+                    volume_analysis = self._guard_volume_commentary(result, result.volume_analysis)
+                    tech_lines.append(
+                        f"**量能**：{self._sanitize_user_facing_ai_text(result, volume_analysis, strip_position_sizing=False)}"
+                    )
                 if hasattr(result, 'pattern_analysis') and result.pattern_analysis:
-                    tech_lines.append(f"**形态**：{result.pattern_analysis}")
+                    tech_lines.append(
+                        f"**形态**：{self._sanitize_user_facing_ai_text(result, result.pattern_analysis, strip_position_sizing=False)}"
+                    )
                 if tech_lines:
                     report_lines.extend([
                         "#### 📊 技术面分析",
@@ -881,11 +901,17 @@ class NotificationService:
                 # 基本面分析
                 fund_lines = []
                 if hasattr(result, 'fundamental_analysis') and result.fundamental_analysis:
-                    fund_lines.append(result.fundamental_analysis)
+                    fund_lines.append(
+                        self._sanitize_user_facing_ai_text(result, result.fundamental_analysis, strip_position_sizing=False)
+                    )
                 if hasattr(result, 'sector_position') and result.sector_position:
-                    fund_lines.append(f"**板块地位**：{result.sector_position}")
+                    fund_lines.append(
+                        f"**板块地位**：{self._sanitize_user_facing_ai_text(result, result.sector_position, strip_position_sizing=False)}"
+                    )
                 if hasattr(result, 'company_highlights') and result.company_highlights:
-                    fund_lines.append(f"**公司亮点**：{result.company_highlights}")
+                    fund_lines.append(
+                        f"**公司亮点**：{self._sanitize_user_facing_ai_text(result, result.company_highlights, strip_position_sizing=False)}"
+                    )
                 if fund_lines:
                     report_lines.extend([
                         "#### 🏢 基本面分析",
@@ -896,11 +922,17 @@ class NotificationService:
                 # 消息面/情绪面
                 news_lines = []
                 if result.news_summary:
-                    news_lines.append(f"**新闻摘要**：{result.news_summary}")
+                    news_lines.append(
+                        f"**新闻摘要**：{self._sanitize_user_facing_ai_text(result, result.news_summary, strip_position_sizing=False)}"
+                    )
                 if hasattr(result, 'market_sentiment') and result.market_sentiment:
-                    news_lines.append(f"**市场情绪**：{result.market_sentiment}")
+                    news_lines.append(
+                        f"**市场情绪**：{self._sanitize_user_facing_ai_text(result, result.market_sentiment, strip_position_sizing=False)}"
+                    )
                 if hasattr(result, 'hot_topics') and result.hot_topics:
-                    news_lines.append(f"**相关热点**：{result.hot_topics}")
+                    news_lines.append(
+                        f"**相关热点**：{self._sanitize_user_facing_ai_text(result, result.hot_topics, strip_position_sizing=False)}"
+                    )
                 if news_lines:
                     report_lines.extend([
                         "#### 📰 消息面/情绪面",
@@ -1307,6 +1339,7 @@ class NotificationService:
             format_position_action_label=notification_formatting.format_position_action_label,
             format_sizing_brief=notification_formatting.format_sizing_brief,
             get_conflict_safe_ai_commentary=self._get_conflict_safe_ai_commentary,
+            get_trend_prediction_text=self._sanitize_trend_prediction_text,
         )
 
     def build_daily_decision_summary(
@@ -1573,27 +1606,25 @@ class NotificationService:
         return " ".join(part.strip() for part in advice.split("\n") if part.strip())
 
     @staticmethod
-    def _has_verified_backtest_summary(result: AnalysisResult) -> bool:
-        summary = getattr(result, "backtest_summary", None)
-        return isinstance(summary, dict) and bool(summary)
-
-    @staticmethod
     def _looks_like_backtest_claim(text: str) -> bool:
-        if not text:
-            return False
-        return bool(
-            re.search(r"(回测|历史样本|历史).*?(胜率|准确率)|(?:胜率|准确率)\s*[0-9]", text, re.IGNORECASE)
-        )
+        return looks_like_backtest_claim(text)
+
+    @classmethod
+    def _backtest_claim_matches_summary(cls, summary: Dict[str, Any], text: str) -> bool:
+        return backtest_claim_matches_summary(summary, text)
 
     def _sanitize_unverified_backtest_claim(self, result: AnalysisResult, text: Any) -> str:
         normalized = str(text or "").strip()
         if not normalized:
             return ""
-        if self._has_verified_backtest_summary(result):
-            return normalized
         if not self._looks_like_backtest_claim(normalized):
             return normalized
-        return "系统未检查该标的回测证据；AI 提到的历史胜率/准确率不作为已验证依据。"
+        summary = normalize_verified_backtest_summary(getattr(result, "backtest_summary", None))
+        if summary and self._backtest_claim_matches_summary(summary, normalized):
+            return normalized
+        if summary:
+            return "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。"
+        return "系统未检查该标的回测证据；AI 提到的历史回测指标不作为已验证依据。"
 
     @staticmethod
     def _sanitize_report_jargon(text: Any) -> str:
@@ -1632,6 +1663,16 @@ class NotificationService:
             normalized = self._sanitize_ai_share_count_commentary(normalized)
         normalized = self._sanitize_unverified_backtest_claim(result, normalized)
         return self._sanitize_report_jargon(normalized)
+
+    def _sanitize_trend_prediction_text(self, result: AnalysisResult) -> str:
+        return (
+            self._sanitize_user_facing_ai_text(
+                result,
+                getattr(result, "trend_prediction", "") or "-",
+                strip_position_sizing=False,
+            )
+            or "-"
+        )
 
     def _sanitize_user_facing_risk_text(
         self,
@@ -2202,6 +2243,37 @@ class NotificationService:
             return []
         return [value]
 
+    def _sanitize_dashboard_action_checklist(
+        self,
+        result: AnalysisResult,
+        value: Any,
+    ) -> Tuple[List[str], bool]:
+        raw_items = self._normalize_dashboard_list(value)
+        changed = not isinstance(value, list)
+        sanitized_items: List[str] = []
+        for item in raw_items:
+            if item is None:
+                changed = True
+                continue
+            if isinstance(item, dict):
+                text = str(item.get("message") or item.get("title") or item.get("text") or "").strip()
+            else:
+                text = str(item).strip()
+            if not text:
+                changed = True
+                continue
+            sanitized = self._sanitize_user_facing_ai_text(
+                result,
+                text,
+                strip_position_sizing=False,
+            )
+            if sanitized != text:
+                changed = True
+            sanitized_items.append(sanitized)
+        if len(sanitized_items) != len(raw_items):
+            changed = True
+        return sanitized_items, changed
+
     def _sanitize_dashboard_for_render(self, result: AnalysisResult) -> bool:
         """Normalize malformed dashboard blocks so report rendering can continue."""
         dashboard = getattr(result, "dashboard", None)
@@ -2212,6 +2284,7 @@ class NotificationService:
             return True
 
         malformed = False
+        content_changed = False
         sanitized = dict(dashboard)
         for key in ("core_conclusion", "data_perspective", "intelligence", "battle_plan"):
             value = sanitized.get(key)
@@ -2249,11 +2322,19 @@ class NotificationService:
                 if value is not None and not isinstance(value, dict):
                     battle_plan[key] = {}
                     malformed = True
-            if "action_checklist" in battle_plan and not isinstance(battle_plan.get("action_checklist"), list):
-                battle_plan["action_checklist"] = self._normalize_dashboard_list(battle_plan.get("action_checklist"))
-                malformed = True
+            if "action_checklist" in battle_plan:
+                raw_checklist = battle_plan.get("action_checklist")
+                sanitized_checklist, checklist_changed = self._sanitize_dashboard_action_checklist(
+                    result,
+                    raw_checklist,
+                )
+                battle_plan["action_checklist"] = sanitized_checklist
+                if checklist_changed:
+                    content_changed = True
+                if raw_checklist is not None and not isinstance(raw_checklist, list):
+                    malformed = True
 
-        if malformed:
+        if malformed or content_changed:
             result.dashboard = sanitized
         return malformed
 
@@ -2310,7 +2391,7 @@ class NotificationService:
 
         return {
             "heading": f"### {signal_emoji} {self._escape_md(notification_formatting.format_stock_display_name(result.name, result.code))}",
-            "summary_line": f"- 核心结论：{signal_text} | 评分 {result.sentiment_score} | {result.trend_prediction}",
+            "summary_line": f"- 核心结论：{signal_text} | 评分 {result.sentiment_score} | {self._sanitize_trend_prediction_text(result)}",
             "action_line": f"- 主动作：{notification_formatting.format_position_action_label(action_model['position_action'])}",
             "reason_line": f"- 关键理由：{reason_text}",
             "risk_line": f"- 风险：{risk_text}",
@@ -2395,15 +2476,13 @@ class NotificationService:
             "evidence_gap": self._compact_homepage_cell(self._homepage_evidence_gap_text(result, triage_notes)),
         }
 
-    @staticmethod
-    def _homepage_score_trend_text(result: AnalysisResult) -> str:
+    def _homepage_score_trend_text(self, result: AnalysisResult) -> str:
         score = getattr(result, "sentiment_score", "")
         try:
             score_text = str(int(float(score)))
         except (TypeError, ValueError):
             score_text = str(score or "-")
-        trend = str(getattr(result, "trend_prediction", "") or "-").strip()
-        return f"{score_text} / {trend}"
+        return f"{score_text} / {self._sanitize_trend_prediction_text(result)}"
 
     def _homepage_trigger_price(self, action: str, plan_points: List[Any]) -> str:
         if action in {"OPEN", "ADD"}:
@@ -2977,7 +3056,7 @@ class NotificationService:
         lines: List[str] = []
         lines.extend([
             "### 核心结论",
-            f"- {signal_emoji} **{signal_text}** | {result.trend_prediction}",
+            f"- {signal_emoji} **{signal_text}** | {self._sanitize_trend_prediction_text(result)}",
             f"- {one_sentence}",
             "",
             "### 主动作",
@@ -3086,6 +3165,11 @@ class NotificationService:
             ])
         if vol_data:
             volume_meaning = self._guard_volume_commentary(result, vol_data.get('volume_meaning', ''))
+            volume_meaning = self._sanitize_user_facing_ai_text(
+                result,
+                volume_meaning,
+                strip_position_sizing=False,
+            )
             if volume_meaning == "量能数据不足（量比/换手率缺失），不做量能结论":
                 lines.extend([
                     f"**量能**: {volume_meaning}",
@@ -3153,7 +3237,7 @@ class NotificationService:
         lines: List[str] = []
         if result.buy_reason:
             lines.extend([
-                f"**💡 操作理由**: {self._sanitize_report_jargon(self._sanitize_unverified_backtest_claim(result, result.buy_reason))}",
+                f"**💡 操作理由**: {self._sanitize_user_facing_ai_text(result, result.buy_reason, strip_position_sizing=False)}",
                 "",
             ])
         if result.risk_warning:
@@ -3167,14 +3251,24 @@ class NotificationService:
                 "",
             ])
             if result.ma_analysis:
-                lines.append(f"**均线**: {result.ma_analysis}")
+                lines.append(
+                    f"**均线**: {self._sanitize_user_facing_ai_text(result, result.ma_analysis, strip_position_sizing=False)}"
+                )
             if result.volume_analysis:
-                lines.append(f"**量能**: {self._guard_volume_commentary(result, result.volume_analysis)}")
+                volume_analysis = self._guard_volume_commentary(result, result.volume_analysis)
+                lines.append(
+                    f"**量能**: {self._sanitize_user_facing_ai_text(result, volume_analysis, strip_position_sizing=False)}"
+                )
             lines.append("")
         if result.news_summary:
+            news_summary = self._sanitize_user_facing_ai_text(
+                result,
+                result.news_summary,
+                strip_position_sizing=False,
+            )
             lines.extend([
                 "### 📰 消息面",
-                f"{result.news_summary}",
+                f"{news_summary}",
                 "",
             ])
         return lines
@@ -3445,6 +3539,7 @@ class NotificationService:
         if report_date is None:
             report_date = self._default_report_date(generated_at)
         self._remember_report_date(report_date)
+        self._sanitize_dashboards_for_render(results)
         
         # 按评分排序
         sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
@@ -3728,7 +3823,7 @@ class NotificationService:
             lines.append(f"### {emoji} {result.name}({result.code})")
             lines.append(
                 f"**{self._get_canonical_operation_advice(result)}** | 评分:{result.sentiment_score} | "
-                f"{result.trend_prediction} | 价格基准：{self._get_price_basis_label(result)}"
+                f"{self._sanitize_trend_prediction_text(result)} | 价格基准：{self._get_price_basis_label(result)}"
             )
             
             # 操作理由（截断）
@@ -3739,7 +3834,12 @@ class NotificationService:
             
             # 核心看点
             if hasattr(result, 'key_points') and result.key_points:
-                points = result.key_points[:60] + "..." if len(result.key_points) > 60 else result.key_points
+                sanitized_points = self._sanitize_user_facing_ai_text(
+                    result,
+                    result.key_points,
+                    strip_position_sizing=False,
+                )
+                points = sanitized_points[:60] + "..." if len(sanitized_points) > 60 else sanitized_points
                 lines.append(f"🎯 {points}")
             
             # 风险提示（截断）
@@ -3799,7 +3899,7 @@ class NotificationService:
         lines = [
             f"## {signal_emoji} {stock_name} ({result.code})",
             "",
-            f"> {report_date} | 评分: **{result.sentiment_score}** | {result.trend_prediction}",
+            f"> {report_date} | 评分: **{result.sentiment_score}** | {self._sanitize_trend_prediction_text(result)}",
             f"> 价格基准：{self._get_price_basis_label(result)}",
             "",
         ]
