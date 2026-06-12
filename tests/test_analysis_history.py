@@ -117,6 +117,35 @@ class AnalysisHistoryTestCase(unittest.TestCase):
             self.assertEqual(row.stop_loss, 110.0)
             self.assertEqual(row.take_profit, 150.0)
 
+    def test_save_analysis_history_serializes_verified_backtest_summary(self) -> None:
+        result = self._build_result()
+        result.backtest_summary = {
+            "total": 39,
+            "win_rate": 56.67,
+            "direction_accuracy": 61.54,
+        }
+
+        saved = self.db.save_analysis_history(
+            result=result,
+            query_id="query_backtest_summary",
+            report_type="simple",
+            news_content="新闻摘要",
+            context_snapshot=None,
+            save_snapshot=False,
+        )
+
+        self.assertEqual(saved, 1)
+
+        with self.db.get_session() as session:
+            row = session.query(AnalysisHistory).first()
+            if row is None:
+                self.fail("未找到保存的历史记录")
+            raw_result = json.loads(row.raw_result)
+            self.assertEqual(raw_result["backtest_summary"]["sample_size"], 39)
+            self.assertEqual(raw_result["backtest_summary"]["win_rate_pct"], 56.67)
+            self.assertEqual(raw_result["backtest_summary"]["direction_accuracy_pct"], 61.54)
+            self.assertTrue(raw_result["backtest_summary"]["verified"])
+
     def test_save_analysis_history_without_snapshot(self) -> None:
         result = self._build_result()
 

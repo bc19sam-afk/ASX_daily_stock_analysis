@@ -52,6 +52,29 @@ def test_analysis_context_pack_standardizes_asx_identity_and_explicit_missing_st
     json.dumps(payload, ensure_ascii=False)
 
 
+def test_analysis_context_pack_normalizes_backtest_evidence_availability():
+    available = build_analysis_context_pack(
+        {
+            "code": "BHP.AX",
+            "date": "2026-04-15",
+            "backtest_summary": {"sample_size": 30, "win_rate_pct": 55},
+        },
+        stock_name="BHP",
+    ).to_dict()
+    missing = build_analysis_context_pack(
+        {
+            "code": "BHP.AX",
+            "date": "2026-04-15",
+            "backtest_summary": {"sample_size": 30},
+        },
+        stock_name="BHP",
+    ).to_dict()
+
+    assert available["evidence_context"]["backtest"]["status"] == "available"
+    assert available["evidence_context"]["backtest"]["data"]["sample_size"] == 30
+    assert missing["evidence_context"]["backtest"]["status"] == "missing"
+
+
 def test_pipeline_enhance_context_attaches_context_pack():
     pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
     pipeline.config = SimpleNamespace(

@@ -18,6 +18,7 @@ def build_recommended_actions_table(
     format_sizing_brief: Callable[[float, str], str],
     get_conflict_safe_ai_commentary: Callable[[Any], str],
     build_final_action_display: Optional[Callable[[Any, Dict[str, Any]], Dict[str, Any]]] = None,
+    get_trend_prediction_text: Optional[Callable[[Any], str]] = None,
 ) -> List[str]:
     """Build recommended actions table (analysis output; not yet executed)."""
     lines = [
@@ -48,9 +49,14 @@ def build_recommended_actions_table(
         else:
             action_text = str(action_display.get("display_label") or "仅观察")
         action_cell = to_markdown_table_cell(action_text)
+        trend_text = (
+            get_trend_prediction_text(result)
+            if get_trend_prediction_text is not None
+            else str(getattr(result, "trend_prediction", "") or "")
+        )
         ai_view_text = (
             f"{get_conflict_safe_ai_commentary(result)} · "
-            f"评分 {result.sentiment_score} · {result.trend_prediction}"
+            f"评分 {result.sentiment_score} · {trend_text}"
         )
         if action_model["ai_conflict"]:
             ai_view_text += " ⚠️(已抑制冲突态AI操作措辞)"

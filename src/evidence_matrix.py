@@ -12,6 +12,12 @@ from src.asx_announcements import (
     ANNOUNCEMENT_UNAVAILABLE,
     coerce_asx_announcement_check,
 )
+from src.backtest_summary import (
+    backtest_claim_matches_summary,
+    format_verified_backtest_summary,
+    looks_like_backtest_claim,
+    normalize_verified_backtest_summary,
+)
 from src.core.validator import normalize_validation_status
 from src.stock_code import canonical_stock_code
 
@@ -181,7 +187,7 @@ def _technical_evidence(result: Any) -> Dict[str, Any]:
         getattr(result, "trend_prediction", None),
     )
     if detail:
-        return _entry("technical", "analysis_result", as_of_date, "available", _short(detail), "info")
+        return _entry("technical", "analysis_result", as_of_date, "available", _short(_sanitize_ai_evidence_detail(result, detail)), "info")
     return _entry("technical", "analysis_result", as_of_date, "missing", "技术证据缺失。", "warning")
 
 
@@ -210,14 +216,14 @@ def _valuation_evidence(result: Any) -> Dict[str, Any]:
     as_of_date = _normal_text(snapshot.get("date"))
     detail = _first_non_empty(getattr(result, "fundamental_analysis", None), getattr(result, "company_highlights", None))
     if detail:
-        return _entry("valuation", "analysis_result", as_of_date, "available", _short(detail), "info")
+        return _entry("valuation", "analysis_result", as_of_date, "available", _short(_sanitize_ai_evidence_detail(result, detail)), "info")
     return _entry("valuation", "analysis_result", as_of_date, "missing", "估值 / 基本面证据缺失。", "warning")
 
 
 def _news_evidence(result: Any) -> Dict[str, Any]:
     detail = _normal_text(getattr(result, "news_summary", None))
     if detail:
-        return _entry("news", "search_or_ai_summary", None, "available", _short(detail), "info")
+        return _entry("news", "search_or_ai_summary", None, "available", _short(_sanitize_ai_evidence_detail(result, detail)), "info")
     return _entry("news", "search_or_ai_summary", None, "missing", "新闻证据缺失。", "warning")
 
 
@@ -240,10 +246,29 @@ def _announcement_evidence(code: str, check_value: Any = None) -> Dict[str, Any]
 
 
 def _backtest_evidence(result: Any) -> Dict[str, Any]:
-    summary = getattr(result, "backtest_summary", None)
-    if isinstance(summary, dict) and summary:
-        return _entry("backtest", "backtest_service", None, "available", _short(str(summary)), "info")
+    summary = normalize_verified_backtest_summary(getattr(result, "backtest_summary", None))
+    if summary:
+        return _entry(
+            "backtest",
+            str(summary.get("source") or "backtest_service"),
+            summary.get("as_of"),
+            "available",
+            format_verified_backtest_summary(summary),
+            "info",
+        )
     return _entry("backtest", "backtest_service", None, "not_checked", "回测证据未检查或未提供。", "warning")
+
+
+def _sanitize_ai_evidence_detail(result: Any, detail: Any) -> str:
+    text = _normal_text(detail)
+    if not text or not looks_like_backtest_claim(text):
+        return text
+    summary = normalize_verified_backtest_summary(getattr(result, "backtest_summary", None))
+    if summary and backtest_claim_matches_summary(summary, text):
+        return text
+    if summary:
+        return "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。"
+    return "系统未检查该标的回测证据；AI 提到的历史回测指标不作为已验证依据。"
 
 
 def _portfolio_evidence(result: Any, holding: Optional[Dict[str, Any]]) -> Dict[str, Any]:

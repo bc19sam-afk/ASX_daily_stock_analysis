@@ -77,6 +77,53 @@ def test_validation_block_is_recorded_with_block_severity():
     assert "收盘价缺失" in validation["details"]
 
 
+def test_backtest_summary_marks_available_with_readable_metrics():
+    result = _result(
+        backtest_summary={
+            "total": 39,
+            "win_rate": 56.67,
+            "direction_accuracy": 61.54,
+            "avg_return": 0.43,
+            "stop_loss_rate": 12.5,
+        }
+    )
+
+    matrix = build_evidence_matrix(
+        results=[result],
+        overview={"holdings": []},
+        classify_price_basis=lambda result: "close_only",
+        format_validation_issue_text=lambda result: "",
+    )
+
+    evidence = _by_category(matrix["BHP.AX"])
+    summary = summarize_evidence_matrix(matrix)
+
+    assert evidence["backtest"]["status"] == "available"
+    assert evidence["backtest"]["severity"] == "info"
+    assert "样本数：39" in evidence["backtest"]["details"]
+    assert "胜率：56.67%" in evidence["backtest"]["details"]
+    assert "方向准确率：61.54%" in evidence["backtest"]["details"]
+    assert summary["backtest_not_checked"] == 0
+
+
+def test_backtest_summary_without_verifiable_metrics_stays_not_checked():
+    result = _result(backtest_summary={"sample_size": 39})
+
+    matrix = build_evidence_matrix(
+        results=[result],
+        overview={"holdings": []},
+        classify_price_basis=lambda result: "close_only",
+        format_validation_issue_text=lambda result: "",
+    )
+
+    evidence = _by_category(matrix["BHP.AX"])
+    summary = summarize_evidence_matrix(matrix)
+
+    assert evidence["backtest"]["status"] == "not_checked"
+    assert evidence["backtest"]["severity"] == "warning"
+    assert summary["backtest_not_checked"] == 1
+
+
 def test_evidence_summary_counts_missing_and_block_entries():
     matrix = build_evidence_matrix(
         results=[

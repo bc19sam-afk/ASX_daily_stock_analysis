@@ -24,6 +24,10 @@ from src.analysis_context_prompt import (
     format_analysis_context_pack_prompt_section,
     redact_sensitive_text_for_prompt,
 )
+from src.backtest_summary import (
+    format_backtest_decimal,
+    normalize_verified_backtest_summary,
+)
 from src.config import get_config
 from src.gemini_key_manager import (
     GeminiKeyManager,
@@ -235,6 +239,7 @@ class AnalysisResult:
 
     # ========== 决策仪表盘 (新增) ==========
     dashboard: Optional[Dict[str, Any]] = None  # 完整的决策仪表盘数据
+    backtest_summary: Optional[Dict[str, Any]] = None  # 系统验证的个股历史回测摘要
 
     # ========== 走势分析 ==========
     trend_analysis: str = ""  # 走势形态分析（支撑位、压力位、趋势线等）
@@ -311,6 +316,7 @@ class AnalysisResult:
             'event_risk_raw': self.event_risk_raw,
             'sector_tone_raw': self.sector_tone_raw,
             'dashboard': self.dashboard,
+            'backtest_summary': normalize_verified_backtest_summary(self.backtest_summary),
             'trend_analysis': self.trend_analysis,
             'short_term_outlook': self.short_term_outlook,
             'medium_term_outlook': self.medium_term_outlook,
@@ -1487,16 +1493,38 @@ class GeminiAnalyzer:
         )
 
         # 生成历史回测胜率摘要
-        bt = context.get('backtest_summary')
+        bt = normalize_verified_backtest_summary(context.get('backtest_summary'))
         if bt:
+            direction_accuracy = (
+                format_backtest_decimal(bt.get('direction_accuracy_pct'))
+                if bt.get('direction_accuracy_pct') is not None
+                else 'N/A'
+            )
+            win_rate = (
+                format_backtest_decimal(bt.get('win_rate_pct'))
+                if bt.get('win_rate_pct') is not None
+                else 'N/A'
+            )
+            avg_return = (
+                format_backtest_decimal(bt.get('avg_stock_return_pct'))
+                if bt.get('avg_stock_return_pct') is not None
+                else 'N/A'
+            )
+            stop_loss_rate = (
+                format_backtest_decimal(bt.get('stop_loss_trigger_rate'))
+                if bt.get('stop_loss_trigger_rate') is not None
+                else 'N/A'
+            )
             backtest_block = f"""### ⏳ 历史回测实测数据（真实，非估计）
 | 指标 | 数值 |
 |------|------|
-| 样本数 | {bt.get('total', 0)} 次 |
-| 方向准确率 | {bt.get('direction_accuracy') or 'N/A'}% |
-| 胜率（含中性） | {bt.get('win_rate') or 'N/A'}% |
-| 平均收益 | {bt.get('avg_return') or 'N/A'}% |
-| 止损触发率 | {bt.get('stop_loss_rate') or 'N/A'}% |"""
+| 样本数 | {bt.get('sample_size', 0)} 次 |
+| 方向准确率 | {direction_accuracy}% |
+| 胜率（含中性） | {win_rate}% |
+| 平均收益 | {avg_return}% |
+| 止损触发率 | {stop_loss_rate}% |
+| 回测窗口 | {bt.get('eval_window_days') or 'N/A'} 日 |
+| 数据截至 | {bt.get('as_of') or 'N/A'} |"""
         else:
             backtest_block = """### ⏳ 历史回测数据
 ⚠️ **数据不足，暂无历史回测结果。请勿编造胜率数字，直接注明"样本不足，无法统计"。**"""
@@ -1678,7 +1706,7 @@ class GeminiAnalyzer:
 
 🚨 **强制填表要求（极其重要）**：
 1. 所有 `操作建议`、`仓位建议`、`position_strategy`、`analysis_summary` 字段都禁止输出【参考买入股数】【建议买入股数】【目标股数】【建仓股数】【X股】【X成仓位】【百分比仓位】；只输出观察条件、价格位、风险位、减仓条件或止损条件。
-2. 你必须将【30天历史回测胜率】结论，强制写在 `建仓策略` 或 `分析摘要` 字段中！
+2. 你必须将【上方历史回测实测数据】按原始窗口和指标口径写在 `建仓策略` 或 `分析摘要` 字段中；若样本不足则写“历史样本不足，暂无统计”，不得改写为固定 30 天或补充未经验证的定性胜率结论。
 3. 保留“具体点位 + 风控 + 检查清单”的作战计划风格；仓位与股数由系统确定性仓位引擎负责，不要在 AI 文本中形成第二套执行数量。
 """
         if sanitized_fields:

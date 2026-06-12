@@ -76,6 +76,26 @@ class BacktestGuardTestCase(unittest.TestCase):
         self.assertEqual(result.confidence_level, "低")
         self.assertIn("历史回测表现偏弱", result.risk_warning)
 
+    def test_verified_backtest_summary_is_attached_for_report_consumers(self):
+        result = self._result(final_decision="BUY", confidence_level="高")
+        summary = {
+            "total": 39,
+            "win_rate": 56.67,
+            "direction_accuracy": 61.54,
+            "avg_return": 0.43,
+            "stop_loss_rate": 12.5,
+        }
+
+        self.pipeline._attach_backtest_summary(result=result, enhanced_context={"backtest_summary": summary})
+
+        self.assertIsNotNone(result.backtest_summary)
+        self.assertEqual(result.backtest_summary["sample_size"], 39)
+        self.assertEqual(result.backtest_summary["win_rate_pct"], 56.67)
+        self.assertEqual(result.backtest_summary["direction_accuracy_pct"], 61.54)
+        self.assertEqual(result.backtest_summary["source"], "backtest_service")
+        self.assertEqual(result.final_decision, "BUY")
+        self.assertEqual(result.confidence_level, "高")
+
 
 if __name__ == "__main__":
     unittest.main()

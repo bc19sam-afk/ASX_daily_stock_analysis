@@ -1671,6 +1671,8 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         service = self._build_service()
         service._report_summary_only = False
         raw_backtest = "历史回测胜率 78%，准确率 81%，建议参考。"
+        raw_checklist_backtest = "❌ 检查清单独有历史回测胜率 77%，准确率 82%。"
+        raw_trend_backtest = "趋势字段独有历史回测胜率 76%，准确率 83%。"
         raw_jargon = (
             "Dry Run / Shadow / deterministic action / summary artifact / non_buy_action_context；"
             "强制执行、自动执行、立即执行、直接执行；无需二次确认、不需要二次确认、无需人工确认。"
@@ -1680,6 +1682,21 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             position_action="ADD",
             target_weight=0.18,
             delta_amount=3200.0,
+            trend_prediction=raw_trend_backtest,
+            key_points=raw_backtest,
+            trend_analysis=raw_backtest,
+            short_term_outlook=raw_backtest,
+            medium_term_outlook=raw_backtest,
+            technical_analysis=raw_backtest,
+            ma_analysis=raw_backtest,
+            volume_analysis=raw_backtest,
+            pattern_analysis=raw_backtest,
+            fundamental_analysis=raw_backtest,
+            sector_position=raw_backtest,
+            company_highlights=raw_backtest,
+            news_summary=raw_backtest,
+            market_sentiment=raw_backtest,
+            hot_topics=raw_backtest,
             dashboard={
                 "core_conclusion": {
                     "one_sentence": raw_backtest,
@@ -1694,6 +1711,9 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
                     "risk_alerts": [{"message": raw_backtest}],
                     "positive_catalysts": [raw_jargon],
                 },
+                "battle_plan": {
+                    "action_checklist": [raw_checklist_backtest],
+                },
             },
         )
         result.backtest_summary = {}
@@ -1701,11 +1721,25 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         dashboard = service.generate_dashboard_report([result], report_date="2026-03-30")
         single = service.generate_single_stock_report(result)
         wechat = service.generate_wechat_dashboard([result])
-        combined = "\n".join([dashboard, single, wechat])
+        wechat_summary = service.generate_wechat_summary([result], report_date="2026-03-30")
+        legacy_result = self._build_result(
+            final_decision="BUY",
+            position_action="ADD",
+            ma_analysis=raw_backtest,
+            volume_analysis=raw_backtest,
+            news_summary=raw_backtest,
+        )
+        legacy_result.backtest_summary = {}
+        legacy_dashboard = service.generate_dashboard_report([legacy_result], report_date="2026-03-30")
+        combined = "\n".join([dashboard, single, wechat, wechat_summary, legacy_dashboard])
 
         for raw_term in [
             "历史回测胜率 78%",
             "准确率 81%",
+            "检查清单独有历史回测胜率 77%",
+            "准确率 82%",
+            "趋势字段独有历史回测胜率 76%",
+            "准确率 83%",
             "Dry Run",
             "Shadow",
             "deterministic action",
@@ -1730,6 +1764,255 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("人工复核后再处理", combined)
         self.assertIn("必须二次确认", combined)
         self.assertIn("必须人工确认", combined)
+
+    @patch("src.notification.get_db")
+    def test_wechat_dashboard_sanitizes_without_prior_full_dashboard_render(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {"cash": 100.0, "holdings": []}
+        service = self._build_service()
+        service._report_summary_only = False
+        raw_trend_backtest = "历史回测表现较强，建议参考。"
+        raw_checklist_backtest = "❌ 检查清单独有历史回测胜率 77%，准确率 82%。"
+        result = self._build_result(
+            final_decision="BUY",
+            position_action="ADD",
+            target_weight=0.18,
+            delta_amount=3200.0,
+            trend_prediction=raw_trend_backtest,
+            dashboard={
+                "battle_plan": {
+                    "action_checklist": [raw_checklist_backtest],
+                },
+            },
+        )
+        result.backtest_summary = {}
+
+        wechat = service.generate_wechat_dashboard([result], report_date="2026-03-30")
+
+        self.assertNotIn("历史回测表现较强", wechat)
+        self.assertNotIn("检查清单独有历史回测胜率 77", wechat)
+        self.assertEqual(
+            service._sanitize_unverified_backtest_claim(result, raw_trend_backtest),
+            "系统未检查该标的回测证据；AI 提到的历史回测指标不作为已验证依据。",
+        )
+        self.assertEqual(
+            result.dashboard["battle_plan"]["action_checklist"],
+            ["系统未检查该标的回测证据；AI 提到的历史回测指标不作为已验证依据。"],
+        )
+
+    def test_verified_backtest_summary_preserves_supported_backtest_claim(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测胜率 56.67%，方向准确率 61.54%，建议参考。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "direction_accuracy": 61.54,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(sanitized, raw_backtest)
+
+    def test_verified_backtest_summary_sanitizes_parenthesized_metric_mismatch(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测样本数999、窗口20日、胜率（含中性）99%、方向准确率61.54%，建议参考。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "direction_accuracy": 61.54,
+                "eval_window_days": 10,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(
+            sanitized,
+            "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。",
+        )
+
+    def test_verified_backtest_summary_keeps_target_return_outside_backtest_sentence(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测胜率 56.67%。本次目标收益率 5%，建议人工复核。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(sanitized, raw_backtest)
+
+    def test_verified_backtest_summary_sanitizes_mismatched_backtest_claim(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测胜率 99%，方向准确率 61.54%，建议参考。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "direction_accuracy": 61.54,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(
+            sanitized,
+            "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。",
+        )
+
+    def test_verified_backtest_summary_sanitizes_mismatched_backtest_claim_without_percent_sign(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测胜率 99，方向准确率 61.54，建议参考。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "direction_accuracy": 61.54,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(
+            sanitized,
+            "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。",
+        )
+
+    def test_verified_backtest_summary_sanitizes_qualitative_backtest_claim(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测胜率较高，建议参考。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "direction_accuracy": 61.54,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(
+            sanitized,
+            "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。",
+        )
+
+    def test_verified_backtest_summary_sanitizes_qualitative_piggyback_claims(self) -> None:
+        service = self._build_service()
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "eval_window_days": 10,
+            }
+        )
+        fallback = "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。"
+
+        for raw_backtest in (
+            "历史回测胜率 56.67%，说明策略可靠，建议参考。",
+            "历史回测胜率 56.67%，命中率高，建议参考。",
+            "历史回测胜率 56.67%，对当前建仓有支撑。",
+            "30天历史回测胜率 56.67%，建议参考。",
+        ):
+            self.assertEqual(service._sanitize_unverified_backtest_claim(result, raw_backtest), fallback)
+
+    def test_verified_backtest_summary_sanitizes_bare_and_unsupported_backtest_metrics(self) -> None:
+        service = self._build_service()
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "direction_accuracy": 61.54,
+            }
+        )
+        fallback = "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。"
+
+        for raw_backtest in (
+            "胜率 78%，建议参考。",
+            "准确率 81%，建议参考。",
+            "历史回测胜率 56.67%，最大回撤 30%，建议参考。",
+            "历史回测胜率 56.67%，夏普比率 2.0，建议参考。",
+        ):
+            self.assertEqual(service._sanitize_unverified_backtest_claim(result, raw_backtest), fallback)
+
+    def test_verified_backtest_summary_keeps_na_direction_and_matching_win_rate(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测方向准确率 N/A，胜率 56.67%，建议参考。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "direction_accuracy": None,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(sanitized, raw_backtest)
+
+    def test_verified_backtest_summary_sanitizes_na_direction_when_summary_has_value(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测方向准确率 N/A，胜率 56.67%，建议参考。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "direction_accuracy": 61.54,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(
+            sanitized,
+            "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。",
+        )
+
+    def test_verified_backtest_summary_checks_average_return_claim(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测胜率 56.67%，平均收益 99%，建议参考。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "win_rate": 56.67,
+                "avg_return": 0.43,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(
+            sanitized,
+            "系统已检查该标的回测摘要；AI 原文中的历史回测指标表述未能与摘要逐项核对，具体以回测摘要为准。",
+        )
+
+    def test_verified_backtest_summary_preserves_extended_metric_claims(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测平均收益 0.43%，止损触发率 12.5%，建议参考。"
+        result = self._build_result(
+            backtest_summary={
+                "total": 39,
+                "avg_return": 0.43,
+                "stop_loss_rate": 12.5,
+            }
+        )
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(sanitized, raw_backtest)
+
+    def test_unverified_average_return_claim_is_sanitized(self) -> None:
+        service = self._build_service()
+        raw_backtest = "历史回测平均收益 99%，建议参考。"
+        result = self._build_result(backtest_summary=None)
+
+        sanitized = service._sanitize_unverified_backtest_claim(result, raw_backtest)
+
+        self.assertEqual(sanitized, "系统未检查该标的回测证据；AI 提到的历史回测指标不作为已验证依据。")
 
     @patch("src.notification.get_db")
     def test_per_stock_close_position_renders_zero_target_quantity_as_deterministic(self, mock_get_db) -> None:
@@ -1958,6 +2241,37 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         self.assertIn("量能数据不足（量比/换手率缺失），不做量能结论", report)
         self.assertNotIn("量比2.3，明显放量", report)
         self.assertNotIn("放量上涨，主力积极参与", report)
+
+    @patch("src.notification.get_db")
+    def test_dashboard_report_sanitizes_volume_meaning_backtest_claim(self, mock_get_db) -> None:
+        mock_get_db.return_value.get_portfolio_overview.return_value = {}
+        service = self._build_service()
+        service._report_summary_only = False
+        result = self._build_result(
+            market_snapshot={
+                "date": "2026-03-29",
+                "price": "10.30",
+                "volume_ratio": 2.3,
+                "turnover_rate": "5.2%",
+            },
+            dashboard={
+                "data_perspective": {
+                    "volume_analysis": {
+                        "volume_ratio": "2.3",
+                        "volume_status": "放量",
+                        "turnover_rate": "5.2",
+                        "volume_meaning": "历史回测胜率 78%，准确率 81%，建议参考。",
+                    }
+                }
+            },
+        )
+        result.backtest_summary = {}
+
+        report = service.generate_dashboard_report([result], report_date="2026-03-30")
+
+        self.assertNotIn("历史回测胜率 78", report)
+        self.assertNotIn("准确率 81", report)
+        self.assertIn("系统未检查该标的回测证据", report)
 
     def test_single_stock_report_downgrades_volume_commentary_when_snapshot_metrics_missing(self) -> None:
         service = self._build_service()

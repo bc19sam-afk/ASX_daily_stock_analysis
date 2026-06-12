@@ -115,3 +115,32 @@ def test_analysis_prompt_embeds_low_sensitivity_context_pack_summary(monkeypatch
     assert '"market_snapshot"' not in prompt
     assert "Australia/Sydney" in prompt
     assert "AUD" in prompt
+
+
+def test_analysis_prompt_uses_verified_backtest_window_without_hardcoded_30_day(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text("STOCK_LIST=BHP.AX\n", encoding="utf-8")
+    monkeypatch.setenv("ENV_FILE", str(env_path))
+
+    Config.reset_instance()
+    try:
+        prompt = GeminiAnalyzer(api_key=None)._format_prompt(
+            {
+                "code": "BHP.AX",
+                "date": "2026-04-15",
+                "today": {"close": 118.4},
+                "execution_price_policy": "close_only",
+                "backtest_summary": {
+                    "sample_size": 39,
+                    "win_rate_pct": 56.67,
+                    "eval_window_days": 10,
+                },
+            },
+            "BHP",
+        )
+    finally:
+        Config.reset_instance()
+
+    assert "| 回测窗口 | 10 日 |" in prompt
+    assert "30天历史回测胜率" not in prompt
+    assert "不得改写为固定 30 天" in prompt

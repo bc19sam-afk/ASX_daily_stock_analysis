@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
+from src.backtest_summary import normalize_verified_backtest_summary
 from src.core.validator import normalize_validation_status
 from src.stock_code import canonical_stock_code
 
@@ -83,6 +84,8 @@ def build_analysis_context_pack(
     if ctx.get("data_missing") and not any("data_missing" in issue for issue in risk_issues):
         risk_issues.append("data_missing: analysis context has missing daily market data")
 
+    backtest_summary = normalize_verified_backtest_summary(ctx.get("backtest_summary"))
+
     return AnalysisContextPack(
         stock_identity=identity,
         price_basis={
@@ -102,7 +105,7 @@ def build_analysis_context_pack(
         evidence_context={
             "price_history": _build_price_history_evidence(ctx),
             "fundamentals": _availability_mapping(ctx.get("fundamentals"), source="fundamentals"),
-            "backtest": _availability_mapping(ctx.get("backtest_summary"), source="backtest_summary"),
+            "backtest": _availability_mapping(backtest_summary, source="backtest_summary"),
             "news": _news_availability(news_context),
             "data_missing": bool(ctx.get("data_missing")),
         },
