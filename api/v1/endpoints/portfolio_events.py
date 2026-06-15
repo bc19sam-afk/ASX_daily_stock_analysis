@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.get(
-    "",
+    "/",
     summary="List portfolio events",
     description="Read-only unified event view for portfolio, import, and paper portfolio activity.",
 )

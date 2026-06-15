@@ -66,7 +66,7 @@ def get_portfolio_summary(
 
 
 @router.get(
-    "",
+    "/",
     response_model=HistoryListResponse,
     responses={
         200: {"description": "历史记录列表"},

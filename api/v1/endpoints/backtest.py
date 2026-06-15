@@ -27,7 +27,7 @@ router = APIRouter()
 
 
 @router.post(
-    "",
+    "/",
     response_model=BacktestTaskResponse,
     responses={
         200: {"description": "回测任务已完成"},
@@ -223,4 +223,3 @@ def get_backtest_task(
             status_code=500,
             detail={"error": "internal_error", "message": f"查询回测任务失败: {str(exc)}"},
         )
-

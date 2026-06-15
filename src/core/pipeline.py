@@ -373,15 +373,13 @@ class StockAnalysisPipeline:
 
             # Step 5.7: 注入历史回测胜率（真实数据，防止 AI 编造）
             try:
-                from src.services.backtest_service import BacktestService
-                bt_service = BacktestService()
-                summary = bt_service.get_summary(scope='stock', code=code)
-                verified_summary = normalize_verified_backtest_summary(summary)
+                backtest_window_days, verified_summary = self._load_verified_backtest_summary(code)
                 if verified_summary:
                     context['backtest_summary'] = verified_summary
                     logger.info(
-                        "[%s] 历史胜率已注入: 胜率=%s%% 样本=%s",
+                        "[%s] 历史胜率已注入: 窗口=%s日 胜率=%s%% 样本=%s",
                         code,
+                        backtest_window_days,
                         verified_summary.get('win_rate_pct'),
                         verified_summary.get('sample_size'),
                     )
@@ -710,6 +708,17 @@ class StockAnalysisPipeline:
             note = "高事件风险，可执行动作已降级为仅观察"
             if note not in (result.risk_warning or ""):
                 result.risk_warning = f"{result.risk_warning}；{note}" if result.risk_warning else note
+
+    def _load_verified_backtest_summary(self, code: str) -> Tuple[int, Optional[Dict[str, Any]]]:
+        from src.services.backtest_service import BacktestService
+
+        backtest_window_days = int(getattr(self.config, 'backtest_eval_window_days', 10) or 10)
+        summary = BacktestService().get_summary(
+            scope='stock',
+            code=code,
+            eval_window_days=backtest_window_days,
+        )
+        return backtest_window_days, normalize_verified_backtest_summary(summary)
 
     @staticmethod
     def _classify_backtest_quality(backtest_summary: Optional[Dict[str, Any]]) -> str:
