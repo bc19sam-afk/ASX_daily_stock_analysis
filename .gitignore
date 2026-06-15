@@ -77,6 +77,9 @@ verify_*.py
 CLAUDE.md
 .omx/
 
+# Local agent instructions
+/AGENTS.md
+
 # ignore static files
 static/
 /apps/dsa-desktop/dist/
