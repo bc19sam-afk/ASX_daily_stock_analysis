@@ -2,6 +2,8 @@
 """Tests for deterministic backtest guard."""
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from src.analyzer import AnalysisResult
 from src.core.pipeline import StockAnalysisPipeline
@@ -95,6 +97,28 @@ class BacktestGuardTestCase(unittest.TestCase):
         self.assertEqual(result.backtest_summary["source"], "backtest_service")
         self.assertEqual(result.final_decision, "BUY")
         self.assertEqual(result.confidence_level, "高")
+
+    def test_backtest_summary_lookup_uses_configured_window(self):
+        self.pipeline.config = SimpleNamespace(backtest_eval_window_days=30)
+        summary = {
+            "total": 39,
+            "win_rate": 56.67,
+            "direction_accuracy": 61.54,
+        }
+
+        with patch("src.services.backtest_service.BacktestService") as backtest_service:
+            backtest_service.return_value.get_summary.return_value = summary
+
+            window_days, verified_summary = self.pipeline._load_verified_backtest_summary("CBA.AX")
+
+        self.assertEqual(window_days, 30)
+        self.assertIsNotNone(verified_summary)
+        self.assertEqual(verified_summary["win_rate_pct"], 56.67)
+        backtest_service.return_value.get_summary.assert_called_once_with(
+            scope="stock",
+            code="CBA.AX",
+            eval_window_days=30,
+        )
 
 
 if __name__ == "__main__":

@@ -211,6 +211,9 @@ jobs:
           ASX_ANNOUNCEMENTS_LOOKBACK_DAYS: ${{ vars.ASX_ANNOUNCEMENTS_LOOKBACK_DAYS || '1' }}
           ASX_ANNOUNCEMENTS_MAX_ITEMS: ${{ vars.ASX_ANNOUNCEMENTS_MAX_ITEMS || '5' }}
           ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS: ${{ vars.ASX_ANNOUNCEMENTS_TIMEOUT_SECONDS || '10' }}
+          # 回测窗口：默认 30 个交易日；候选至少 45 个自然日，避免未来行情不足导致样本不足
+          BACKTEST_EVAL_WINDOW_DAYS: ${{ vars.BACKTEST_EVAL_WINDOW_DAYS || '30' }}
+          BACKTEST_MIN_AGE_DAYS: ${{ vars.BACKTEST_MIN_AGE_DAYS || '45' }}
 
           # ==========================================
           # 系统配置
