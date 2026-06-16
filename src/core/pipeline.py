@@ -804,7 +804,7 @@ class StockAnalysisPipeline:
         result.change_pct = realtime_data.get("change_pct") if isinstance(realtime_data, dict) else None
 
         execution_price_policy = str(
-            getattr(self.config, "execution_price_policy", "realtime_if_available")
+            getattr(self.config, "execution_price_policy", "close_only")
         ).strip().lower()
         execution_price_policy = self._resolve_runtime_execution_price_policy(
             execution_price_policy=execution_price_policy,

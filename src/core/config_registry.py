@@ -97,7 +97,7 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "is_sensitive": False,
         "is_required": False,
         "is_editable": True,
-        "default_value": "realtime_if_available",
+        "default_value": "close_only",
         "options": ["realtime_if_available", "close_only"],
         "validation": {"enum": ["realtime_if_available", "close_only"]},
         "display_order": 25,
