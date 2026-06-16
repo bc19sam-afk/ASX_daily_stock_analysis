@@ -1315,7 +1315,11 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
     def test_analyze_stock_persists_when_analysis_read_only_disabled(self):
         pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
         pipeline.db = self.db
-        pipeline.config = SimpleNamespace(analysis_read_only=False, save_context_snapshot=False)
+        pipeline.config = SimpleNamespace(
+            analysis_read_only=False,
+            save_context_snapshot=False,
+            execution_price_policy="realtime_if_available",
+        )
         pipeline.fetcher_manager = SimpleNamespace(
             get_realtime_quote=lambda code: SimpleNamespace(name=f"股票{code}", price=100.0, change_pct=1.2),
         )

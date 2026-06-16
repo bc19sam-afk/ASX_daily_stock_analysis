@@ -12,6 +12,10 @@ from src.core.pipeline import StockAnalysisPipeline
 from src.core.config_registry import get_field_definition
 
 
+def test_config_dataclass_execution_price_policy_defaults_to_close_only():
+    assert Config().execution_price_policy == "close_only"
+
+
 def test_config_execution_price_policy_defaults_to_close_only_for_daily_reports():
     with tempfile.TemporaryDirectory() as tmp:
         env_path = Path(tmp) / ".env"
@@ -106,6 +110,7 @@ def test_config_execution_price_policy_invalid_explicit_fails_closed():
 
 def test_config_registry_has_execution_price_policy_enum_validation():
     field = get_field_definition("EXECUTION_PRICE_POLICY")
+    assert field["default_value"] == "close_only"
     assert field["options"] == ["realtime_if_available", "close_only"]
     assert field["validation"].get("enum") == ["realtime_if_available", "close_only"]
     assert field["reload_scope"] == "process_start"
@@ -198,6 +203,27 @@ def test_runtime_execution_price_policy_realtime_if_available_prefers_realtime()
 def test_runtime_signal_price_and_execution_price_are_separated():
     pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
     pipeline.config = SimpleNamespace(execution_price_policy="close_only")
+    result = AnalysisResult(
+        code="BHP.AX",
+        name="BHP",
+        sentiment_score=60,
+        trend_prediction="震荡",
+        operation_advice="持有",
+    )
+    enhanced_context = {
+        "realtime": {"price": "120.2", "change_pct": "1.2"},
+        "today": {"close": "118.4"},
+    }
+    pipeline._apply_runtime_price_fields(result=result, enhanced_context=enhanced_context)
+
+    assert result.realtime_price == "120.2"
+    assert result.current_price == 118.4
+    assert result.execution_price_source == "close_only"
+
+
+def test_runtime_price_fields_default_to_close_only_without_policy_config():
+    pipeline = StockAnalysisPipeline.__new__(StockAnalysisPipeline)
+    pipeline.config = SimpleNamespace()
     result = AnalysisResult(
         code="BHP.AX",
         name="BHP",

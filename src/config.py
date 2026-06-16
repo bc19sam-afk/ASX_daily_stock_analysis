@@ -254,7 +254,7 @@ class Config:
     # 执行参考价口径策略：
     # - realtime_if_available: 优先实时价，缺失时回退到 latest close
     # - close_only: 仅使用 latest close，忽略实时价
-    execution_price_policy: str = "realtime_if_available"
+    execution_price_policy: str = "close_only"
     # ASX 可执行性约束：最小调仓金额（绝对值，小于该值则不产生可执行买卖动作）
     min_position_delta_amount: float = 20.0
     # ASX 可执行性约束：最小订单名义金额（小于该值则不产生可执行买卖动作）
