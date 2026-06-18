@@ -142,3 +142,14 @@ Historical compact PR21 goal direction:
 - [[reference-roadmap-status-and-pr-log]]
 - [[architecture-portfolio-ledger-review-journal]]
 - [[project-boundary-and-safety-contract]]
+
+## Freeze Posture
+
+As of PR21, Ledger v2 remains in a read-only manual-review posture. PR21 is
+rehearsal evidence only; it is not migration authorization and does not imply
+cutover readiness.
+
+The canonical freeze posture is recorded in
+[[decision-asx-roadmap-control-plane]]: existing diagnostic surfaces remain
+available, further expansion is frozen, and any reopen requires a fresh Phase 2
+gate plus separate authorization.

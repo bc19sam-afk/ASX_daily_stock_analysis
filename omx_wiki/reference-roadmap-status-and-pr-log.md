@@ -489,6 +489,11 @@ facts needed for future planning.
   rehearsal outputs before selecting a separate PR22 lane; no migration,
   cutover, worker, notification, broker, persistence, or live-provider work is
   implied by PR21.
+
+- Ledger v2 freeze posture: [[decision-asx-roadmap-control-plane]] is the
+  canonical source. Existing read-only diagnostic surfaces are retained, but
+  further Ledger v2 expansion is frozen unless a fresh Phase 2 selection gate
+  plus separate explicit authorization reopens the lane.
 - PR22 completed as GitHub PR #225, "Add Morning Review Card to daily
   email/report", merged at `acc8033d6cd159e1bfc9bfe3f9fc486a60a3c863`.
   Scope: display-only Morning Review Card in the dashboard and legacy daily
@@ -523,10 +528,11 @@ facts needed for future planning.
   email/report with the Morning Review Card before choosing another small PR.
   If implementation continues, select one separate lane only: another report
   readability pass, alert notification dry-run/default-off gate, broker-ready
-  draft/paper boundary, live provider telemetry with explicit external-call
-  scope, or ledger v2 follow-up after manual review; no worker, broker,
-  notification delivery, live-provider call, persistence, or ledger cutover is
-  implied by PR22.
+  draft/paper boundary, or live provider telemetry with explicit external-call
+  scope. Ledger v2 follow-up is frozen unless reopened by a fresh Phase 2 gate
+  plus separate explicit authorization; no worker, broker, notification
+  delivery, live-provider call, persistence, or ledger cutover is implied by
+  PR22.
 - PR23 completed as GitHub PR #227, "Tune Morning Review Card readability",
   merged at `2c76715b5ed1e804e0ae73f85045bae932741985`, with follow-up GitHub
   PR #229, "Polish Morning Review Card reliability labels", merged at
