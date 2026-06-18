@@ -78,6 +78,17 @@ implicitly. PR20 must be selected through the Phase 2 selection gate, and it
 must not combine broker/execution, worker/notification, migration/cutover, or
 live provider-call work into the same PR.
 
+## Ledger V2 Freeze Posture
+
+Ledger v2 is retained as a read-only manual-review diagnostic surface. Freeze
+further Ledger v2 expansion for now: do not add new implementation work, do not
+start cutover prep, and do not treat rehearsal outputs as migration evidence.
+
+Existing dry-run, diagnostics, rehearsal-report, and default-off scaffold
+surfaces remain available for inspection. A future reconsideration requires a
+fresh Phase 2 selection gate plus separate explicit authorization; a checklist
+alone does not authorize implementation, migration, or cutover prep.
+
 Phase 2 non-goals without separate authorization:
 
 - Real broker order submission or automatic trading.

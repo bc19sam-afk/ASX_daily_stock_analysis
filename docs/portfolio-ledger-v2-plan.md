@@ -220,6 +220,13 @@ marks output as dry-run/manual-review only, keeps unsupported and partial
 placeholders explicit, redacts sensitive material, and leaves existing v1
 portfolio/import/events/workbench behavior unchanged.
 
+## Freeze Posture
+
+Ledger v2 is retained as a read-only manual-review diagnostic surface, with
+further expansion frozen under
+`omx_wiki/decision-asx-roadmap-control-plane.md`. This plan remains design
+context; it does not authorize implementation, migration, or cutover prep.
+
 ## Related Control-Plane Pages
 
 - `omx_wiki/decision-phase2-ledger-v2-rehearsal-gate.md`
