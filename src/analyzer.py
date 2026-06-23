@@ -104,6 +104,30 @@ class AnalysisOutputSchema(BaseModel):
         return None
 
 
+def _non_empty_text(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return text if text else None
+    return None
+
+
+def _join_text_items(value: Any) -> Optional[str]:
+    if isinstance(value, dict):
+        for key in ("message", "risk", "text", "summary", "description"):
+            text = _non_empty_text(value.get(key))
+            if text:
+                return text
+        return None
+    if not isinstance(value, list):
+        return _non_empty_text(value)
+    parts = []
+    for item in value:
+        text = _join_text_items(item) if isinstance(item, dict) else _non_empty_text(item)
+        if text and text not in parts:
+            parts.append(text)
+    return "；".join(parts) if parts else None
+
+
 # 股票名称映射（常见股票）
 STOCK_NAME_MAP = {
     # === 澳股 (ASX) ===
@@ -275,7 +299,9 @@ class AnalysisResult:
     data_sources: str = ""  # 数据来源说明
     success: bool = True
     analysis_status: str = "OK"  # OK/DEGRADED/FAILED
+    analysis_status_reason: Optional[str] = None
     error_message: Optional[str] = None
+    schema_recovered_fields: List[str] = field(default_factory=list)
 
     # ========== 价格数据（分析时快照）==========
     current_price: Optional[float] = None  # 分析时的股价
@@ -338,7 +364,9 @@ class AnalysisResult:
             'search_performed': self.search_performed,
             'success': self.success,
             'analysis_status': self.analysis_status,
+            'analysis_status_reason': self.analysis_status_reason,
             'error_message': self.error_message,
+            'schema_recovered_fields': list(self.schema_recovered_fields or []),
             'current_price': self.current_price,
             'change_pct': self.change_pct,
             'realtime_price': self.realtime_price,
@@ -1708,6 +1736,7 @@ class GeminiAnalyzer:
 1. 所有 `操作建议`、`仓位建议`、`position_strategy`、`analysis_summary` 字段都禁止输出【参考买入股数】【建议买入股数】【目标股数】【建仓股数】【X股】【X成仓位】【百分比仓位】；只输出观察条件、价格位、风险位、减仓条件或止损条件。
 2. 你必须将【上方历史回测实测数据】按原始窗口和指标口径写在 `建仓策略` 或 `分析摘要` 字段中；若样本不足则写“历史样本不足，暂无统计”，不得改写为固定 30 天或补充未经验证的定性胜率结论。
 3. 保留“具体点位 + 风控 + 检查清单”的作战计划风格；仓位与股数由系统确定性仓位引擎负责，不要在 AI 文本中形成第二套执行数量。
+4. 即使 `dashboard` 已经包含总结/风险，顶层 `analysis_summary` 与顶层 `risk_warning` 也必须输出非空字符串。
 """
         if sanitized_fields:
             prompt += (
@@ -1928,10 +1957,70 @@ class GeminiAnalyzer:
 
         return snapshot
 
+    def _canonicalize_analysis_payload(self, data: Dict[str, Any]) -> tuple[Dict[str, Any], List[str]]:
+        """Recover legacy bridge fields only when dashboard already carries that meaning."""
+        if not isinstance(data, dict):
+            return data, []
+
+        canonical = dict(data)
+        recovered_fields: List[str] = []
+        dashboard = canonical.get("dashboard")
+        if not isinstance(dashboard, dict) or not self._has_schema_bridge_core_fields(canonical):
+            return canonical, recovered_fields
+
+        intelligence = dashboard.get("intelligence") if isinstance(dashboard.get("intelligence"), dict) else {}
+        battle_plan = dashboard.get("battle_plan") if isinstance(dashboard.get("battle_plan"), dict) else {}
+        core_conclusion = (
+            dashboard.get("core_conclusion")
+            if isinstance(dashboard.get("core_conclusion"), dict)
+            else {}
+        )
+        position_strategy = (
+            battle_plan.get("position_strategy")
+            if isinstance(battle_plan.get("position_strategy"), dict)
+            else {}
+        )
+
+        if not _non_empty_text(canonical.get("analysis_summary")):
+            summary = (
+                _non_empty_text(core_conclusion.get("one_sentence"))
+                or _non_empty_text(intelligence.get("sentiment_summary"))
+            )
+            if summary:
+                canonical["analysis_summary"] = summary
+                recovered_fields.append("analysis_summary")
+
+        if not _non_empty_text(canonical.get("risk_warning")):
+            risk_warning = (
+                _join_text_items(intelligence.get("risk_alerts"))
+                or _non_empty_text(position_strategy.get("risk_control"))
+            )
+            if risk_warning:
+                canonical["risk_warning"] = risk_warning
+                recovered_fields.append("risk_warning")
+
+        if recovered_fields:
+            canonical["schema_recovered_fields"] = recovered_fields
+        return canonical, recovered_fields
+
+    @staticmethod
+    def _has_schema_bridge_core_fields(data: Dict[str, Any]) -> bool:
+        for field_name in ("stock_name", "trend_prediction", "operation_advice", "confidence_level"):
+            if not _non_empty_text(data.get(field_name)):
+                return False
+        score = data.get("sentiment_score")
+        return score is not None and not isinstance(score, bool) and str(score).strip() != ""
+
     def _validate_analysis_output(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """schema gate：仅允许通过校验的数据进入 AnalysisResult 映射。"""
-        validated = AnalysisOutputSchema.model_validate(data)
-        return validated.model_dump()
+        canonical_data, recovered_fields = self._canonicalize_analysis_payload(data)
+        validated = AnalysisOutputSchema.model_validate(canonical_data)
+        result = validated.model_dump()
+        if recovered_fields:
+            result["schema_recovered_fields"] = list(recovered_fields)
+            result["analysis_status_reason"] = "schema_bridge_recovered"
+            logger.info("schema bridge fields recovered: %s", ",".join(recovered_fields))
+        return result
 
     def _extract_json_data(self, response_text: str) -> Dict[str, Any]:
         """从响应中提取并修复 JSON，再转为 dict。"""
@@ -1996,6 +2085,7 @@ class GeminiAnalyzer:
         """仅一次定向补救：要求模型修复为合法 JSON 并补齐关键字段。"""
         repair_prompt = f"""请修复下面内容，仅输出一个合法 JSON 对象，不要输出任何额外文字。
 必须包含字段：stock_name, sentiment_score(0-100), trend_prediction, operation_advice, confidence_level(高/中/低), analysis_summary, risk_warning。
+即使 dashboard 已经包含总结或风险，顶层 analysis_summary 与顶层 risk_warning 也必须输出非空字符串。
 dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core_conclusion.one_sentence, dashboard.data_perspective, dashboard.intelligence, dashboard.battle_plan。
 
 原始内容如下：
@@ -2048,6 +2138,7 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
             raw_response=response_text,
             success=True,
             analysis_status='DEGRADED',
+            analysis_status_reason="schema_validation_failed",
             error_message=reason,
             validation_status='BLOCK',
             validation_issues=[f"analysis_status=DEGRADED: {reason}"],
@@ -2169,6 +2260,8 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
                 data_sources=data.get('data_sources', '技术面数据'),
                 success=True,
                 analysis_status='OK',
+                analysis_status_reason=data.get("analysis_status_reason"),
+                schema_recovered_fields=list(data.get("schema_recovered_fields") or []),
             )
         
         except ValueError as e:
@@ -2233,6 +2326,7 @@ dashboard 可以省略；如果输出了 dashboard，必须包含 dashboard.core
             raw_response=response_text,
             success=True,
             analysis_status='DEGRADED',
+            analysis_status_reason="text_fallback",
             validation_status='BLOCK',
             validation_issues=["analysis_status=DEGRADED: text_fallback"],
             final_decision="HOLD",

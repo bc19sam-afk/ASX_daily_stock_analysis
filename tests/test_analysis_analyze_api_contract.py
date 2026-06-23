@@ -213,6 +213,7 @@ def test_get_analysis_status_db_fallback_preserves_validation_status(monkeypatch
         raw_result = json.dumps(
             {
                 "analysis_status": "DEGRADED",
+                "analysis_status_reason": "text_fallback",
                 "validation_status": "BLOCK",
                 "validation_issues": ["mixed price basis"],
             },
@@ -234,6 +235,8 @@ def test_get_analysis_status_db_fallback_preserves_validation_status(monkeypatch
 
     assert report["meta"]["analysis_status"] == "DEGRADED"
     assert report["summary"]["analysis_status"] == "DEGRADED"
+    assert report["meta"]["analysis_status_reason"] == "text_fallback"
+    assert report["summary"]["analysis_status_reason"] == "text_fallback"
     assert report["meta"]["validation_status"] == "BLOCK"
     assert report["summary"]["validation_status"] == "BLOCK"
     assert report["summary"]["validation_issues"] == ["mixed price basis"]

@@ -310,6 +310,7 @@ class NotificationService:
         config = get_config()
         self._report_timezone = getattr(config, "market_timezone", "Australia/Sydney")
         self._source_message = source_message
+        self._last_context_channel_attempted = False
         self._context_channels: List[str] = []
         self._last_daily_decision_summary: Optional[Dict[str, Any]] = None
         self._last_report_date: Optional[str] = None
@@ -582,7 +583,12 @@ class NotificationService:
         Args:
             content: Markdown 格式内容
         """
+        self._last_context_channel_attempted = self._has_context_channel()
         return self._send_via_source_context(content)
+
+    @property
+    def last_context_channel_attempted(self) -> bool:
+        return bool(self._last_context_channel_attempted)
 
     @staticmethod
     def _has_valid_price(value: Any) -> bool:
@@ -634,14 +640,14 @@ class NotificationService:
         if not text:
             return ""
         compact = re.sub(r"\s+", "", text.lower())
+        if any(token in compact for token in ("text_fallback", "schema", "json")):
+            return "AI 输出格式异常，需重跑或人工复核。"
         if "analysis_status=failed" in compact or "analysisstatus=failed" in compact:
             return "分析失败，建议重跑后再判断。"
         if "analysis_status=degraded" in compact or "analysisstatus=degraded" in compact:
-            return "分析结果不完整，需补数据后复核。"
+            return "分析结果已降级，需重跑或人工复核。"
         if "validation_status=block" in compact or "validationstatus=block" in compact or "validationblock" in compact:
             return "验证未通过，已暂停动作，仅观察。"
-        if any(token in compact for token in ("text_fallback", "schema", "json")):
-            return "AI 输出格式异常，需补数据后复核。"
         return text
 
     def _build_data_baseline_lines(
@@ -1375,6 +1381,7 @@ class NotificationService:
             format_stock_display_name=notification_formatting.format_stock_display_name,
             format_validation_issue_text=self._format_validation_issue_text,
             min_action_delta_amount=self._get_actionable_delta_amount_threshold(),
+            min_buy_action_delta_amount=self._get_buy_actionable_delta_amount_threshold(),
             backtest_confidence=self._build_backtest_confidence_panel(),
             score_bucket_calibration=self._build_score_bucket_calibration(),
             risk_sizing_settings=risk_sizing_settings_from_config(get_config()),
@@ -1485,6 +1492,16 @@ class NotificationService:
             return DEFAULT_ACTIONABLE_DELTA_AMOUNT
 
     @staticmethod
+    def _get_buy_actionable_delta_amount_threshold() -> float:
+        try:
+            config = get_config()
+            generic = NotificationService._get_actionable_delta_amount_threshold()
+            min_buy = float(getattr(config, "min_buy_order_notional", 0.0) or 0.0)
+            return max(generic, min_buy, 0.0)
+        except Exception:
+            return DEFAULT_ACTIONABLE_DELTA_AMOUNT
+
+    @staticmethod
     def _execution_action_counts(summary: Dict[str, Any]) -> Dict[str, int]:
         counts = summary.get("action_counts") or {}
         return {
@@ -1528,6 +1545,7 @@ class NotificationService:
             result,
             action_model=action_model or self._get_primary_action_model(result),
             min_delta_amount=self._get_actionable_delta_amount_threshold(),
+            min_buy_delta_amount=self._get_buy_actionable_delta_amount_threshold(),
             format_stock_display_name=notification_formatting.format_stock_display_name,
             format_validation_issue_text=self._format_validation_issue_text,
         )

@@ -68,6 +68,7 @@ def _extract_validation_payload(raw_result: Any) -> Dict[str, Any]:
         data = {}
     return {
         "analysis_status": data.get("analysis_status"),
+        "analysis_status_reason": data.get("analysis_status_reason"),
         "validation_status": (
             normalize_validation_status(data.get("validation_status"))
             if "validation_status" in data
@@ -524,6 +525,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     report_type=getattr(record, 'report_type', None),
                     created_at=record.created_at.isoformat() if record.created_at else None,
                     analysis_status=validation_payload["analysis_status"],
+                    analysis_status_reason=validation_payload["analysis_status_reason"],
                     validation_status=validation_payload["validation_status"],
                 ),
                 summary=ReportSummary(
@@ -532,6 +534,7 @@ def get_analysis_status(task_id: str) -> TaskStatus:
                     trend_prediction=record.trend_prediction,
                     analysis_summary=record.analysis_summary,
                     analysis_status=validation_payload["analysis_status"],
+                    analysis_status_reason=validation_payload["analysis_status_reason"],
                     validation_status=validation_payload["validation_status"],
                     validation_issues=validation_payload["validation_issues"],
                     sentiment_label=AnalysisService()._get_sentiment_label(sentiment_score),
@@ -654,6 +657,7 @@ def _build_analysis_report(
         current_price=meta_data.get("current_price"),
         change_pct=meta_data.get("change_pct"),
         analysis_status=meta_data.get("analysis_status") or summary_data.get("analysis_status"),
+        analysis_status_reason=meta_data.get("analysis_status_reason") or summary_data.get("analysis_status_reason"),
         validation_status=meta_data.get("validation_status") or summary_data.get("validation_status"),
     )
 
@@ -661,6 +665,7 @@ def _build_analysis_report(
         analysis_summary=summary_data.get("analysis_summary"),
         operation_advice=summary_data.get("operation_advice"),
         analysis_status=summary_data.get("analysis_status") or meta_data.get("analysis_status"),
+        analysis_status_reason=summary_data.get("analysis_status_reason") or meta_data.get("analysis_status_reason"),
         validation_status=summary_data.get("validation_status") or meta_data.get("validation_status"),
         validation_issues=summary_data.get("validation_issues"),
         trend_prediction=summary_data.get("trend_prediction"),

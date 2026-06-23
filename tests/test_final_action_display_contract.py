@@ -25,7 +25,7 @@ def _result(**overrides) -> AnalysisResult:
     return AnalysisResult(**base)
 
 
-def _display(result, *, min_delta_amount=20.0):
+def _display(result, *, min_delta_amount=20.0, min_buy_delta_amount=None):
     return build_final_action_display(
         result,
         action_model={
@@ -35,6 +35,7 @@ def _display(result, *, min_delta_amount=20.0):
             "delta_amount": result.delta_amount,
         },
         min_delta_amount=min_delta_amount,
+        min_buy_delta_amount=min_buy_delta_amount,
         format_stock_display_name=lambda name, code: f"{name} ({code})",
         format_validation_issue_text=lambda item: "；".join(item.validation_issues or []),
     )
@@ -80,6 +81,32 @@ def test_tiny_delta_executable_action_becomes_watch_only():
     assert display["position_action"] == "HOLD"
     assert display["can_show_sizing"] is False
     assert display["can_show_plan_points"] is True
+
+
+def test_small_open_below_buy_notional_threshold_becomes_watch_only():
+    result = _result(final_decision="BUY", position_action="OPEN", target_weight=0.1, delta_amount=21.78)
+
+    display = _display(result, min_delta_amount=20.0, min_buy_delta_amount=1000.0)
+
+    assert display["actionability"] == "watch_only"
+    assert display["position_action"] == "HOLD"
+    assert display["delta_amount"] == 0.0
+
+
+def test_buy_notional_threshold_does_not_suppress_small_reduce():
+    result = _result(
+        final_decision="SELL",
+        position_action="REDUCE",
+        current_weight=0.2,
+        target_weight=0.18,
+        delta_amount=-21.78,
+    )
+
+    display = _display(result, min_delta_amount=20.0, min_buy_delta_amount=1000.0)
+
+    assert display["actionability"] == "actionable"
+    assert display["position_action"] == "REDUCE"
+    assert display["delta_amount"] == -21.78
 
 
 def test_ai_prose_does_not_change_display_action_or_underlying_result():

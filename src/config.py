@@ -259,6 +259,8 @@ class Config:
     min_position_delta_amount: float = 20.0
     # ASX 可执行性约束：最小订单名义金额（小于该值则不产生可执行买卖动作）
     min_order_notional: float = 20.0
+    # ASX 买入侧可执行性约束：OPEN/ADD 最小名义金额（小额买入只保留为观察）
+    min_buy_order_notional: float = 1000.0
     # ASX 可执行性约束：单笔新开仓最多使用当前可见买入预算的比例
     max_single_buy_cash_fraction: float = 0.34
     # ASX 可执行性约束：单笔新开仓名义金额上限（空值表示只使用比例上限）
@@ -569,6 +571,7 @@ class Config:
             execution_price_policy=cls._resolve_execution_price_policy(),
             min_position_delta_amount=max(0.0, float(os.getenv('MIN_POSITION_DELTA_AMOUNT', '20.0'))),
             min_order_notional=max(0.0, float(os.getenv('MIN_ORDER_NOTIONAL', '20.0'))),
+            min_buy_order_notional=max(0.0, float(os.getenv('MIN_BUY_ORDER_NOTIONAL', '1000.0'))),
             max_single_buy_cash_fraction=min(
                 1.0,
                 max(0.0, float(os.getenv('MAX_SINGLE_BUY_CASH_FRACTION', '0.34'))),

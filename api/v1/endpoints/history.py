@@ -202,6 +202,7 @@ def get_history_detail(
             current_price=result.get("current_price"),
             change_pct=result.get("change_pct"),
             analysis_status=result.get("analysis_status"),
+            analysis_status_reason=result.get("analysis_status_reason"),
             validation_status=result.get("validation_status"),
         )
         
@@ -209,6 +210,7 @@ def get_history_detail(
             analysis_summary=result.get("analysis_summary"),
             operation_advice=result.get("operation_advice"),
             analysis_status=result.get("analysis_status"),
+            analysis_status_reason=result.get("analysis_status_reason"),
             validation_status=result.get("validation_status"),
             validation_issues=result.get("validation_issues"),
             trend_prediction=result.get("trend_prediction"),

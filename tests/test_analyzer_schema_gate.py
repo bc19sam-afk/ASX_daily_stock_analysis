@@ -60,7 +60,7 @@ def test_schema_fails_when_dashboard_exists_but_structure_invalid():
 
 def test_repair_path_uses_single_attempt_only(monkeypatch):
     analyzer = GeminiAnalyzer(api_key=None)
-    payload = _valid_payload()
+    payload = _valid_payload(include_dashboard=False)
     payload.pop("analysis_summary")
 
     calls = {"single": 0}
@@ -81,6 +81,92 @@ def test_repair_path_uses_single_attempt_only(monkeypatch):
 
     assert calls["single"] == 1
     assert result.success is True
+
+
+def test_dashboard_backed_missing_bridge_fields_recover_without_repair(monkeypatch):
+    analyzer = GeminiAnalyzer(api_key=None)
+    payload = _valid_payload()
+    payload["dashboard"]["intelligence"] = {
+        "latest_news": "无重大利空",
+        "risk_alerts": [
+            {"message": "商品价格回落可能压制估值"},
+            {"message": "财报前波动可能放大"},
+        ],
+        "sentiment_summary": "舆情中性偏积极",
+    }
+    payload.pop("analysis_summary")
+    payload.pop("risk_warning")
+
+    monkeypatch.setattr(
+        analyzer,
+        "_repair_and_revalidate",
+        lambda _response: (_ for _ in ()).throw(AssertionError("dashboard bridge recovery should not repair")),
+    )
+
+    result = analyzer._parse_response(json.dumps(payload, ensure_ascii=False), "CBA.AX", "股票CBA.AX")
+
+    assert result.success is True
+    assert result.analysis_status == "OK"
+    assert result.validation_status == "PASS"
+    assert result.analysis_status_reason == "schema_bridge_recovered"
+    assert result.analysis_summary == "短期偏多，逢回调关注。"
+    assert "商品价格回落" in result.risk_warning
+    assert "财报前波动可能放大" in result.risk_warning
+    assert result.schema_recovered_fields == ["analysis_summary", "risk_warning"]
+
+
+def test_dashboard_bridge_does_not_invent_missing_risk_warning():
+    analyzer = GeminiAnalyzer(api_key=None)
+    payload = _valid_payload()
+    payload.pop("risk_warning")
+
+    with pytest.raises(ValidationError):
+        analyzer._validate_analysis_output(payload)
+
+
+def test_dashboard_bridge_does_not_recover_summary_from_top_level_trend_and_advice():
+    analyzer = GeminiAnalyzer(api_key=None)
+    payload = _valid_payload()
+    payload.pop("analysis_summary")
+    payload["dashboard"]["core_conclusion"] = {"one_sentence": ""}
+    payload["dashboard"]["intelligence"] = {
+        "latest_news": "无重大利空",
+        "risk_alerts": ["商品价格回落可能压制估值"],
+    }
+
+    with pytest.raises(ValidationError):
+        analyzer._validate_analysis_output(payload)
+
+
+def test_repair_response_missing_only_bridge_fields_is_canonicalized(monkeypatch):
+    analyzer = GeminiAnalyzer(api_key=None)
+    payload = _valid_payload(include_dashboard=False)
+    payload.pop("analysis_summary")
+
+    calls = {"single": 0}
+
+    def _single_attempt(_prompt: str, _generation_config: dict) -> str:
+        calls["single"] += 1
+        repaired = _valid_payload()
+        repaired["dashboard"]["intelligence"] = {
+            "latest_news": "无重大利空",
+            "risk_alerts": ["利率波动可能影响估值"],
+        }
+        repaired.pop("analysis_summary")
+        repaired.pop("risk_warning")
+        return json.dumps(repaired, ensure_ascii=False)
+
+    monkeypatch.setattr(analyzer, "_call_single_attempt_repair", _single_attempt)
+
+    result = analyzer._parse_response(json.dumps(payload, ensure_ascii=False), "CBA.AX", "股票CBA.AX")
+
+    assert calls["single"] == 1
+    assert result.success is True
+    assert result.analysis_status == "OK"
+    assert result.analysis_status_reason == "schema_bridge_recovered"
+    assert result.analysis_summary == "短期偏多，逢回调关注。"
+    assert result.risk_warning == "利率波动可能影响估值"
+    assert result.schema_recovered_fields == ["analysis_summary", "risk_warning"]
 
 
 def test_schema_invalid_fallback_does_not_use_keyword_sentiment_guess(monkeypatch):

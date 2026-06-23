@@ -129,6 +129,79 @@ class PipelineSummaryDateFilterTestCase(unittest.TestCase):
         self.assertEqual(health["html_path"], "/tmp/report.html")
         self.assertEqual(health["summary_path"], "/tmp/summary.json")
 
+    def test_delivery_health_marks_partial_notification_failure(self) -> None:
+        pipeline = self._build_pipeline_for_email_split()
+        self.assertIsNone(pipeline.get_last_delivery_health())
+        pipeline.notifier.get_available_channels.return_value = [
+            NotificationChannel.EMAIL,
+            NotificationChannel.SERVERCHAN3,
+        ]
+        pipeline.notifier.generate_dashboard_report.return_value = "# report"
+        pipeline.notifier.build_email_report_body.return_value = "# email"
+        pipeline.notifier.send_to_email.return_value = True
+        pipeline.notifier.send_to_serverchan3.return_value = False
+
+        health = pipeline._send_notifications([self._build_result("2026-05-15")], skip_push=False)
+
+        self.assertTrue(health["notification_attempted"])
+        self.assertFalse(health["notification_failed"])
+        self.assertTrue(health["notification_partial_failed"])
+        self.assertEqual(health["notification_failed_channels"], ["serverchan3"])
+        self.assertEqual(
+            health["notification_channel_results"],
+            {"email": True, "serverchan3": False},
+        )
+        self.assertEqual(pipeline.get_last_delivery_health(), health)
+
+        returned_health = pipeline.get_last_delivery_health()
+        returned_health["notification_failed_channels"].append("mutated")
+        self.assertEqual(pipeline.get_last_delivery_health()["notification_failed_channels"], ["serverchan3"])
+
+    def test_delivery_health_keeps_channel_failures_visible_when_context_succeeds(self) -> None:
+        pipeline = self._build_pipeline_for_email_split()
+        pipeline.notifier.get_available_channels.return_value = [
+            NotificationChannel.EMAIL,
+            NotificationChannel.SERVERCHAN3,
+        ]
+        pipeline.notifier.send_to_context.return_value = True
+        pipeline.notifier.last_context_channel_attempted = True
+        pipeline.notifier.generate_dashboard_report.return_value = "# report"
+        pipeline.notifier.build_email_report_body.return_value = "# email"
+        pipeline.notifier.send_to_email.return_value = False
+        pipeline.notifier.send_to_serverchan3.return_value = False
+
+        health = pipeline._send_notifications([self._build_result("2026-05-15")], skip_push=False)
+
+        self.assertTrue(health["notification_context_success"])
+        self.assertFalse(health["notification_failed"])
+        self.assertTrue(health["notification_partial_failed"])
+        self.assertEqual(health["notification_failed_channels"], ["email", "serverchan3"])
+        self.assertEqual(
+            health["notification_channel_results"],
+            {"context": True, "email": False, "serverchan3": False},
+        )
+
+    def test_delivery_health_keeps_context_failure_visible_when_channel_succeeds(self) -> None:
+        pipeline = self._build_pipeline_for_email_split()
+        pipeline.notifier.get_available_channels.return_value = [NotificationChannel.EMAIL]
+        pipeline.notifier.send_to_context.return_value = False
+        pipeline.notifier.last_context_channel_attempted = True
+        pipeline.notifier.generate_dashboard_report.return_value = "# report"
+        pipeline.notifier.build_email_report_body.return_value = "# email"
+        pipeline.notifier.send_to_email.return_value = True
+
+        health = pipeline._send_notifications([self._build_result("2026-05-15")], skip_push=False)
+
+        self.assertTrue(health["notification_context_attempted"])
+        self.assertFalse(health["notification_context_success"])
+        self.assertFalse(health["notification_failed"])
+        self.assertTrue(health["notification_partial_failed"])
+        self.assertEqual(health["notification_failed_channels"], ["context"])
+        self.assertEqual(
+            health["notification_channel_results"],
+            {"context": False, "email": True},
+        )
+
     def test_delivery_health_marks_email_render_failure_after_artifacts_saved(self) -> None:
         pipeline = self._build_pipeline_for_email_split()
         pipeline.notifier.generate_dashboard_report.return_value = "# report"
@@ -264,6 +337,44 @@ class PipelineSummaryDateFilterTestCase(unittest.TestCase):
         sent_receivers = [call.kwargs["receivers"] for call in sent_calls]
         self.assertIn(["aaa@example.com"], sent_receivers)
         self.assertIn(["bbb@example.com"], sent_receivers)
+
+    def test_stock_email_group_partial_failure_is_visible_in_delivery_health(self) -> None:
+        pipeline = self._build_pipeline_for_email_split(
+            stock_email_groups=[
+                (["AAA"], ["aaa@example.com"]),
+                (["BBB"], ["bbb@example.com"]),
+            ],
+        )
+        results = [
+            self._build_result("2026-05-15"),
+            AnalysisResult(
+                code="BBB",
+                name="样例二",
+                sentiment_score=55,
+                trend_prediction="震荡",
+                operation_advice="观察",
+                market_snapshot={"date": "2026-05-15"},
+            ),
+        ]
+        pipeline.notifier.generate_dashboard_report.side_effect = lambda group_results, **_kwargs: (
+            "# " + "-".join(r.code for r in group_results)
+        )
+        pipeline.notifier.build_email_report_body.side_effect = lambda body: body
+        pipeline.notifier.send_to_email.side_effect = [True, False]
+
+        health = pipeline._send_notifications(results, skip_push=False)
+
+        self.assertFalse(health["notification_failed"])
+        self.assertTrue(health["notification_partial_failed"])
+        self.assertEqual(health["notification_failed_channels"], ["email"])
+        self.assertEqual(health["notification_channel_results"], {"email": False})
+        self.assertEqual(
+            health["notification_email_batch_results"],
+            [
+                {"receivers": ["aaa@example.com"], "success": True},
+                {"receivers": ["bbb@example.com"], "success": False},
+            ],
+        )
 
     def test_notification_failure_logs_traceback_context(self) -> None:
         pipeline = self._build_pipeline_for_email_split()
