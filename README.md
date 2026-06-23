@@ -125,14 +125,17 @@ To make sizing output executable for manual ASX trading support, deterministic c
 - **Whole-share normalization is always active** (user-visible behavior change):
   - executable target quantity is normalized to integer shares
   - deterministic report sizing text shows integer shares only (no fractional-looking share output)
-- **`MIN_POSITION_DELTA_AMOUNT`** (default `0`):
+- **`MIN_POSITION_DELTA_AMOUNT`** (default `20`):
   - minimum absolute position-change amount threshold
   - if `abs(delta_amount)` is below this threshold, actionable BUY/SELL intent is suppressed to HOLD/no-action
-- **`MIN_ORDER_NOTIONAL`** (default `0`):
+- **`MIN_ORDER_NOTIONAL`** (default `20`):
   - minimum executable order notional threshold
   - if implied order notional is below this threshold, actionable BUY/SELL intent is suppressed to HOLD/no-action
+- **`MIN_BUY_ORDER_NOTIONAL`** (default `1000`):
+  - minimum notional for OPEN/ADD actions
+  - smaller buy-side plans are retained as watch-only items and excluded from actionable buy counts/cash-budget review
 
-Suppression defaults are opt-in (`0` means disabled), while whole-share normalization remains always on.
+Set thresholds to `0` only when you intentionally want to disable the corresponding suppression. Whole-share normalization remains always on.
 
 ## Report outputs and persisted artifacts
 

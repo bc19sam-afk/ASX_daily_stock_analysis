@@ -8,6 +8,17 @@
 ## [Unreleased]
 
 ### 修复
+- 🧩 **日报 schema 桥接字段恢复**
+  - 当 LLM 已返回完整 `dashboard` 但遗漏旧顶层 `analysis_summary` / `risk_warning` 时，本地从 dashboard 确定性恢复，不再误报为行情数据不完整
+  - 桥接恢复只使用 dashboard 中已有的摘要/风险文本；恢复后的结果保留 `OK`，并通过 `analysis_status_reason=schema_bridge_recovered` 显式标记
+  - schema/JSON 输出异常的用户文案改为“需重跑或人工复核”，避免和真实补数据场景混淆
+- 💵 **小额买入动作过滤**
+  - 新增 `MIN_BUY_ORDER_NOTIONAL`（默认 `1000`），仅约束 `OPEN` / `ADD`
+  - 低于阈值的买入侧计划降级为观察项，并从今日优先复核、买入动作计数和现金预算复核中排除
+- 📬 **日报交付健康部分失败可见**
+  - 邮件成功但 Server 酱 3 等其他渠道失败时，交付健康标记为部分失败并记录失败渠道
+  - 机器人会话 context 投递在真实尝试时纳入渠道健康结果，避免被其他成功渠道吞掉
+  - GitHub Actions 结果页改为展示最新 `stock_analysis_*.log`，避免报告日和 UTC 日志日不一致时漏看日志
 - 🧭 **日报执行价口径默认收敛**
   - `EXECUTION_PRICE_POLICY` 未设置或非法时保守回退到 `close_only`
   - 日报分析上下文会记录本次 runtime execution price policy，并在 AI prompt 中披露价格口径约束

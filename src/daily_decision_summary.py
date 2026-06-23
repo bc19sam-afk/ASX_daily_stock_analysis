@@ -129,6 +129,7 @@ def _build_item(
     format_stock_display_name: Callable[[Any, Any], str],
     format_validation_issue_text: Callable[[Any], str],
     min_delta_amount: float,
+    min_buy_delta_amount: Optional[float] = None,
 ) -> Dict[str, Any]:
     item = {
         "code": str(getattr(result, "code", "") or ""),
@@ -149,6 +150,7 @@ def _build_item(
         result,
         action_model=action_model,
         min_delta_amount=min_delta_amount,
+        min_buy_delta_amount=min_buy_delta_amount,
         format_stock_display_name=format_stock_display_name,
         format_validation_issue_text=format_validation_issue_text,
     )
@@ -769,6 +771,7 @@ def build_daily_decision_summary(
     format_stock_display_name: Callable[[Any, Any], str],
     format_validation_issue_text: Callable[[Any], str],
     min_action_delta_amount: float = DEFAULT_ACTIONABLE_DELTA_AMOUNT,
+    min_buy_action_delta_amount: Optional[float] = None,
     backtest_confidence: Optional[Dict[str, Any]] = None,
     score_bucket_calibration: Optional[Dict[str, Any]] = None,
     risk_sizing_settings: Optional[RiskSizingSettings] = None,
@@ -810,9 +813,14 @@ def build_daily_decision_summary(
             format_stock_display_name=format_stock_display_name,
             format_validation_issue_text=format_validation_issue_text,
             min_delta_amount=min_action_delta_amount,
+            min_buy_delta_amount=min_buy_action_delta_amount,
         )
 
-        if not is_effective_executable_action(model, min_delta_amount=min_action_delta_amount):
+        if not is_effective_executable_action(
+            model,
+            min_delta_amount=min_action_delta_amount,
+            min_buy_delta_amount=min_buy_action_delta_amount,
+        ):
             action_counts["hold_watch"] += 1
             watch_item = dict(item)
             if action in EXECUTABLE_ACTIONS:
@@ -853,6 +861,7 @@ def build_daily_decision_summary(
             result,
             action_model=model,
             min_delta_amount=min_action_delta_amount,
+            min_buy_delta_amount=min_buy_action_delta_amount,
             format_stock_display_name=format_stock_display_name,
             format_validation_issue_text=format_validation_issue_text,
         )
@@ -1009,6 +1018,7 @@ def build_daily_decision_summary(
         is_actionable_context=lambda result, model: is_effective_executable_action(
             model,
             min_delta_amount=min_action_delta_amount,
+            min_buy_delta_amount=min_buy_action_delta_amount,
         ),
         settings=risk_sizing_settings,
     )
@@ -1020,6 +1030,7 @@ def build_daily_decision_summary(
         is_actionable_context=lambda result, model: is_effective_executable_action(
             model,
             min_delta_amount=min_action_delta_amount,
+            min_buy_delta_amount=min_buy_action_delta_amount,
         ),
         settings=risk_sizing_settings,
     )
@@ -1490,13 +1501,20 @@ def _render_triage_card_lines(card: Dict[str, Any]) -> List[str]:
 
 
 def _format_triage_preview(items: List[Dict[str, Any]]) -> str:
+    ordered_items = _cash_budget_display_order(items)
     preview = []
-    for item in _cash_budget_display_order(items)[:TRIAGE_CARD_PREVIEW_LIMIT]:
+    for item in ordered_items[:TRIAGE_CARD_PREVIEW_LIMIT]:
         name = str(item.get("name") or item.get("code") or "未知标的")
         reason = _compact_reason(str(item.get("reason") or ""))
         preview.append(f"{name}（{reason}）" if reason else name)
     omitted = len(items) - len(preview)
-    suffix = f"；另 {omitted} 项" if omitted > 0 else ""
+    suffix = ""
+    if omitted > 0:
+        hidden_names = [
+            str(item.get("name") or item.get("code") or "未知标的")
+            for item in ordered_items[TRIAGE_CARD_PREVIEW_LIMIT:]
+        ]
+        suffix = f"；另 {omitted} 项：" + "、".join(hidden_names)
     return "；".join(preview) + suffix + "。"
 
 

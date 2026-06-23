@@ -176,6 +176,9 @@ class HistoryService:
                 "current_price": price_snapshot.get("current_price"),
                 "change_pct": price_snapshot.get("change_pct"),
                 "analysis_status": raw_result.get("analysis_status") if isinstance(raw_result, dict) else None,
+                "analysis_status_reason": (
+                    raw_result.get("analysis_status_reason") if isinstance(raw_result, dict) else None
+                ),
                 "validation_status": validation_status,
                 "validation_issues": validation_issues,
                 "analysis_summary": record.analysis_summary,

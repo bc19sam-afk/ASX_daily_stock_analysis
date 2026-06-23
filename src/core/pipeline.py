@@ -16,6 +16,7 @@ import math
 import time
 import uuid
 from collections import defaultdict
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from typing import List, Dict, Any, Optional, Tuple
@@ -131,6 +132,7 @@ class StockAnalysisPipeline:
         self.analyzer = GeminiAnalyzer()
         self.notifier = NotificationService(source_message=source_message)
         self.position_manager = PositionManager()
+        self._last_delivery_health: Optional[Dict[str, Any]] = None
         
         # 初始化搜索服务
         self.search_service = SearchService(
@@ -148,7 +150,6 @@ class StockAnalysisPipeline:
                 False,
             ),
         )
-        
         logger.info(f"调度器初始化完成，最大并发数: {self.max_workers}")
         logger.info("已启用趋势分析器 (MA5>MA10>MA20 多头判断)")
         # 打印实时行情配置状态
@@ -160,6 +161,11 @@ class StockAnalysisPipeline:
             logger.info("搜索服务已启用 (Tavily/Gemini Grounding/SerpAPI)")
         else:
             logger.warning("搜索服务未启用（未配置 API Key）")
+
+    def get_last_delivery_health(self) -> Optional[Dict[str, Any]]:
+        """Return the latest report/notification delivery health snapshot."""
+        health = getattr(self, "_last_delivery_health", None)
+        return deepcopy(health) if isinstance(health, dict) else None
     
     def fetch_and_save_stock_data(
         self, 
@@ -1153,6 +1159,7 @@ class StockAnalysisPipeline:
                 current_value=portfolio_state["current_position_value"],
                 min_delta_amount=self._get_min_position_delta_amount(),
                 min_order_notional=self._get_min_order_notional(),
+                min_buy_order_notional=self._get_min_buy_order_notional(),
                 max_delta_amount=max_delta_amount,
             )
             if calc is None:
@@ -1225,6 +1232,7 @@ class StockAnalysisPipeline:
                     current_value=portfolio_state["current_position_value"],
                     min_delta_amount=self._get_min_position_delta_amount(),
                     min_order_notional=self._get_min_order_notional(),
+                    min_buy_order_notional=self._get_min_buy_order_notional(),
                     max_delta_amount=max_delta_amount,
                 )
                 if calc is None:
@@ -1317,6 +1325,7 @@ class StockAnalysisPipeline:
         current_value: Optional[float] = None,
         min_delta_amount: float = 0.0,
         min_order_notional: float = 0.0,
+        min_buy_order_notional: float = 0.0,
         max_delta_amount: Optional[float] = None,
     ) -> Optional[Dict[str, float | str]]:
         # Deterministic precedence order for executable sizing:
@@ -1327,7 +1336,8 @@ class StockAnalysisPipeline:
         # 4) apply affordability safeguard (floor, never round-up)
         # 5) apply MIN_POSITION_DELTA_AMOUNT
         # 6) apply MIN_ORDER_NOTIONAL
-        # 7) if blocked, suppress to HOLD/no-action with consistent accounting fields
+        # 7) apply MIN_BUY_ORDER_NOTIONAL to OPEN/ADD only
+        # 8) if blocked, suppress to HOLD/no-action with consistent accounting fields
         price = float(current_price) if current_price and current_price > 0 else 0.0
         if price <= 0 and existing and existing.current_price and existing.current_price > 0:
             price = float(existing.current_price)
@@ -1393,6 +1403,12 @@ class StockAnalysisPipeline:
             and order_notional < max(min_order_notional, 0.0)
         ):
             suppressed_by = "min_order_notional"
+        if (
+            action in {"OPEN", "ADD"}
+            and suppressed_by is None
+            and order_notional < max(min_buy_order_notional, 0.0)
+        ):
+            suppressed_by = "min_buy_order_notional"
         if suppressed_by:
             logger.info(
                 "仓位调整被抑制: constraint=%s, action=%s, abs_delta_amount=%.2f, order_notional=%.2f",
@@ -1442,6 +1458,12 @@ class StockAnalysisPipeline:
         if config is None:
             return 0.0
         return max(float(getattr(config, "min_order_notional", 0.0) or 0.0), 0.0)
+
+    def _get_min_buy_order_notional(self) -> float:
+        config = getattr(self, "config", None)
+        if config is None:
+            return 0.0
+        return max(float(getattr(config, "min_buy_order_notional", 0.0) or 0.0), 0.0)
 
     def _get_max_single_buy_cash_fraction(self) -> float:
         config = getattr(self, "config", None)
@@ -1887,6 +1909,7 @@ class StockAnalysisPipeline:
             分析结果列表
         """
         start_time = time.time()
+        self._last_delivery_health = None
         
         # 使用配置中的股票列表
         if stock_codes is None:
@@ -2077,12 +2100,17 @@ class StockAnalysisPipeline:
             "json_saved": False,
             "notification_attempted": False,
             "notification_failed": False,
+            "notification_partial_failed": False,
+            "notification_context_attempted": False,
             "notification_failure_stage": None,
             "notification_failure_message": None,
             "report_path": None,
             "html_path": None,
             "summary_path": None,
             "notification_channels": [],
+            "notification_failed_channels": [],
+            "notification_channel_results": {},
+            "notification_email_batch_results": [],
         }
         notification_stage: Optional[str] = None
         try:
@@ -2178,8 +2206,16 @@ class StockAnalysisPipeline:
                 delivery_health["notification_channels"] = [
                     getattr(channel, "value", str(channel)) for channel in channels
                 ]
+                channel_results: Dict[str, bool] = {}
                 notification_stage = "context"
                 context_success = self.notifier.send_to_context(report)
+                context_attempted_value = getattr(self.notifier, "last_context_channel_attempted", False)
+                context_attempted = context_attempted_value if isinstance(context_attempted_value, bool) else False
+                context_delivery_success = bool(context_success) if context_attempted else False
+                delivery_health["notification_context_attempted"] = context_attempted
+                delivery_health["notification_context_success"] = context_delivery_success
+                if context_attempted:
+                    channel_results["context"] = context_delivery_success
 
                 # 企业微信：只发精简版（平台限制）
                 wechat_success = False
@@ -2192,6 +2228,7 @@ class StockAnalysisPipeline:
                     logger.info(f"企业微信仪表盘长度: {len(dashboard_content)} 字符")
                     log_sensitive_payload(logger, logging.DEBUG, "企业微信推送内容", dashboard_content)
                     wechat_success = self.notifier.send_to_wechat(dashboard_content)
+                    channel_results[getattr(NotificationChannel.WECHAT, "value", "wechat")] = bool(wechat_success)
 
                 # 其他渠道按各自口径发送；Email 使用精简正文，非 Email 保留完整报告。
                 non_wechat_success = False
@@ -2199,15 +2236,19 @@ class StockAnalysisPipeline:
                 for channel in channels:
                     if channel == NotificationChannel.WECHAT:
                         continue
+                    channel_name = getattr(channel, "value", str(channel))
+                    channel_success = False
+                    channel_health_success: Optional[bool] = None
                     if channel == NotificationChannel.FEISHU:
                         notification_stage = "feishu"
-                        non_wechat_success = self.notifier.send_to_feishu(report) or non_wechat_success
+                        channel_success = self.notifier.send_to_feishu(report)
                     elif channel == NotificationChannel.TELEGRAM:
                         notification_stage = "telegram"
-                        non_wechat_success = self.notifier.send_to_telegram(report) or non_wechat_success
+                        channel_success = self.notifier.send_to_telegram(report)
                     elif channel == NotificationChannel.EMAIL:
                         notification_stage = "email"
                         if stock_email_groups:
+                            email_batch_results: List[Dict[str, Any]] = []
                             code_to_emails: Dict[str, Optional[List[str]]] = {}
                             for r in results:
                                 if r.code not in code_to_emails:
@@ -2228,41 +2269,65 @@ class StockAnalysisPipeline:
                                 )
                                 grp_email_report = self.notifier.build_email_report_body(grp_report)
                                 if key is None:
-                                    non_wechat_success = (
-                                        self.notifier.send_to_email(grp_email_report) or non_wechat_success
-                                    )
+                                    sent = self.notifier.send_to_email(grp_email_report)
+                                    receivers: List[str] = []
                                 else:
-                                    non_wechat_success = (
-                                        self.notifier.send_to_email(grp_email_report, receivers=list(key))
-                                        or non_wechat_success
-                                    )
+                                    receivers = list(key)
+                                    sent = self.notifier.send_to_email(grp_email_report, receivers=receivers)
+                                email_batch_results.append(
+                                    {
+                                        "receivers": receivers,
+                                        "success": bool(sent),
+                                    }
+                                )
+                                channel_success = bool(sent) or channel_success
+                            delivery_health["notification_email_batch_results"] = email_batch_results
+                            channel_health_success = (
+                                bool(email_batch_results)
+                                and all(bool(item.get("success")) for item in email_batch_results)
+                            )
                         else:
                             email_report = self.notifier.build_email_report_body(report)
-                            non_wechat_success = self.notifier.send_to_email(email_report) or non_wechat_success
+                            channel_success = self.notifier.send_to_email(email_report)
                     elif channel == NotificationChannel.CUSTOM:
                         notification_stage = "custom"
-                        non_wechat_success = self.notifier.send_to_custom(report) or non_wechat_success
+                        channel_success = self.notifier.send_to_custom(report)
                     elif channel == NotificationChannel.PUSHPLUS:
                         notification_stage = "pushplus"
-                        non_wechat_success = self.notifier.send_to_pushplus(report) or non_wechat_success
+                        channel_success = self.notifier.send_to_pushplus(report)
                     elif channel == NotificationChannel.SERVERCHAN3:
                         notification_stage = "serverchan3"
-                        non_wechat_success = self.notifier.send_to_serverchan3(report) or non_wechat_success
+                        channel_success = self.notifier.send_to_serverchan3(report)
                     elif channel == NotificationChannel.DISCORD:
                         notification_stage = "discord"
-                        non_wechat_success = self.notifier.send_to_discord(report) or non_wechat_success
+                        channel_success = self.notifier.send_to_discord(report)
                     elif channel == NotificationChannel.PUSHOVER:
                         notification_stage = "pushover"
-                        non_wechat_success = self.notifier.send_to_pushover(report) or non_wechat_success
+                        channel_success = self.notifier.send_to_pushover(report)
                     elif channel == NotificationChannel.ASTRBOT:
                         notification_stage = "astrbot"
-                        non_wechat_success = self.notifier.send_to_astrbot(report) or non_wechat_success
+                        channel_success = self.notifier.send_to_astrbot(report)
                     else:
                         logger.warning(f"未知通知渠道: {channel}")
+                        channel_success = False
+                    channel_results[channel_name] = bool(
+                        channel_success if channel_health_success is None else channel_health_success
+                    )
+                    non_wechat_success = bool(channel_success) or non_wechat_success
 
-                success = wechat_success or non_wechat_success or context_success
+                success = wechat_success or non_wechat_success or context_delivery_success
+                failed_channels = [name for name, ok in channel_results.items() if not ok]
+                delivery_health["notification_channel_results"] = channel_results
+                delivery_health["notification_failed_channels"] = failed_channels
                 if success:
                     logger.info("决策仪表盘推送成功")
+                    if failed_channels:
+                        delivery_health["notification_partial_failed"] = True
+                        delivery_health["notification_failure_stage"] = "partial"
+                        delivery_health["notification_failure_message"] = (
+                            "some configured notification channels returned false"
+                        )
+                        logger.warning("决策仪表盘部分渠道推送失败: %s", ",".join(failed_channels))
                 else:
                     delivery_health["notification_failed"] = True
                     delivery_health["notification_failure_stage"] = notification_stage or "notification"
@@ -2288,15 +2353,18 @@ class StockAnalysisPipeline:
                 exc_info=True,
             )
         finally:
+            self._last_delivery_health = deepcopy(delivery_health)
             logger.info(
                 "日报交付健康检查: report_saved=%s html_saved=%s json_saved=%s "
-                "notification_attempted=%s notification_failed=%s report_path=%s html_path=%s "
-                "summary_path=%s failure_stage=%s",
+                "notification_attempted=%s notification_failed=%s notification_partial_failed=%s "
+                "failed_channels=%s report_path=%s html_path=%s summary_path=%s failure_stage=%s",
                 delivery_health.get("report_saved"),
                 delivery_health.get("html_saved"),
                 delivery_health.get("json_saved"),
                 delivery_health.get("notification_attempted"),
                 delivery_health.get("notification_failed"),
+                delivery_health.get("notification_partial_failed"),
+                delivery_health.get("notification_failed_channels"),
                 delivery_health.get("report_path"),
                 delivery_health.get("html_path"),
                 delivery_health.get("summary_path"),

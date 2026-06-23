@@ -1179,10 +1179,35 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
 
         self.assertEqual(self.pipeline._get_min_position_delta_amount(), 20.0)
         self.assertEqual(self.pipeline._get_min_order_notional(), 20.0)
+        self.assertEqual(self.pipeline._get_min_buy_order_notional(), 1000.0)
         self.assertEqual(result.position_action, "HOLD")
         self.assertEqual(result.target_quantity, 1)
         self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
         self.assertIn("execution_blocked=min_delta_amount", result.action_reason)
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_config_defaults_suppress_sub_1000_buy_side_notional(self):
+        Config.reset_instance()
+        self.pipeline.config = get_config()
+        self.db.save_account_snapshot(snapshot_date=date.today(), cash=9978.22, equity_value=21.78, total_value=10000)
+
+        result = self._result("MBN", final_decision="BUY")
+        with patch.object(
+            self.pipeline.position_manager,
+            "decide",
+            return_value=SimpleNamespace(target_weight=0.002178, reason="small open adjustment"),
+        ):
+            self.pipeline._apply_position_management(
+                result=result,
+                query_id="q_default_min_buy_notional",
+                current_price=21.78,
+                persist=False,
+            )
+
+        self.assertEqual(result.position_action, "HOLD")
+        self.assertEqual(result.target_quantity, 0.0)
+        self.assertAlmostEqual(result.delta_amount, 0.0, places=2)
+        self.assertIn("execution_blocked=min_buy_order_notional", result.action_reason)
 
     def test_config_defaults_single_buy_cash_cap(self):
         env_path = os.path.join(self.tmp.name, "default_single_buy_cap.env")
@@ -1214,7 +1239,7 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
 
     @patch.dict(
         os.environ,
-        {"MIN_POSITION_DELTA_AMOUNT": "0", "MIN_ORDER_NOTIONAL": "0"},
+        {"MIN_POSITION_DELTA_AMOUNT": "0", "MIN_ORDER_NOTIONAL": "0", "MIN_BUY_ORDER_NOTIONAL": "0"},
         clear=True,
     )
     def test_env_can_restore_zero_threshold_behavior(self):
@@ -1246,6 +1271,7 @@ class PositionManagementAccountingTestCase(unittest.TestCase):
 
         self.assertEqual(self.pipeline._get_min_position_delta_amount(), 0.0)
         self.assertEqual(self.pipeline._get_min_order_notional(), 0.0)
+        self.assertEqual(self.pipeline._get_min_buy_order_notional(), 0.0)
         self.assertEqual(result.position_action, "ADD")
         self.assertAlmostEqual(result.delta_amount, 10.0, places=2)
 

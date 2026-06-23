@@ -438,7 +438,8 @@ def test_dashboard_homepage_sanitizes_internal_validation_status_tokens(mock_get
         assert raw_term not in landing
         assert raw_term not in report
 
-    assert "分析结果不完整" in landing
+    assert "AI 输出格式异常，需重跑或人工复核" in landing
+    assert "分析结果不完整" not in landing
     assert "暂停动作" in landing or "仅观察" in landing
 
 
@@ -564,8 +565,8 @@ def test_non_holding_action_mentions_when_paper_ledger_already_holds_symbol(mock
         name="EUR GROUP [EGH]",
         final_decision="BUY",
         position_action="OPEN",
-        target_weight=0.0033,
-        delta_amount=35.96,
+        target_weight=0.15,
+        delta_amount=1500.0,
         operation_advice="观望",
     )
 
@@ -1077,26 +1078,33 @@ def test_may14_report_fixture_keeps_alias_and_material_review_hints_separate(moc
     assert summary["uncovered_holdings"] == []
     assert "NHF.ASX 当前持仓未覆盖今日分析" not in report
     assert "当前持仓有 **1** 只未覆盖分析" not in report
-    assert "**今日动作数量**：买入 0 / 加仓 2 / 减仓 0 / 清仓 0" in landing
+    assert "**今日动作数量**：买入 0 / 加仓 0 / 减仓 0 / 清仓 0" in landing
     assert "**价格来源**：全部使用昨收数据；技术基准日 2026-05-13" in landing
-    assert "| GOOD GROUP [GMG] (GMG.AX) | 加仓 | 14.04% | 计划投入约 532.10 | 需二次确认：" in landing
-    assert "| LINDSAY AU [LAU] (LAU.AX) | 加仓 | 21.84% | 计划投入约 535.58 | 需二次确认：" in landing
-    assert "1 只股票风险仓位试算与目标仓位差异较大，执行前先复核仓位。" in landing
+    assert "计划投入约 532.10" not in landing
+    assert "计划投入约 535.58" not in landing
+    assert "GOOD GROUP [GMG] (GMG.AX)" in landing
+    assert "LINDSAY AU [LAU] (LAU.AX)" in landing
     assert "回测证据未检查" in landing
-    assert "风险仓位试算与目标仓位差异较大" in landing
+    assert "风险仓位试算与目标仓位差异较大" not in landing
 
-    gmg_low_confidence = [
-        item for item in card["high_value_low_confidence"] if item["code"] == "GMG.AX"
+    gmg_watch = [item for item in summary["watch_items"] if item["code"] == "GMG.AX"][0]
+    lau_watch = [item for item in summary["watch_items"] if item["code"] == "LAU.AX"][0]
+    gmg_data_attention = [
+        item for item in card["data_quality_attention"] if item["code"] == "GMG.AX"
     ][0]
-    lau_low_confidence = [
-        item for item in card["high_value_low_confidence"] if item["code"] == "LAU.AX"
+    lau_data_attention = [
+        item for item in card["data_quality_attention"] if item["code"] == "LAU.AX"
     ][0]
 
-    assert "风险仓位" not in gmg_low_confidence["confidence_note"]
-    assert "风险仓位试算与目标仓位差异较大" in lau_low_confidence["confidence_note"]
-    assert summary["actionable_items"][0]["target_weight"] == 0.1404
-    assert summary["actionable_items"][1]["target_weight"] == 0.2184
-    assert summary["risk_sizing_comparison"]["LAU.AX"]["would_change_target"] is True
+    assert summary["actionable_items"] == []
+    assert gmg_watch["suppressed_position_action"] == "ADD"
+    assert lau_watch["suppressed_position_action"] == "ADD"
+    assert gmg_watch["suppressed_delta_amount"] == 532.1
+    assert lau_watch["suppressed_delta_amount"] == 535.58
+    assert "风险仓位" not in gmg_data_attention["confidence_note"]
+    assert "风险仓位" not in lau_data_attention["confidence_note"]
+    assert summary["risk_sizing_comparison"]["LAU.AX"]["would_change_target"] is False
+    assert "non_actionable_context" in summary["risk_sizing_comparison"]["LAU.AX"]["warning_flags"]
 
 
 @patch("src.notification.get_db")

@@ -5,7 +5,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.analyzer import AnalysisResult
-from src.daily_decision_summary import build_daily_decision_summary, render_preopen_decision_dashboard
+from src.daily_decision_summary import (
+    _format_triage_preview,
+    build_daily_decision_summary,
+    render_preopen_decision_dashboard,
+)
 from src.notification import NotificationService
 
 
@@ -44,7 +48,7 @@ def _model(result):
     }
 
 
-def _summary(results):
+def _summary(results, *, min_action_delta_amount=20.0, min_buy_action_delta_amount=None):
     return build_daily_decision_summary(
         results=results,
         report_date="2026-04-29",
@@ -54,6 +58,8 @@ def _summary(results):
         classify_price_basis=lambda result: result.execution_price_source,
         format_stock_display_name=lambda name, code: f"{name} ({code})",
         format_validation_issue_text=lambda result: "；".join(result.validation_issues or []),
+        min_action_delta_amount=min_action_delta_amount,
+        min_buy_action_delta_amount=min_buy_action_delta_amount,
     )
 
 
@@ -130,6 +136,46 @@ def test_evidence_gaps_feed_review_reasons_without_changing_summary_actions():
     dashboard = "\n".join(render_preopen_decision_dashboard(summary))
     assert "当前没有验证阻断；但仍可能存在回测 / 估值覆盖缺口。" in dashboard
     assert "未发现阻断或数据质量风险" not in dashboard
+
+
+def test_tiny_open_below_buy_threshold_is_watch_only_and_excluded_from_cash_budget():
+    result = _result(
+        code="RGN.AX",
+        name="REGION",
+        final_decision="BUY",
+        position_action="OPEN",
+        target_weight=0.01,
+        delta_amount=21.78,
+    )
+
+    summary = _summary([result], min_action_delta_amount=20.0, min_buy_action_delta_amount=1000.0)
+
+    assert summary["action_counts"]["buy"] == 0
+    assert summary["action_counts"]["total_actions"] == 0
+    assert summary["action_counts"]["hold_watch"] == 1
+    assert summary["actionable_items"] == []
+    assert summary["cash_budget_review"]["buy_action_count"] == 0
+    assert summary["cash_budget_review"]["total_buy_delta"] == 0.0
+    assert summary["cash_budget_review"]["codes"] == []
+    watch_item = summary["watch_items"][0]
+    assert watch_item["code"] == "RGN.AX"
+    assert watch_item["position_action"] == "HOLD"
+    assert watch_item["suppressed_position_action"] == "OPEN"
+    assert watch_item["suppressed_delta_amount"] == 21.78
+    assert watch_item["final_action_display"]["actionability"] == "watch_only"
+
+
+def test_triage_preview_names_hidden_items_when_collapsed():
+    preview = _format_triage_preview(
+        [
+            {"name": "LAU (LAU.AX)", "reason": "AI 输出格式异常"},
+            {"name": "TWE (TWE.AX)", "reason": "AI 输出格式异常"},
+            {"name": "NHF (NHF.AX)", "reason": "AI 输出格式异常"},
+            {"name": "ABC (ABC.AX)", "reason": "AI 输出格式异常"},
+        ]
+    )
+
+    assert "另 2 项：NHF (NHF.AX)、ABC (ABC.AX)" in preview
 
 
 def test_partial_valuation_snapshot_feeds_low_confidence_reason_without_changing_action():

@@ -180,6 +180,41 @@ class DecisionStructureTestCase(unittest.TestCase):
         self.assertEqual(calc["target_quantity"], 100)
         self.assertEqual(calc["suppressed_by"], "min_order_notional")
 
+    def test_calculate_position_transition_suppresses_small_buy_notional_only(self):
+        calc = StockAnalysisPipeline._calculate_position_transition(
+            existing=None,
+            quantity=0.0,
+            current_weight=0.0,
+            decision=SimpleNamespace(target_weight=0.002178),
+            cash=10000.0,
+            total_value=10000.0,
+            current_price=21.78,
+            current_value=0.0,
+            min_delta_amount=20.0,
+            min_order_notional=20.0,
+            min_buy_order_notional=1000.0,
+        )
+        self.assertIsNotNone(calc)
+        self.assertEqual(calc["action"], "HOLD")
+        self.assertEqual(calc["suppressed_by"], "min_buy_order_notional")
+
+        reduce_calc = StockAnalysisPipeline._calculate_position_transition(
+            existing=None,
+            quantity=10.0,
+            current_weight=0.1,
+            decision=SimpleNamespace(target_weight=0.05),
+            cash=1000.0,
+            total_value=10000.0,
+            current_price=100.0,
+            current_value=1000.0,
+            min_delta_amount=20.0,
+            min_order_notional=20.0,
+            min_buy_order_notional=1000.0,
+        )
+        self.assertIsNotNone(reduce_calc)
+        self.assertEqual(reduce_calc["action"], "REDUCE")
+        self.assertIsNone(reduce_calc["suppressed_by"])
+
     def test_affordability_fallback_uses_floor_and_cash_after_non_negative(self):
         calc = StockAnalysisPipeline._calculate_position_transition(
             existing=None,

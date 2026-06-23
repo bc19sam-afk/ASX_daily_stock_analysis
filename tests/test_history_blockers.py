@@ -133,6 +133,7 @@ class HistoryBlockersTestCase(unittest.TestCase):
             validation_status="BLOCK",
             validation_issues=["价格口径混用"],
             analysis_status="DEGRADED",
+            analysis_status_reason="schema_bridge_recovered",
         )
         db.save_analysis_history(
             result=result,
@@ -144,6 +145,7 @@ class HistoryBlockersTestCase(unittest.TestCase):
         detail = service.get_history_detail("query-history-blocked")
         self.assertIsNotNone(detail)
         self.assertEqual(detail["analysis_status"], "DEGRADED")
+        self.assertEqual(detail["analysis_status_reason"], "schema_bridge_recovered")
         self.assertEqual(detail["validation_status"], "BLOCK")
         self.assertEqual(detail["validation_issues"], ["价格口径混用"])
         self.assertAlmostEqual(detail["current_weight"], 2 / 3, places=4)
@@ -164,6 +166,7 @@ class HistoryBlockersTestCase(unittest.TestCase):
             validation_status="BLOCK",
             validation_issues=["价格口径混用"],
             analysis_status="DEGRADED",
+            analysis_status_reason="schema_bridge_recovered",
         )
         db.save_analysis_history(
             result=result,
@@ -175,8 +178,10 @@ class HistoryBlockersTestCase(unittest.TestCase):
         report = history_endpoint.get_history_detail("query-history-endpoint", db_manager=db)
 
         self.assertEqual(report.meta.analysis_status, "DEGRADED")
+        self.assertEqual(report.meta.analysis_status_reason, "schema_bridge_recovered")
         self.assertEqual(report.meta.validation_status, "BLOCK")
         self.assertEqual(report.summary.analysis_status, "DEGRADED")
+        self.assertEqual(report.summary.analysis_status_reason, "schema_bridge_recovered")
         self.assertEqual(report.summary.validation_status, "BLOCK")
         self.assertAlmostEqual(report.summary.current_weight, 2 / 3, places=4)
         self.assertAlmostEqual(report.summary.target_weight, 2 / 3, places=4)

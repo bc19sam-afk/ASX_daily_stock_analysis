@@ -21,6 +21,7 @@ def test_unparseable_ai_text_degrades_to_hold_without_keyword_decision(response_
 
     assert result.success is True
     assert result.analysis_status == "DEGRADED"
+    assert result.analysis_status_reason == "text_fallback"
     assert result.decision_type == "hold"
     assert result.operation_advice == "观望"
     assert result.trend_prediction == "震荡"
@@ -43,6 +44,7 @@ def test_schema_invalid_json_degrades_without_action_text(monkeypatch):
 
     assert result.success is True
     assert result.analysis_status == "DEGRADED"
+    assert result.analysis_status_reason == "schema_validation_failed"
     assert result.sentiment_score == 50
     assert result.decision_type == "hold"
     assert result.operation_advice == "观望"

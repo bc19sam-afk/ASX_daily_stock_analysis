@@ -11,18 +11,22 @@ from src.core.validator import normalize_validation_status
 
 
 EXECUTABLE_ACTIONS = {"OPEN", "ADD", "REDUCE", "CLOSE"}
+BUY_SIDE_ACTIONS = {"OPEN", "ADD"}
 
 
 def is_effective_executable_action(
     action_model: Dict[str, Any],
     *,
     min_delta_amount: float,
+    min_buy_delta_amount: float | None = None,
 ) -> bool:
     """Return True when an action is large enough to present as actionable."""
     action = str(action_model.get("position_action") or "HOLD").upper()
     if action not in EXECUTABLE_ACTIONS:
         return False
     threshold = max(safe_float(min_delta_amount), 0.0)
+    if action in BUY_SIDE_ACTIONS and min_buy_delta_amount is not None:
+        threshold = max(threshold, safe_float(min_buy_delta_amount), 0.0)
     if threshold <= 0:
         return True
     return abs(safe_float(action_model.get("delta_amount"))) >= threshold
@@ -33,6 +37,7 @@ def build_final_action_display(
     *,
     action_model: Dict[str, Any],
     min_delta_amount: float,
+    min_buy_delta_amount: float | None = None,
     format_stock_display_name: Callable[[Any, Any], str],
     format_validation_issue_text: Callable[[Any], str],
 ) -> Dict[str, Any]:
@@ -78,7 +83,11 @@ def build_final_action_display(
             can_show_plan_points=False,
         )
 
-    if not is_effective_executable_action(action_model, min_delta_amount=min_delta_amount):
+    if not is_effective_executable_action(
+        action_model,
+        min_delta_amount=min_delta_amount,
+        min_buy_delta_amount=min_buy_delta_amount,
+    ):
         action = str(action_model.get("position_action") or "HOLD").upper()
         show_holding_sizing = action == "HOLD" and current_weight > 0
         return _display(
