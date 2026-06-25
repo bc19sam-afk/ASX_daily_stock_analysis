@@ -264,7 +264,20 @@ def test_gemini_quota_exhaustion_is_tracked_per_key_and_model(monkeypatch):
     ]
 
 
-def test_gemini_temporary_resource_exhausted_does_not_disable_route_for_run(monkeypatch):
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "429 RESOURCE_EXHAUSTED: Rate limit exceeded, please try again later",
+        (
+            "429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric "
+            "GenerateRequestsPerMinutePerProjectPerModel-FreeTier; "
+            "please try again later"
+        ),
+    ],
+)
+def test_gemini_temporary_resource_exhausted_does_not_disable_route_for_run(
+    monkeypatch, error_message
+):
     first_key = "first-key-1234567890"
     analyzer = _make_test_analyzer([first_key])
     calls: list[tuple[str, str]] = []
@@ -284,14 +297,12 @@ def test_gemini_temporary_resource_exhausted_does_not_disable_route_for_run(monk
     def _fake_generate(_prompt: str, _generation_config: dict) -> str:
         calls.append((analyzer._api_key, analyzer._current_model_name))
         if len(calls) == 1:
-            raise RuntimeError(
-                "429 RESOURCE_EXHAUSTED: Rate limit exceeded, please try again later"
-            )
+            raise RuntimeError(error_message)
         return "ok"
 
     monkeypatch.setattr(analyzer, "_generate_gemini_content", _fake_generate)
 
-    with pytest.raises(RuntimeError, match="Rate limit exceeded"):
+    with pytest.raises(RuntimeError):
         analyzer._call_api_with_retry("prompt-1", {})
 
     assert analyzer._gemini_route_exhausted == set()
