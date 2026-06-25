@@ -909,10 +909,10 @@ class GeminiAnalyzer:
     def _is_gemini_quota_exhausted_error(error: Exception) -> bool:
         message = str(error or "").lower()
         return (
-            "resource_exhausted" in message
-            or "quota exceeded" in message
+            "quota exceeded" in message
             or "generaterequestsperday" in message
             or "perdayperprojectpermodel" in message
+            or "requests per day" in message
         )
 
     def _rotate_to_next_gemini_key(self, error: Exception) -> bool:
