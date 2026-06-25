@@ -7,6 +7,7 @@ This changelog summarizes behavior that is visible on current `main`, with empha
 ### Fixed
 - **Gemini capacity routing:** Gemini analysis retries now treat each key/model pair as a capacity slot, trying all configured project keys on the primary model before fallback, and avoiding sticky fallback-model use after transient failures.
 - **Gemini temporary throttling handling:** transient `RESOURCE_EXHAUSTED`/retry-later responses no longer disable a key/model capacity slot for the rest of the run unless the error explicitly indicates daily quota exhaustion.
+- **Gemini per-minute quota handling:** per-minute `Quota exceeded` throttles now remain retryable instead of being mistaken for daily quota exhaustion.
 - **System config update race condition (PR #31):** `.env` optimistic-lock updates now perform compare-and-apply under the same lock path, reducing TOCTOU conflicts during concurrent writes.
 - **Portfolio denominator fallback correctness (PR #28):** position-sizing calculations now avoid stale denominator contamination in pipeline fallback paths.
 - **Snapshot/AI volume consistency guard NaN handling (PR #51):** notification-layer missing-metric detection now treats `NaN` forms (e.g., numeric `nan`, `\"nan\"`, `\"nan%\"`) as unavailable, ensuring volume commentary is downgraded when key snapshot fields are effectively missing.

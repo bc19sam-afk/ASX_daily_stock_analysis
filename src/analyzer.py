@@ -909,8 +909,7 @@ class GeminiAnalyzer:
     def _is_gemini_quota_exhausted_error(error: Exception) -> bool:
         message = str(error or "").lower()
         return (
-            "quota exceeded" in message
-            or "generaterequestsperday" in message
+            "generaterequestsperday" in message
             or "perdayperprojectpermodel" in message
             or "requests per day" in message
         )
