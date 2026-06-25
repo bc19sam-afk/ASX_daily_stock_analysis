@@ -1,6 +1,7 @@
 import pytest
 
 import importlib
+import threading
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,6 +33,8 @@ def _make_test_analyzer(keys: list[str]) -> GeminiAnalyzer:
     analyzer._openai_client = None
     analyzer._using_fallback = False
     analyzer._current_model_name = "gemini-3.5-flash"
+    analyzer._gemini_route_exhausted = set()
+    analyzer._gemini_route_lock = threading.RLock()
     analyzer._gemini_key_manager = GeminiKeyManager(keys)
     analyzer._api_key = analyzer._gemini_key_manager.current_key
     analyzer._model = {"api_key": analyzer._api_key}
@@ -145,6 +148,120 @@ def test_gemini_rotates_to_second_key_on_429(monkeypatch):
     assert result == "ok"
     assert calls == [first_key, second_key]
     assert analyzer._api_key == second_key
+
+
+def test_gemini_uses_primary_model_on_all_keys_before_fallback_model(monkeypatch):
+    first_key = "first-key-1234567890"
+    second_key = "second-key-1234567890"
+    analyzer = _make_test_analyzer([first_key, second_key])
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        "src.analyzer.get_config",
+        lambda: SimpleNamespace(
+            gemini_model="gemini-3.5-flash",
+            gemini_model_fallback="gemini-3-flash-preview",
+            gemini_max_retries=1,
+            gemini_retry_delay=0.0,
+            anthropic_api_key=None,
+            openai_api_key=None,
+        ),
+    )
+    monkeypatch.setattr("src.analyzer.time.sleep", lambda *_args, **_kwargs: None)
+
+    def _fake_generate(_prompt: str, _generation_config: dict) -> str:
+        calls.append((analyzer._api_key, analyzer._current_model_name))
+        if analyzer._current_model_name == "gemini-3.5-flash":
+            raise RuntimeError(
+                "429 RESOURCE_EXHAUSTED: Quota exceeded for "
+                "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+            )
+        return "ok"
+
+    monkeypatch.setattr(analyzer, "_generate_gemini_content", _fake_generate)
+
+    result = analyzer._call_api_with_retry("prompt", {})
+
+    assert result == "ok"
+    assert calls == [
+        (first_key, "gemini-3.5-flash"),
+        (second_key, "gemini-3.5-flash"),
+        (first_key, "gemini-3-flash-preview"),
+    ]
+
+
+def test_gemini_fallback_model_is_not_sticky_for_next_call(monkeypatch):
+    first_key = "first-key-1234567890"
+    second_key = "second-key-1234567890"
+    analyzer = _make_test_analyzer([first_key, second_key])
+    analyzer._current_model_name = "gemini-3-flash-preview"
+    analyzer._using_fallback = True
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        "src.analyzer.get_config",
+        lambda: SimpleNamespace(
+            gemini_model="gemini-3.5-flash",
+            gemini_model_fallback="gemini-3-flash-preview",
+            gemini_max_retries=2,
+            gemini_retry_delay=0.0,
+            anthropic_api_key=None,
+            openai_api_key=None,
+        ),
+    )
+
+    def _fake_generate(_prompt: str, _generation_config: dict) -> str:
+        calls.append((analyzer._api_key, analyzer._current_model_name))
+        return "ok"
+
+    monkeypatch.setattr(analyzer, "_generate_gemini_content", _fake_generate)
+
+    result = analyzer._call_api_with_retry("prompt", {})
+
+    assert result == "ok"
+    assert calls == [(first_key, "gemini-3.5-flash")]
+    assert analyzer._current_model_name == "gemini-3.5-flash"
+    assert analyzer._using_fallback is False
+
+
+def test_gemini_quota_exhaustion_is_tracked_per_key_and_model(monkeypatch):
+    first_key = "first-key-1234567890"
+    second_key = "second-key-1234567890"
+    analyzer = _make_test_analyzer([first_key, second_key])
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        "src.analyzer.get_config",
+        lambda: SimpleNamespace(
+            gemini_model="gemini-3.5-flash",
+            gemini_model_fallback="gemini-3-flash-preview",
+            gemini_max_retries=2,
+            gemini_retry_delay=0.0,
+            anthropic_api_key=None,
+            openai_api_key=None,
+        ),
+    )
+    monkeypatch.setattr("src.analyzer.time.sleep", lambda *_args, **_kwargs: None)
+
+    def _fake_generate(_prompt: str, _generation_config: dict) -> str:
+        calls.append((analyzer._api_key, analyzer._current_model_name))
+        if analyzer._api_key == first_key and analyzer._current_model_name == "gemini-3.5-flash":
+            raise RuntimeError(
+                "429 RESOURCE_EXHAUSTED: Quota exceeded for "
+                "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+            )
+        return "ok"
+
+    monkeypatch.setattr(analyzer, "_generate_gemini_content", _fake_generate)
+
+    assert analyzer._call_api_with_retry("prompt-1", {}) == "ok"
+    assert analyzer._call_api_with_retry("prompt-2", {}) == "ok"
+
+    assert calls == [
+        (first_key, "gemini-3.5-flash"),
+        (second_key, "gemini-3.5-flash"),
+        (second_key, "gemini-3.5-flash"),
+    ]
 
 
 @pytest.mark.parametrize(
