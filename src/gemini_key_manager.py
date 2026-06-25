@@ -169,6 +169,15 @@ class GeminiKeyManager:
     def total_keys(self) -> int:
         return len(self._keys)
 
+    @property
+    def current_index(self) -> int:
+        return self._current_index
+
+    def key_at(self, index: int) -> Optional[str]:
+        if index < 0 or index >= len(self._keys):
+            return None
+        return self._keys[index]
+
     def has_keys(self) -> bool:
         return bool(self._keys)
 
@@ -181,7 +190,16 @@ class GeminiKeyManager:
         self._current_index += 1
         return True
 
+    def set_current_index(self, index: int) -> bool:
+        if index < 0 or index >= len(self._keys):
+            return False
+        self._current_index = index
+        return True
+
     def current_key_label(self) -> str:
-        if not self.current_key:
+        return self.key_label(self._current_index)
+
+    def key_label(self, index: int) -> str:
+        if self.key_at(index) is None:
             return "<none>"
-        return f"{self.current_key[:8]}..."
+        return f"key#{index + 1}/{len(self._keys)}"

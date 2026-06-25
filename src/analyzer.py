@@ -13,6 +13,7 @@
 import json
 import math
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
@@ -667,6 +668,8 @@ class GeminiAnalyzer:
         self._model = None
         self._current_model_name = None  # 当前使用的模型名称
         self._using_fallback = False  # 是否正在使用备选模型
+        self._gemini_route_exhausted = set()
+        self._gemini_route_lock = threading.RLock()
         self._use_openai = False  # 是否使用 OpenAI 兼容 API
         self._use_anthropic = False  # 是否使用 Anthropic Claude API
         self._openai_client = None  # OpenAI 客户端
@@ -818,6 +821,99 @@ class GeminiAnalyzer:
             )
             self._model = None
             return False
+
+    def _get_gemini_route_lock(self):
+        if not hasattr(self, "_gemini_route_lock"):
+            self._gemini_route_lock = threading.RLock()
+        return self._gemini_route_lock
+
+    def _gemini_model_candidates(self, config) -> List[str]:
+        primary_model = (
+            getattr(config, "gemini_model", None)
+            or getattr(self, "_current_model_name", None)
+            or "gemini-3.5-flash"
+        )
+        fallback_model = getattr(config, "gemini_model_fallback", None)
+
+        models: List[str] = []
+        for model_name in (primary_model, fallback_model):
+            model_name = str(model_name or "").strip()
+            if model_name and model_name not in models:
+                models.append(model_name)
+        return models
+
+    def _available_gemini_routes(self, config) -> List[tuple[int, str]]:
+        exhausted = getattr(self, "_gemini_route_exhausted", set())
+        routes: List[tuple[int, str]] = []
+        for model_name in self._gemini_model_candidates(config):
+            for key_index in range(self._gemini_key_manager.total_keys):
+                route = (key_index, model_name)
+                if route not in exhausted:
+                    routes.append(route)
+        return routes
+
+    def _activate_gemini_route(self, key_index: int, model_name: str) -> bool:
+        if not self._gemini_key_manager.set_current_index(key_index):
+            return False
+        if not self._activate_current_gemini_key():
+            return False
+        self._current_model_name = model_name
+        primary_model = getattr(get_config(), "gemini_model", None)
+        self._using_fallback = bool(primary_model and model_name != primary_model)
+        logger.info(
+            "[Gemini] 使用容量槽: %s / %s",
+            model_name,
+            self._gemini_key_manager.current_key_label(),
+        )
+        return True
+
+    def _prepare_gemini_route_for_call(self, config) -> None:
+        routes = self._available_gemini_routes(config)
+        if not routes:
+            return
+        key_index, model_name = routes[0]
+        if (
+            self._gemini_key_manager.current_index == key_index
+            and self._current_model_name == model_name
+        ):
+            return
+        self._activate_gemini_route(key_index, model_name)
+
+    def _mark_gemini_route_exhausted(
+        self,
+        key_index: int,
+        model_name: str,
+        *,
+        all_models_for_key: bool = False,
+    ) -> None:
+        if not hasattr(self, "_gemini_route_exhausted"):
+            self._gemini_route_exhausted = set()
+
+        if all_models_for_key:
+            for candidate in self._gemini_model_candidates(get_config()):
+                self._gemini_route_exhausted.add((key_index, candidate))
+            logger.warning(
+                "[Gemini] API key 容量槽已停用: %s",
+                self._gemini_key_manager.key_label(key_index),
+            )
+            return
+
+        self._gemini_route_exhausted.add((key_index, model_name))
+        logger.warning(
+            "[Gemini] 容量槽已标记为本轮耗尽: %s / %s",
+            model_name,
+            self._gemini_key_manager.key_label(key_index),
+        )
+
+    @staticmethod
+    def _is_gemini_quota_exhausted_error(error: Exception) -> bool:
+        message = str(error or "").lower()
+        return (
+            "resource_exhausted" in message
+            or "quota exceeded" in message
+            or "generaterequestsperday" in message
+            or "perdayperprojectpermodel" in message
+        )
 
     def _rotate_to_next_gemini_key(self, error: Exception) -> bool:
         is_key_specific = is_key_specific_gemini_error(error)
@@ -1029,17 +1125,115 @@ class GeminiAnalyzer:
                     raise
         
         raise Exception("OpenAI API 调用失败，已达最大重试次数")
+
+    def _call_gemini_api_with_retry(self, prompt: str, generation_config: dict) -> str:
+        config = get_config()
+        base_delay = config.gemini_retry_delay
+        routes = self._available_gemini_routes(config)
+        max_retries = max(config.gemini_max_retries, len(routes), 1)
+        last_error = None
+        attempted_routes: set[tuple[int, str]] = set()
+
+        with self._get_gemini_route_lock():
+            self._prepare_gemini_route_for_call(config)
+
+            for attempt in range(max_retries):
+                routes = self._available_gemini_routes(config)
+                if not routes:
+                    logger.warning("[Gemini] 所有 key/model 容量槽均已耗尽")
+                    break
+
+                untried_routes = [route for route in routes if route not in attempted_routes]
+                if not untried_routes:
+                    attempted_routes.clear()
+                    untried_routes = routes
+
+                key_index, model_name = untried_routes[0]
+                attempted_routes.add((key_index, model_name))
+                if not self._activate_gemini_route(key_index, model_name):
+                    self._mark_gemini_route_exhausted(
+                        key_index,
+                        model_name,
+                        all_models_for_key=True,
+                    )
+                    continue
+
+                try:
+                    if attempt > 0:
+                        delay = base_delay * (2 ** (attempt - 1))
+                        delay = min(delay, 60)
+                        logger.info(
+                            f"[Gemini] 第 {attempt + 1} 次重试，等待 {delay:.1f} 秒..."
+                        )
+                        time.sleep(delay)
+
+                    return self._generate_gemini_content(prompt, generation_config)
+
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e)
+                    error_lower = error_str.lower()
+                    is_transient = is_transient_gemini_error(e)
+                    is_key_specific = is_key_specific_gemini_error(e)
+
+                    if is_key_specific:
+                        self._mark_gemini_route_exhausted(
+                            key_index,
+                            model_name,
+                            all_models_for_key=True,
+                        )
+                        logger.info("[Gemini] 已切换到下一个可用 API key/model 容量槽")
+                        continue
+
+                    if not is_transient:
+                        logger.warning(
+                            "[Gemini] Non-transient error detected, stop Gemini retries without rotating key: %s",
+                            error_str[:100],
+                        )
+                        break
+
+                    is_rate_limit = (
+                        '429' in error_str
+                        or 'quota' in error_lower
+                        or 'rate limit' in error_lower
+                        or 'too many requests' in error_lower
+                    )
+                    is_overload = is_transient and not is_rate_limit
+                    err_type = "限流 (429)" if is_rate_limit else "过载/连接失败 (503)"
+                    logger.warning(
+                        "[Gemini] API %s，容量槽 %s / %s，第 %s/%s 次尝试: %s",
+                        err_type,
+                        model_name,
+                        self._gemini_key_manager.key_label(key_index),
+                        attempt + 1,
+                        max_retries,
+                        error_str[:100],
+                    )
+
+                    if self._is_gemini_quota_exhausted_error(e):
+                        self._mark_gemini_route_exhausted(key_index, model_name)
+
+                    if is_overload and hasattr(self, '_model') and self._model is not None:
+                        try:
+                            self._model = self._build_gemini_client(self._api_key)
+                            logger.info("[Gemini] 已重建Client连接")
+                        except Exception:
+                            pass
+
+                    logger.info("[Gemini] 已切换到下一个可用 API key/model 容量槽")
+
+        raise last_error or Exception("所有 Gemini API 调用失败，已达最大重试次数")
     
     def _call_api_with_retry(self, prompt: str, generation_config: dict) -> str:
         """
         调用 AI API，带有重试和模型切换机制
         
-        优先级：Gemini > Gemini 备选模型 > OpenAI 兼容 API
+        优先级：Gemini key/model 容量池 > Anthropic > OpenAI 兼容 API
         
         处理 429 限流错误：
-        1. 先指数退避重试
-        2. 多次失败后切换到备选模型
-        3. Gemini 完全失败后尝试 OpenAI
+        1. 先尝试下一个可用的 Gemini key/model 容量槽
+        2. 每日配额耗尽时，本轮跳过对应 key/model 槽位
+        3. Gemini 容量池完全失败后尝试 Anthropic/OpenAI
         
         Args:
             prompt: 提示词
@@ -1064,84 +1258,14 @@ class GeminiAnalyzer:
         if self._use_openai:
             return self._call_openai_api(prompt, generation_config)
 
-        config = get_config()
-        max_retries = max(config.gemini_max_retries, self._gemini_key_manager.total_keys)
-        base_delay = config.gemini_retry_delay
-        
         last_error = None
-        tried_fallback = getattr(self, '_using_fallback', False)
-        
-        for attempt in range(max_retries):
-            try:
-                # 请求前增加延时（防止请求过快触发限流）
-                if attempt > 0:
-                    delay = base_delay * (2 ** (attempt - 1))  # 指数退避: 5, 10, 20, 40...
-                    delay = min(delay, 60)  # 最大60秒
-                    logger.info(f"[Gemini] 第 {attempt + 1} 次重试，等待 {delay:.1f} 秒...")
-                    time.sleep(delay)
-
-                return self._generate_gemini_content(prompt, generation_config)
-                    
-            except Exception as e:
-                last_error = e
-                error_str = str(e)
-                error_lower = error_str.lower()
-                is_transient = is_transient_gemini_error(e)
-                is_key_specific = is_key_specific_gemini_error(e)
-                if not is_transient and not is_key_specific:
-                    logger.warning(
-                        "[Gemini] Non-transient error detected, stop Gemini retries without rotating key: %s",
-                        error_str[:100],
-                    )
-                    break
-
-                if is_key_specific and not is_transient:
-                    if self._rotate_to_next_gemini_key(e):
-                        logger.info("[Gemini] 已切换到下一个 API key，继续重试")
-                        continue
-                    logger.warning(
-                        "[Gemini] Key-specific error and no remaining API key, stop Gemini retries: %s",
-                        error_str[:100],
-                    )
-                    break
-                
-                # 检查是否是 429 限流 或 503 过载错误
-                is_rate_limit = (
-                    '429' in error_str
-                    or 'quota' in error_lower
-                    or 'rate limit' in error_lower
-                    or 'too many requests' in error_lower
-                )
-                is_overload = is_transient and not is_rate_limit
-                
-                if is_rate_limit or is_overload:
-                    if self._rotate_to_next_gemini_key(e):
-                        logger.info("[Gemini] 已切换到下一个 API key，继续重试")
-                        continue
-
-                    err_type = "限流 (429)" if is_rate_limit else "过载/连接失败 (503)"
-                    logger.warning(f"[Gemini] API {err_type}，第 {attempt + 1}/{max_retries} 次尝试: {error_str[:100]}")
-                    
-                    # 503/连接失败时重建Client，避免持久连接状态损坏
-                    if is_overload and hasattr(self, '_model') and self._model is not None:
-                        try:
-                            self._model = self._build_gemini_client(self._api_key)
-                            logger.info("[Gemini] 已重建Client连接")
-                        except Exception:
-                            pass
-                    
-                    # 如果已经重试了一半次数且还没切换过备选模型，尝试切换
-                    if attempt >= max_retries // 2 and not tried_fallback:
-                        if self._switch_to_fallback_model():
-                            tried_fallback = True
-                            logger.info("[Gemini] 已切换到备选模型，继续重试")
-                        else:
-                            logger.warning("[Gemini] 切换备选模型失败，继续使用当前模型重试")
-                else:
-                    # 其他错误，记录并继续重试
-                    logger.warning(f"[Gemini] API 调用失败，第 {attempt + 1}/{max_retries} 次尝试: {error_str[:100]}")
+        try:
+            return self._call_gemini_api_with_retry(prompt, generation_config)
+        except Exception as e:
+            last_error = e
         
         # Gemini 重试耗尽，尝试 Anthropic 再 OpenAI
+        config = get_config()
         if self._anthropic_client:
             logger.warning("[Gemini] All retries failed, switching to Anthropic")
             try:
@@ -1259,6 +1383,10 @@ class GeminiAnalyzer:
         try:
             # 格式化输入（包含技术面数据和新闻）
             prompt = self._format_prompt(context, name, news_context)
+
+            if self._model is not None and not self._use_anthropic and not self._use_openai:
+                with self._get_gemini_route_lock():
+                    self._prepare_gemini_route_for_call(config)
             
             # 获取模型名称
             model_name = getattr(self, '_current_model_name', None)
