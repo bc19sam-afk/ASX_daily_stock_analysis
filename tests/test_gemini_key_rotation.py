@@ -1,6 +1,7 @@
 import pytest
 
 import importlib
+import sys
 import threading
 
 from pathlib import Path
@@ -101,6 +102,27 @@ def test_config_registry_exposes_gemini_grounding_search_fields():
     assert model["default_value"] == "gemini-3.5-flash"
     assert max_results["default_value"] == "3"
     assert {"GEMINI_GROUNDING_SEARCH_ENABLED", "GEMINI_GROUNDING_MODEL", "GEMINI_GROUNDING_MAX_RESULTS"} <= schema_keys
+
+
+def test_gemini_analysis_client_sets_http_timeout(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured["client_kwargs"] = kwargs
+
+    fake_types = SimpleNamespace(HttpOptions=lambda **kwargs: SimpleNamespace(**kwargs))
+    fake_genai = SimpleNamespace(Client=FakeClient, types=fake_types)
+    monkeypatch.setitem(sys.modules, "google", SimpleNamespace(genai=fake_genai))
+    monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
+
+    analyzer = GeminiAnalyzer.__new__(GeminiAnalyzer)
+
+    analyzer._build_gemini_client("gemini-key-1234567890")
+
+    client_kwargs = captured["client_kwargs"]
+    assert client_kwargs["api_key"] == "gemini-key-1234567890"
+    assert client_kwargs["http_options"].timeout == 60000
 
 
 def test_config_prefers_multi_gemini_keys_over_legacy_single_key(tmp_path, monkeypatch):

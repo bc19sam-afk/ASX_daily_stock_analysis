@@ -5,6 +5,7 @@ This changelog summarizes behavior that is visible on current `main`, with empha
 ## [Unreleased]
 
 ### Fixed
+- **Gemini client timeout guard:** Gemini analysis and Gemini Grounding clients now use a 60-second HTTP timeout so an upstream non-response is bounded per SDK request instead of waiting for the scheduled daily-report job timeout.
 - **Gemini capacity routing:** Gemini analysis retries now treat each key/model pair as a capacity slot, trying all configured project keys on the primary model before fallback, and avoiding sticky fallback-model use after transient failures.
 - **Gemini temporary throttling handling:** transient `RESOURCE_EXHAUSTED`/retry-later responses no longer disable a key/model capacity slot for the rest of the run unless the error explicitly indicates daily quota exhaustion.
 - **Gemini per-minute quota handling:** per-minute `Quota exceeded` throttles now remain retryable instead of being mistaken for daily quota exhaustion.

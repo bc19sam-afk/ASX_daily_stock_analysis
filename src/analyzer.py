@@ -31,6 +31,7 @@ from src.backtest_summary import (
 )
 from src.config import get_config
 from src.gemini_key_manager import (
+    GEMINI_API_TIMEOUT_MS,
     GeminiKeyManager,
     is_key_specific_gemini_error,
     is_transient_gemini_error,
@@ -799,8 +800,12 @@ class GeminiAnalyzer:
 
     def _build_gemini_client(self, api_key: str):
         from google import genai
+        from google.genai import types as genai_types
 
-        return genai.Client(api_key=api_key)
+        return genai.Client(
+            api_key=api_key,
+            http_options=genai_types.HttpOptions(timeout=GEMINI_API_TIMEOUT_MS),
+        )
 
     def _activate_current_gemini_key(self) -> bool:
         current_key = self._gemini_key_manager.current_key
