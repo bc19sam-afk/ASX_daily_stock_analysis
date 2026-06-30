@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 import requests
 from newspaper import Article, Config
 
-from src.gemini_key_manager import is_valid_gemini_api_key
+from src.gemini_key_manager import GEMINI_API_TIMEOUT_MS, is_valid_gemini_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -317,7 +317,10 @@ class GeminiGroundingSearchProvider(BaseSearchProvider):
 
         try:
             effective_max_results = min(max(1, max_results), self._grounding_max_results)
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(timeout=GEMINI_API_TIMEOUT_MS),
+            )
             tool = types.Tool(google_search=types.GoogleSearch())
             config = types.GenerateContentConfig(tools=[tool], temperature=0.2)
             response = client.models.generate_content(

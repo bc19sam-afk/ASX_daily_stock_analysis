@@ -150,6 +150,8 @@ class SearchAsxLocalisationTestCase(unittest.TestCase):
         )
 
     def test_gemini_grounding_extracts_search_results_from_grounding_chunks(self) -> None:
+        captured = {}
+
         class FakeModels:
             @staticmethod
             def generate_content(*, model, contents, config):
@@ -160,10 +162,12 @@ class SearchAsxLocalisationTestCase(unittest.TestCase):
                 return SimpleNamespace(text='{"results": []}', candidates=[candidate])
 
         class FakeClient:
-            def __init__(self, api_key):
+            def __init__(self, **kwargs):
+                captured["client_kwargs"] = kwargs
                 self.models = FakeModels()
 
         fake_types = SimpleNamespace(
+            HttpOptions=lambda **kwargs: SimpleNamespace(**kwargs),
             Tool=lambda google_search: SimpleNamespace(google_search=google_search),
             GoogleSearch=lambda: SimpleNamespace(),
             GenerateContentConfig=lambda **kwargs: SimpleNamespace(**kwargs),
@@ -178,6 +182,7 @@ class SearchAsxLocalisationTestCase(unittest.TestCase):
             ).search("CBA.AX ASX latest news", max_results=3, days=1)
 
         self.assertTrue(response.success)
+        self.assertEqual(captured["client_kwargs"]["http_options"].timeout, 60000)
         self.assertEqual(response.provider, "Gemini Grounding")
         self.assertEqual(response.results[0].url, "https://www.asx.com.au/markets/company/CBA")
         self.assertEqual(response.results[0].title, "CBA ASX profile")

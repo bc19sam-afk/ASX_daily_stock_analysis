@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 
+GEMINI_API_TIMEOUT_MS = 60_000
+
 _TRANSIENT_STATUS_RE = re.compile(r"\b(429|500|502|503|504)\b")
 _TRANSIENT_ERROR_TOKENS = (
     "quota",
