@@ -699,6 +699,23 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
             "report body", receivers=["default@example.com"]
         )
 
+    def test_email_stock_codes_without_groups_use_default_receivers_for_inline_image(
+        self,
+    ) -> None:
+        service = self._build_channel_service([NotificationChannel.EMAIL])
+        service._email_config = {"receivers": ["default@example.com"]}
+        service._send_email_with_inline_image = MagicMock(return_value=True)
+        service.send_to_email = MagicMock(return_value=True)
+        image_bytes = b"image-bytes"
+
+        with patch("src.md2img.markdown_to_image", return_value=image_bytes):
+            self.assertTrue(service.send("report body", email_stock_codes=["BHP"]))
+
+        service._send_email_with_inline_image.assert_called_once_with(
+            image_bytes, receivers=["default@example.com"]
+        )
+        service.send_to_email.assert_not_called()
+
     def test_email_send_to_all_without_groups_uses_default_receivers_through_send(self) -> None:
         service = self._build_channel_service([NotificationChannel.EMAIL])
         service._markdown_to_image_channels = set()
