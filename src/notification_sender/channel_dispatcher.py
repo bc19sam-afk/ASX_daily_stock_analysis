@@ -9,43 +9,59 @@ logger = logging.getLogger(__name__)
 class NotificationDispatchAdapter(Protocol):
     """Methods needed to dispatch one configured notification channel."""
 
-    def send_to_wechat(self, content: str) -> bool: ...
+    def send_to_wechat(self, content: str) -> bool:
+        ...
 
-    def _send_wechat_image(self, image_bytes: bytes) -> bool: ...
+    def send_wechat_image(self, image_bytes: bytes) -> bool:
+        ...
 
-    def send_to_feishu(self, content: str) -> bool: ...
+    def send_to_feishu(self, content: str) -> bool:
+        ...
 
-    def send_to_telegram(self, content: str) -> bool: ...
+    def send_to_telegram(self, content: str) -> bool:
+        ...
 
-    def _send_telegram_photo(self, image_bytes: bytes) -> bool: ...
+    def send_telegram_photo(self, image_bytes: bytes) -> bool:
+        ...
 
     def send_to_email(
         self, content: str, receivers: Optional[List[str]] = None
-    ) -> bool: ...
+    ) -> bool:
+        ...
 
-    def _send_email_with_inline_image(
+    def send_email_with_inline_image(
         self, image_bytes: bytes, receivers: Optional[List[str]] = None
-    ) -> bool: ...
+    ) -> bool:
+        ...
 
-    def get_all_email_receivers(self) -> List[str]: ...
+    def get_all_email_receivers(self) -> List[str]:
+        ...
 
-    def get_receivers_for_stocks(self, stock_codes: List[str]) -> List[str]: ...
+    def get_receivers_for_stocks(self, stock_codes: List[str]) -> List[str]:
+        ...
 
-    def send_to_pushover(self, content: str) -> bool: ...
+    def send_to_pushover(self, content: str) -> bool:
+        ...
 
-    def send_to_pushplus(self, content: str) -> bool: ...
+    def send_to_pushplus(self, content: str) -> bool:
+        ...
 
-    def send_to_serverchan3(self, content: str) -> bool: ...
+    def send_to_serverchan3(self, content: str) -> bool:
+        ...
 
-    def send_to_custom(self, content: str) -> bool: ...
+    def send_to_custom(self, content: str) -> bool:
+        ...
 
-    def _send_custom_webhook_image(
+    def send_custom_webhook_image(
         self, image_bytes: bytes, fallback_content: str = ""
-    ) -> bool: ...
+    ) -> bool:
+        ...
 
-    def send_to_discord(self, content: str) -> bool: ...
+    def send_to_discord(self, content: str) -> bool:
+        ...
 
-    def send_to_astrbot(self, content: str) -> bool: ...
+    def send_to_astrbot(self, content: str) -> bool:
+        ...
 
 
 def _channel_value(channel: object) -> object:
@@ -67,7 +83,7 @@ def dispatch_notification_channel(
 
     if channel_value == "wechat":
         if use_image and image_bytes is not None:
-            return adapter._send_wechat_image(image_bytes)
+            return adapter.send_wechat_image(image_bytes)
         return adapter.send_to_wechat(content)
 
     if channel_value == "feishu":
@@ -75,7 +91,7 @@ def dispatch_notification_channel(
 
     if channel_value == "telegram":
         if use_image and image_bytes is not None:
-            return adapter._send_telegram_photo(image_bytes)
+            return adapter.send_telegram_photo(image_bytes)
         return adapter.send_to_telegram(content)
 
     if channel_value == "email":
@@ -85,7 +101,7 @@ def dispatch_notification_channel(
         elif email_stock_codes:
             receivers = adapter.get_receivers_for_stocks(email_stock_codes)
         if use_image and image_bytes is not None:
-            return adapter._send_email_with_inline_image(
+            return adapter.send_email_with_inline_image(
                 image_bytes, receivers=receivers
             )
         return adapter.send_to_email(content, receivers=receivers)
@@ -101,7 +117,7 @@ def dispatch_notification_channel(
 
     if channel_value == "custom":
         if use_image and image_bytes is not None:
-            return adapter._send_custom_webhook_image(
+            return adapter.send_custom_webhook_image(
                 image_bytes, fallback_content=content
             )
         return adapter.send_to_custom(content)

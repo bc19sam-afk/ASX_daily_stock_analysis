@@ -21,7 +21,7 @@ class FakeDispatchAdapter:
         self.calls.append(("wechat_text", content))
         return True
 
-    def _send_wechat_image(self, image_bytes: bytes) -> bool:
+    def send_wechat_image(self, image_bytes: bytes) -> bool:
         self.calls.append(("wechat_image", image_bytes))
         return True
 
@@ -33,7 +33,7 @@ class FakeDispatchAdapter:
         self.calls.append(("telegram_text", content))
         return True
 
-    def _send_telegram_photo(self, image_bytes: bytes) -> bool:
+    def send_telegram_photo(self, image_bytes: bytes) -> bool:
         self.calls.append(("telegram_image", image_bytes))
         return True
 
@@ -43,7 +43,7 @@ class FakeDispatchAdapter:
         self.calls.append(("email_text", content, receivers))
         return True
 
-    def _send_email_with_inline_image(
+    def send_email_with_inline_image(
         self, image_bytes: bytes, receivers: Optional[List[str]] = None
     ) -> bool:
         self.calls.append(("email_image", image_bytes, receivers))
@@ -73,7 +73,7 @@ class FakeDispatchAdapter:
         self.calls.append(("custom_text", content))
         return True
 
-    def _send_custom_webhook_image(
+    def send_custom_webhook_image(
         self, image_bytes: bytes, fallback_content: str = ""
     ) -> bool:
         self.calls.append(("custom_image", image_bytes, fallback_content))

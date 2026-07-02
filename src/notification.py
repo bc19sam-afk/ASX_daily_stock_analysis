@@ -4210,6 +4210,10 @@ class NotificationService:
             logger.error(f"发送企业微信消息失败: {e}")
             return False
 
+    def send_wechat_image(self, image_bytes: bytes) -> bool:
+        """Send image via WeChat using the service's existing image sender."""
+        return self._send_wechat_image(image_bytes)
+
     def _send_wechat_image(self, image_bytes: bytes) -> bool:
         """Send image via WeChat Work webhook msgtype image (Issue #289)."""
         if not self._wechat_url:
@@ -4828,6 +4832,12 @@ class NotificationService:
             logger.error(f"发送邮件失败: {e}")
             return False
 
+    def send_email_with_inline_image(
+        self, image_bytes: bytes, receivers: Optional[List[str]] = None
+    ) -> bool:
+        """Send an inline-image email using the service's existing sender."""
+        return self._send_email_with_inline_image(image_bytes, receivers=receivers)
+
     def _send_email_with_inline_image(
         self, image_bytes: bytes, receivers: Optional[List[str]] = None
     ) -> bool:
@@ -5054,6 +5064,10 @@ class NotificationService:
                 all_success = False
                 
         return all_success
+
+    def send_telegram_photo(self, image_bytes: bytes) -> bool:
+        """Send image via Telegram using the service's existing photo sender."""
+        return self._send_telegram_photo(image_bytes)
 
     def _send_telegram_photo(self, image_bytes: bytes) -> bool:
         """Send image via Telegram sendPhoto API (Issue #289)."""
@@ -5379,6 +5393,14 @@ class NotificationService:
         return (
             'discord.com/api/webhooks' in url_lower
             or 'discordapp.com/api/webhooks' in url_lower
+        )
+
+    def send_custom_webhook_image(
+        self, image_bytes: bytes, fallback_content: str = ""
+    ) -> bool:
+        """Send image to custom webhooks using the existing image sender."""
+        return self._send_custom_webhook_image(
+            image_bytes, fallback_content=fallback_content
         )
 
     def _send_custom_webhook_image(
