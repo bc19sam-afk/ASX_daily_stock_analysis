@@ -46,8 +46,14 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install flake8 pytest
-      - name: ✅ Run backend gate
-        run: ./scripts/ci_gate.sh
+      - name: "✅ Backend gate: syntax"
+        run: ./scripts/ci_gate.sh syntax
+      - name: "✅ Backend gate: flake8"
+        run: ./scripts/ci_gate.sh flake8
+      - name: "✅ Backend gate: deterministic"
+        run: ./scripts/ci_gate.sh deterministic
+      - name: "✅ Backend gate: offline tests"
+        run: ./scripts/ci_gate.sh offline-tests
 
   docker-build:
     name: docker-build
