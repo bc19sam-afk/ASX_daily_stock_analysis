@@ -687,6 +687,30 @@ class NotificationSummaryFormatTestCase(unittest.TestCase):
         service.send_to_wechat.assert_called_once_with("report body")
         service._send_wechat_image.assert_not_called()
 
+    def test_email_stock_codes_without_groups_use_default_receivers_through_send(self) -> None:
+        service = self._build_channel_service([NotificationChannel.EMAIL])
+        service._markdown_to_image_channels = set()
+        service._email_config = {"receivers": ["default@example.com"]}
+        service.send_to_email = MagicMock(return_value=True)
+
+        self.assertTrue(service.send("report body", email_stock_codes=["BHP"]))
+
+        service.send_to_email.assert_called_once_with(
+            "report body", receivers=["default@example.com"]
+        )
+
+    def test_email_send_to_all_without_groups_uses_default_receivers_through_send(self) -> None:
+        service = self._build_channel_service([NotificationChannel.EMAIL])
+        service._markdown_to_image_channels = set()
+        service._email_config = {"receivers": ["default@example.com"]}
+        service.send_to_email = MagicMock(return_value=True)
+
+        self.assertTrue(service.send("market review", email_send_to_all=True))
+
+        service.send_to_email.assert_called_once_with(
+            "market review", receivers=["default@example.com"]
+        )
+
     def test_single_stock_report_labels_sniper_points_as_conditional_review_only(self) -> None:
         service = self._build_service()
         result = self._build_result(
