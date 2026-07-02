@@ -4,6 +4,9 @@ This changelog summarizes behavior that is visible on current `main`, with empha
 
 ## [Unreleased]
 
+### Added
+- **Workbench diagnostics run-flow contract:** `GET /api/v1/workbench/diagnostics` now includes a low-sensitive, read-only `run_flow_contract` with lanes, nodes, edges, events, summary, schema links, explicit manual-review semantics, and empty side effects.
+
 ### Fixed
 - **Gemini client timeout guard:** Gemini analysis and Gemini Grounding clients now use a 60-second HTTP timeout so an upstream non-response is bounded per SDK request instead of waiting for the scheduled daily-report job timeout.
 - **Gemini capacity routing:** Gemini analysis retries now treat each key/model pair as a capacity slot, trying all configured project keys on the primary model before fallback, and avoiding sticky fallback-model use after transient failures.
