@@ -86,6 +86,7 @@ from src.notification_dashboard_observation_builders import (
     build_dashboard_observation_appendix_lines,
 )
 from src.notification_sender import dispatch_notification_channel
+from src.services.report_renderer import render_email_report_footer
 from src.storage import get_db
 from bot.models import BotMessage
 
@@ -2722,12 +2723,18 @@ class NotificationService:
         trailing_separator = "\n---"
         if email_body.endswith(trailing_separator):
             email_body = email_body[:-len(trailing_separator)].rstrip()
-        email_body += (
+        fallback_footer = (
             "\n\n---\n\n"
             "## 完整归档\n\n"
             "- 完整证据矩阵、历史校准、评分校准、风险仓位附录和审计细节已保存到本地 Markdown/HTML 归档。\n\n"
             "*免责声明：仅作计划，供人工决策辅助；系统不自动下单。*"
         )
+        try:
+            rendered_footer = render_email_report_footer()
+        except Exception:
+            logger.warning("Email report footer renderer failed; using literal fallback", exc_info=True)
+            rendered_footer = None
+        email_body += rendered_footer or fallback_footer
         return email_body
 
     def _resolve_dashboard_report_timing(
