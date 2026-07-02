@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Optional template rendering helpers for report fragments."""
+"""Optional template rendering helpers for small report fragments.
+
+This module is intentionally fragment-scoped: callers should expose explicit
+helpers with literal fallbacks rather than treating it as a full report renderer.
+"""
 
 import logging
 from pathlib import Path
@@ -22,13 +26,13 @@ def _create_jinja_environment(template_dir: Path) -> Any:
     )
 
 
-def render_template(
+def _render_template(
     template_name: str,
     context: Optional[Mapping[str, Any]] = None,
     *,
     template_dir: Optional[Path] = None,
 ) -> Optional[str]:
-    """Render a report template when optional Jinja support is available."""
+    """Render a report fragment when optional Jinja support is available."""
     template_root = template_dir or DEFAULT_TEMPLATE_DIR
     try:
         environment = _create_jinja_environment(template_root)
@@ -53,7 +57,7 @@ def render_template(
 
 def render_email_report_footer(*, template_dir: Optional[Path] = None) -> Optional[str]:
     """Render the email archive footer, or return None for the literal fallback."""
-    rendered = render_template(EMAIL_REPORT_FOOTER_TEMPLATE, {}, template_dir=template_dir)
+    rendered = _render_template(EMAIL_REPORT_FOOTER_TEMPLATE, {}, template_dir=template_dir)
     if rendered is None:
         return None
     return "\n\n" + rendered.lstrip("\n")
