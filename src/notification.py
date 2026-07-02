@@ -85,6 +85,7 @@ from src.notification_portfolio_builders import (
 from src.notification_dashboard_observation_builders import (
     build_dashboard_observation_appendix_lines,
 )
+from src.notification_sender import dispatch_notification_channel
 from src.storage import get_db
 from bot.models import BotMessage
 
@@ -4209,6 +4210,10 @@ class NotificationService:
             logger.error(f"发送企业微信消息失败: {e}")
             return False
 
+    def send_wechat_image(self, image_bytes: bytes) -> bool:
+        """Send image via WeChat using the service's existing image sender."""
+        return self._send_wechat_image(image_bytes)
+
     def _send_wechat_image(self, image_bytes: bytes) -> bool:
         """Send image via WeChat Work webhook msgtype image (Issue #289)."""
         if not self._wechat_url:
@@ -4827,6 +4832,12 @@ class NotificationService:
             logger.error(f"发送邮件失败: {e}")
             return False
 
+    def send_email_with_inline_image(
+        self, image_bytes: bytes, receivers: Optional[List[str]] = None
+    ) -> bool:
+        """Send an inline-image email using the service's existing sender."""
+        return self._send_email_with_inline_image(image_bytes, receivers=receivers)
+
     def _send_email_with_inline_image(
         self, image_bytes: bytes, receivers: Optional[List[str]] = None
     ) -> bool:
@@ -5053,6 +5064,10 @@ class NotificationService:
                 all_success = False
                 
         return all_success
+
+    def send_telegram_photo(self, image_bytes: bytes) -> bool:
+        """Send image via Telegram using the service's existing photo sender."""
+        return self._send_telegram_photo(image_bytes)
 
     def _send_telegram_photo(self, image_bytes: bytes) -> bool:
         """Send image via Telegram sendPhoto API (Issue #289)."""
@@ -5378,6 +5393,14 @@ class NotificationService:
         return (
             'discord.com/api/webhooks' in url_lower
             or 'discordapp.com/api/webhooks' in url_lower
+        )
+
+    def send_custom_webhook_image(
+        self, image_bytes: bytes, fallback_content: str = ""
+    ) -> bool:
+        """Send image to custom webhooks using the existing image sender."""
+        return self._send_custom_webhook_image(
+            image_bytes, fallback_content=fallback_content
         )
 
     def _send_custom_webhook_image(
@@ -6109,50 +6132,15 @@ class NotificationService:
             channel_name = ChannelDetector.get_channel_name(channel)
             use_image = self._should_use_image_for_channel(channel, image_bytes)
             try:
-                if channel == NotificationChannel.WECHAT:
-                    if use_image:
-                        result = self._send_wechat_image(image_bytes)
-                    else:
-                        result = self.send_to_wechat(content)
-                elif channel == NotificationChannel.FEISHU:
-                    result = self.send_to_feishu(content)
-                elif channel == NotificationChannel.TELEGRAM:
-                    if use_image:
-                        result = self._send_telegram_photo(image_bytes)
-                    else:
-                        result = self.send_to_telegram(content)
-                elif channel == NotificationChannel.EMAIL:
-                    receivers = None
-                    if email_send_to_all and self._stock_email_groups:
-                        receivers = self.get_all_email_receivers()
-                    elif email_stock_codes and self._stock_email_groups:
-                        receivers = self.get_receivers_for_stocks(email_stock_codes)
-                    if use_image:
-                        result = self._send_email_with_inline_image(
-                            image_bytes, receivers=receivers
-                        )
-                    else:
-                        result = self.send_to_email(content, receivers=receivers)
-                elif channel == NotificationChannel.PUSHOVER:
-                    result = self.send_to_pushover(content)
-                elif channel == NotificationChannel.PUSHPLUS:
-                    result = self.send_to_pushplus(content)
-                elif channel == NotificationChannel.SERVERCHAN3:
-                    result = self.send_to_serverchan3(content)
-                elif channel == NotificationChannel.CUSTOM:
-                    if use_image:
-                        result = self._send_custom_webhook_image(
-                            image_bytes, fallback_content=content
-                        )
-                    else:
-                        result = self.send_to_custom(content)
-                elif channel == NotificationChannel.DISCORD:
-                    result = self.send_to_discord(content)
-                elif channel == NotificationChannel.ASTRBOT:
-                    result = self.send_to_astrbot(content)
-                else:
-                    logger.warning(f"不支持的通知渠道: {channel}")
-                    result = False
+                result = dispatch_notification_channel(
+                    self,
+                    channel,
+                    content,
+                    image_bytes=image_bytes,
+                    use_image=use_image,
+                    email_stock_codes=email_stock_codes,
+                    email_send_to_all=email_send_to_all,
+                )
 
                 if result:
                     success_count += 1
