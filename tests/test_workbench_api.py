@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Workbench API contract tests."""
 
+import inspect
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from api.app import create_app
 from api.deps import get_database_manager, get_system_config_service
+from api.v1.endpoints import workbench
 from src.search_service import SearchResponse, SearchResult
 from src.storage import DatabaseManager, NewsIntel
 
@@ -158,6 +160,8 @@ def test_workbench_summary_answers_daily_operational_questions(tmp_path: Path):
     assert payload["diagnostics_hub"]["links"]["ledger_v2_rehearsal_report"] == (
         "/api/v1/portfolio-events/ledger-v2/rehearsal-report"
     )
+    assert "run_flow_contract" not in payload["diagnostics_hub"]["links"]
+    assert "run_flow_contract" not in payload["diagnostics_hub"]
     assert "summary only" in payload["diagnostics_hub"]["copy"]["boundary"]
     assert payload["ledger_v2_diagnostics"]["method"] == "GET"
     assert payload["ledger_v2_diagnostics"]["is_trade_instruction"] is False
@@ -404,6 +408,7 @@ def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path
         "ledger_v2_dry_run": "/api/v1/portfolio-events/ledger-v2/dry-run",
         "ledger_v2_diagnostics": "/api/v1/portfolio-events/ledger-v2/diagnostics",
         "ledger_v2_rehearsal_report": "/api/v1/portfolio-events/ledger-v2/rehearsal-report",
+        "run_flow_contract": "/api/v1/workbench/diagnostics#run_flow_contract",
     }
 
     cards = payload["cards"]
@@ -414,6 +419,7 @@ def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path
         "ledger_v2_dry_run",
         "ledger_v2_diagnostics",
         "ledger_v2_rehearsal_report",
+        "run_flow_contract",
     ]
     assert cards[0]["status"] == "available"
     assert cards[0]["summary"]["providers_configured"] == {
@@ -431,6 +437,20 @@ def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path
     assert cards[5]["summary"]["endpoint"] == "/api/v1/portfolio-events/ledger-v2/rehearsal-report"
     assert cards[5]["summary"]["v1_authoritative"] is True
     assert cards[5]["summary"]["manual_review_required"] is True
+    assert cards[6]["summary"]["read_only"] is True
+    assert cards[6]["summary"]["side_effects"] == []
+    assert cards[6]["summary"]["is_trade_instruction"] is False
+
+    run_flow_contract = payload["run_flow_contract"]
+    assert run_flow_contract["mode"] == "read_only_run_flow_contract"
+    assert run_flow_contract["read_only"] is True
+    assert run_flow_contract["is_trade_instruction"] is False
+    assert run_flow_contract["manual_review_required"] is True
+    assert run_flow_contract["side_effects"] == []
+    assert run_flow_contract["schema"]["models"] == ["lane", "node", "edge", "event", "summary", "snapshot"]
+    assert run_flow_contract["links"]["schema"] == "/api/v1/workbench/diagnostics#run_flow_contract.schema"
+    assert run_flow_contract["snapshot"]["summary"]["side_effects"] == []
+    assert run_flow_contract["snapshot"]["summary"]["is_trade_instruction"] is False
 
     serialized = str(payload)
     assert "secret-tavily" not in serialized
@@ -442,6 +462,37 @@ def test_workbench_diagnostics_hub_aggregates_low_sensitive_links(tmp_path: Path
     assert "fill" not in serialized.lower()
 
     app.dependency_overrides.clear()
+
+
+def test_diagnostics_hub_builder_has_no_run_flow_opt_in_flag():
+    signature = inspect.signature(workbench._build_workbench_diagnostics_hub)
+
+    assert "include_run_flow_contract" not in signature.parameters
+
+
+def test_run_flow_diagnostics_builder_does_not_mutate_base_hub():
+    base_hub = workbench._build_workbench_diagnostics_hub(
+        config_status={"provider_status": {"providers": {}, "news_intel_cache": {}}},
+        alert_rule_dry_run={"presets": []},
+        alert_rule_batch_dry_run={"endpoint": "/batch", "method": "POST", "result_fields": []},
+        ledger_v2_dry_run={"endpoint": "/dry-run", "method": "GET", "result_fields": []},
+        ledger_v2_diagnostics={"endpoint": "/diagnostics", "method": "GET", "result_fields": []},
+        ledger_v2_rehearsal_report={"endpoint": "/rehearsal", "method": "GET", "result_fields": []},
+    )
+    original_sections = list(base_hub["sections"])
+    original_links = dict(base_hub["links"])
+    original_cards = list(base_hub["cards"])
+
+    diagnostics_hub = workbench._build_diagnostics_hub_with_run_flow_contract(base_hub)
+
+    assert diagnostics_hub is not base_hub
+    assert base_hub["sections"] == original_sections
+    assert base_hub["links"] == original_links
+    assert base_hub["cards"] == original_cards
+    assert "run_flow_contract" not in base_hub
+    assert "run_flow_contract" not in base_hub["sections"]
+    assert "run_flow_contract" in diagnostics_hub
+    assert "run_flow_contract" in diagnostics_hub["sections"]
 
 
 def test_workbench_diagnostics_hub_exposes_operator_flow_schema(tmp_path: Path):

@@ -89,7 +89,11 @@ def test_diagnostics_smoke_payload_uses_low_sensitive_fields(tmp_path: Path):
     assert hub["schema"]["low_sensitive_only"] is True
     assert hub["schema"]["raw_secret_fields"] == []
     assert hub["side_effects"] == []
-    assert {card["id"] for card in hub["cards"]} == set(summary["diagnostics_hub"]["sections"])
+    assert "run_flow_contract" not in summary["diagnostics_hub"]["sections"]
+    assert "run_flow_contract" not in summary["diagnostics_hub"]
+    assert "run_flow_contract" in hub["sections"]
+    assert "run_flow_contract" in hub
+    assert {card["id"] for card in hub["cards"]} == set(hub["sections"])
 
     serialized = f"{summary} {hub}"
     assert "secret-tavily" not in serialized

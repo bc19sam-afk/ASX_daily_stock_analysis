@@ -23,6 +23,7 @@ from src.services.asx_alert_rule_presets import (
     build_workbench_alert_rule_presets,
 )
 from src.services.history_service import HistoryService
+from src.services.run_flow import RUN_FLOW_DIAGNOSTICS_ANCHOR, build_workbench_run_flow_contract
 from src.services.system_config_service import SystemConfigService
 from src.storage import DatabaseManager, NewsIntel
 
@@ -130,7 +131,7 @@ def get_workbench_diagnostics(
         portfolio_summary=portfolio_summary,
         config_status=config_status,
     )
-    return _build_workbench_diagnostics_hub(
+    diagnostics_hub = _build_workbench_diagnostics_hub(
         config_status=config_status,
         alert_rule_dry_run=alert_rule_dry_run,
         alert_rule_batch_dry_run=_build_alert_rule_batch_dry_run_summary(),
@@ -138,6 +139,7 @@ def get_workbench_diagnostics(
         ledger_v2_diagnostics=_build_ledger_v2_diagnostics_summary(),
         ledger_v2_rehearsal_report=_build_ledger_v2_rehearsal_report_summary(),
     )
+    return _build_diagnostics_hub_with_run_flow_contract(diagnostics_hub)
 
 
 @router.get(
@@ -592,7 +594,102 @@ def _build_workbench_diagnostics_hub(
         },
     ]
 
-    return {
+    schema = {
+        "card_fields": ["id", "title", "status", "summary", "link"],
+        "productization_fields": [
+            "nav",
+            "quick_links",
+            "status_badges",
+            "action_groups",
+        ],
+        "low_sensitive_only": True,
+        "raw_secret_fields": [],
+        "side_effects": [],
+    }
+
+    cards = [
+        {
+            "id": "provider_status",
+            "title": "Provider & Cache Status",
+            "status": config_status.get("status") or "unknown",
+            "summary": {
+                "providers_configured": {
+                    "tavily": bool((providers.get("tavily") or {}).get("configured")),
+                    "gemini": bool((providers.get("gemini") or {}).get("configured")),
+                    "serpapi": bool((providers.get("serpapi") or {}).get("configured")),
+                },
+                "active_provider_order": list(provider_status.get("active_provider_order") or []),
+                "news_intel_cache_enabled": bool(news_cache.get("enabled")),
+                "quota_safe": True,
+                "usage_telemetry": _provider_usage_telemetry_summary(
+                    provider_status.get("usage_telemetry")
+                ),
+            },
+            "link": links["provider_status"],
+        },
+        {
+            "id": "alert_rule_presets",
+            "title": "Alert Rule Presets",
+            "status": "available" if alert_rule_dry_run.get("presets") else "missing",
+            "summary": {
+                "endpoint": PRESETS_ENDPOINT,
+                "preset_count": len(alert_rule_dry_run.get("presets") or []),
+                "is_trade_instruction": False,
+            },
+            "link": links["alert_rule_presets"],
+        },
+        {
+            "id": "alert_rule_batch_dry_run",
+            "title": "Alert Rule Batch Dry-Run",
+            "status": "available",
+            "summary": {
+                "endpoint": alert_rule_batch_dry_run.get("endpoint"),
+                "method": alert_rule_batch_dry_run.get("method"),
+                "result_fields": list(alert_rule_batch_dry_run.get("result_fields") or []),
+                "is_trade_instruction": False,
+            },
+            "link": links["alert_rule_batch_dry_run"],
+        },
+        {
+            "id": "ledger_v2_dry_run",
+            "title": "Ledger v2 Dry-Run",
+            "status": "available",
+            "summary": {
+                "endpoint": ledger_v2_dry_run.get("endpoint"),
+                "method": ledger_v2_dry_run.get("method"),
+                "result_fields": list(ledger_v2_dry_run.get("result_fields") or []),
+                "v1_authoritative": True,
+            },
+            "link": links["ledger_v2_dry_run"],
+        },
+        {
+            "id": "ledger_v2_diagnostics",
+            "title": "Ledger v2 Diagnostics",
+            "status": "available",
+            "summary": {
+                "endpoint": ledger_v2_diagnostics.get("endpoint"),
+                "method": ledger_v2_diagnostics.get("method"),
+                "result_fields": list(ledger_v2_diagnostics.get("result_fields") or []),
+                "v1_authoritative": True,
+            },
+            "link": links["ledger_v2_diagnostics"],
+        },
+        {
+            "id": "ledger_v2_rehearsal_report",
+            "title": "Ledger v2 Rehearsal Report",
+            "status": "manual_review_required",
+            "summary": {
+                "endpoint": ledger_v2_rehearsal_report.get("endpoint"),
+                "method": ledger_v2_rehearsal_report.get("method"),
+                "result_fields": list(ledger_v2_rehearsal_report.get("result_fields") or []),
+                "v1_authoritative": True,
+                "manual_review_required": True,
+            },
+            "link": links["ledger_v2_rehearsal_report"],
+        },
+    ]
+
+    result = {
         "mode": "read_only_diagnostics_hub",
         "endpoint": "/api/v1/workbench/diagnostics",
         "method": "GET",
@@ -601,18 +698,7 @@ def _build_workbench_diagnostics_hub(
         "side_effects": [],
         "forbidden_side_effects": forbidden_side_effects,
         "sections": sections,
-        "schema": {
-            "card_fields": ["id", "title", "status", "summary", "link"],
-            "productization_fields": [
-                "nav",
-                "quick_links",
-                "status_badges",
-                "action_groups",
-            ],
-            "low_sensitive_only": True,
-            "raw_secret_fields": [],
-            "side_effects": [],
-        },
+        "schema": schema,
         "copy": {
             "title": "Diagnostics Hub",
             "boundary": "summary only; links to existing read-only diagnostics and dry-run endpoints",
@@ -622,88 +708,62 @@ def _build_workbench_diagnostics_hub(
         "quick_links": quick_links,
         "status_badges": status_badges,
         "action_groups": action_groups,
-        "cards": [
-            {
-                "id": "provider_status",
-                "title": "Provider & Cache Status",
-                "status": config_status.get("status") or "unknown",
-                "summary": {
-                    "providers_configured": {
-                        "tavily": bool((providers.get("tavily") or {}).get("configured")),
-                        "gemini": bool((providers.get("gemini") or {}).get("configured")),
-                        "serpapi": bool((providers.get("serpapi") or {}).get("configured")),
-                    },
-                    "active_provider_order": list(provider_status.get("active_provider_order") or []),
-                    "news_intel_cache_enabled": bool(news_cache.get("enabled")),
-                    "quota_safe": True,
-                    "usage_telemetry": _provider_usage_telemetry_summary(
-                        provider_status.get("usage_telemetry")
-                    ),
-                },
-                "link": links["provider_status"],
-            },
-            {
-                "id": "alert_rule_presets",
-                "title": "Alert Rule Presets",
-                "status": "available" if alert_rule_dry_run.get("presets") else "missing",
-                "summary": {
-                    "endpoint": PRESETS_ENDPOINT,
-                    "preset_count": len(alert_rule_dry_run.get("presets") or []),
-                    "is_trade_instruction": False,
-                },
-                "link": links["alert_rule_presets"],
-            },
-            {
-                "id": "alert_rule_batch_dry_run",
-                "title": "Alert Rule Batch Dry-Run",
-                "status": "available",
-                "summary": {
-                    "endpoint": alert_rule_batch_dry_run.get("endpoint"),
-                    "method": alert_rule_batch_dry_run.get("method"),
-                    "result_fields": list(alert_rule_batch_dry_run.get("result_fields") or []),
-                    "is_trade_instruction": False,
-                },
-                "link": links["alert_rule_batch_dry_run"],
-            },
-            {
-                "id": "ledger_v2_dry_run",
-                "title": "Ledger v2 Dry-Run",
-                "status": "available",
-                "summary": {
-                    "endpoint": ledger_v2_dry_run.get("endpoint"),
-                    "method": ledger_v2_dry_run.get("method"),
-                    "result_fields": list(ledger_v2_dry_run.get("result_fields") or []),
-                    "v1_authoritative": True,
-                },
-                "link": links["ledger_v2_dry_run"],
-            },
-            {
-                "id": "ledger_v2_diagnostics",
-                "title": "Ledger v2 Diagnostics",
-                "status": "available",
-                "summary": {
-                    "endpoint": ledger_v2_diagnostics.get("endpoint"),
-                    "method": ledger_v2_diagnostics.get("method"),
-                    "result_fields": list(ledger_v2_diagnostics.get("result_fields") or []),
-                    "v1_authoritative": True,
-                },
-                "link": links["ledger_v2_diagnostics"],
-            },
-            {
-                "id": "ledger_v2_rehearsal_report",
-                "title": "Ledger v2 Rehearsal Report",
-                "status": "manual_review_required",
-                "summary": {
-                    "endpoint": ledger_v2_rehearsal_report.get("endpoint"),
-                    "method": ledger_v2_rehearsal_report.get("method"),
-                    "result_fields": list(ledger_v2_rehearsal_report.get("result_fields") or []),
-                    "v1_authoritative": True,
-                    "manual_review_required": True,
-                },
-                "link": links["ledger_v2_rehearsal_report"],
-            },
-        ],
+        "cards": cards,
     }
+    return result
+
+
+def _build_diagnostics_hub_with_run_flow_contract(base_hub: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return the GET /workbench/diagnostics payload with run-flow contract."""
+    run_flow_contract = build_workbench_run_flow_contract()
+    hub = dict(base_hub)
+    hub["sections"] = list(base_hub.get("sections") or []) + ["run_flow_contract"]
+    links = dict(base_hub.get("links") or {})
+    links["run_flow_contract"] = RUN_FLOW_DIAGNOSTICS_ANCHOR
+    hub["links"] = links
+
+    quick_links = list(base_hub.get("quick_links") or [])
+    quick_links.append(
+        {
+            "id": "run_flow_contract",
+            "label": "Run-flow contract",
+            "href": links["run_flow_contract"],
+            "status": run_flow_contract["snapshot"]["summary"]["status"],
+        }
+    )
+    hub["quick_links"] = quick_links
+
+    schema = dict(base_hub.get("schema") or {})
+    schema["run_flow_contract_fields"] = [
+        "lanes",
+        "nodes",
+        "edges",
+        "events",
+        "summary",
+        "snapshot",
+    ]
+    hub["schema"] = schema
+
+    cards = list(base_hub.get("cards") or [])
+    cards.append(
+        {
+            "id": "run_flow_contract",
+            "title": "Run-Flow Contract",
+            "status": run_flow_contract["snapshot"]["summary"]["status"],
+            "summary": {
+                "schema_version": run_flow_contract["snapshot"]["schema_version"],
+                "read_only": True,
+                "is_trade_instruction": False,
+                "manual_review_required": True,
+                "side_effects": [],
+                "models": list(run_flow_contract["schema"]["models"]),
+            },
+            "link": links["run_flow_contract"],
+        }
+    )
+    hub["cards"] = cards
+    hub["run_flow_contract"] = run_flow_contract
+    return hub
 
 
 def _load_latest_detail(history_service: HistoryService, latest_item: Optional[Dict[str, Any]]) -> Dict[str, Any]:
