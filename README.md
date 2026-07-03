@@ -6,6 +6,8 @@ Daily Stock Analysis is a Python-based stock analysis and reporting system for m
 
 The current product positioning and default runtime assumptions are centered on ASX-first workflows, with AU/US symbols supported in the same reporting flow. The default examples in this document stay ASX-only because runtime defaults still assume `MARKET_CALENDAR=ASX` and `MARKET_TIMEZONE=Australia/Sydney`. Some source comments and legacy integrations still reflect the repository's earlier A-share history, but user-facing setup guidance in this document is written for the current ASX/AU/US usage model.
 
+For task-based user and contributor documentation, start with [docs/INDEX.md](docs/INDEX.md). It routes common goals such as daily reports, Workbench, diagnostics, data/model setup, troubleshooting, and PR validation while keeping `omx_wiki/` as the internal control plane.
+
 ## Current architecture
 
 The current `main` branch is organized into these modules:
