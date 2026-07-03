@@ -142,18 +142,20 @@ minimum check that changed links point to existing paths and run
 `git diff --check`. If a markdown/docs lint command is introduced later, run it
 as part of the docs PR gate.
 
-## Engineering shapes learned from upstream
+## I want the short upstream-learning engineering-shape summary
 
-This repository borrows safe engineering shapes from upstream without adopting
-upstream market assumptions or weakening the ASX-first manual-review boundary:
+This contributor-facing summary is a lightweight orientation note, not the
+roadmap authority. Durable decisions and control-plane context stay in
+[`omx_wiki`](../omx_wiki/index.md).
 
-- CI phase gate: `scripts/ci_gate.sh` can run backend checks in smaller phases
-  so failures are easier to locate.
-- Notification sender split: channel dispatch is separated from the main
-  notification orchestration path while preserving existing send behavior.
-- Report renderer fallback: the email report footer renderer can fail open to
-  the existing literal footer instead of breaking report generation.
-- Run-flow diagnostics: Workbench diagnostics expose a compact, read-only
-  run-flow contract for operator visibility without new side effects.
-- User documentation index: this page routes users by scenario while
-  [`omx_wiki`](../omx_wiki/index.md) remains the internal control plane.
+- CI phase gate: when validating a PR, use the smaller backend phases in
+  `scripts/ci_gate.sh` to find failures closer to their source.
+- Notification sender split: when reading notification code, expect channel
+  dispatch to stay separate from main notification orchestration.
+- Report renderer fallback: when touching report rendering, preserve the
+  fail-open path that keeps report generation working if the renderer cannot
+  render a fragment.
+- Run-flow diagnostics: when checking Workbench diagnostics, treat the run-flow
+  contract as compact, read-only operator visibility with no new side effects.
+- User documentation index: start from this page by goal; keep internal
+  strategy and roadmap records in [`omx_wiki`](../omx_wiki/index.md).
