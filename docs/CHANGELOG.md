@@ -7,6 +7,11 @@
 
 ## [Unreleased]
 
+### 文档
+- 🧭 **面向用户的文档入口**
+  - 新增 `docs/INDEX.md`，按“我想做什么”组织每日 ASX 报告、Workbench、diagnostics、数据/模型配置、人工复核边界、故障排查和 PR 验证入口
+  - README 增加短链接，明确 `docs/INDEX.md` 面向普通用户和贡献者场景，`omx_wiki/` 继续作为内部控制平面
+
 ### 修复
 - 🧩 **日报 schema 桥接字段恢复**
   - 当 LLM 已返回完整 `dashboard` 但遗漏旧顶层 `analysis_summary` / `risk_warning` 时，本地从 dashboard 确定性恢复，不再误报为行情数据不完整
