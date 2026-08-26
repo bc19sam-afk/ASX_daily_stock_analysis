@@ -35,6 +35,24 @@ task into broker/execution behavior.
 8. Record only stable outcomes in wiki: decisions, changed boundaries, durable
    runbook updates, and new reference facts.
 
+## GitHub Actions Scheduled Workflow Continuity
+
+GitHub can automatically disable `schedule` triggers after 60 days without
+repository activity. This is separate from the workflow's enabled/disabled
+state and does not mean GitHub Actions itself is being retired.
+
+1. Check the Actions page for `每日股票分析` and `Network Smoke` when GitHub
+   sends a "will be disabled soon" notice.
+2. Use the page's `Continue running workflow` or `Enable workflow` control when
+   it is offered; the CLI/API `enable` operation only re-enables a workflow
+   that is disabled.
+3. Keep `main` active with a meaningful code, documentation, or maintenance
+   change before the 60-day threshold. Do not rely on manual `workflow_dispatch`
+   runs or empty commits as the only activity signal.
+4. Preserve the existing Australia/Sydney weekday schedule and the
+   `stock-db-*` cache lineage; this continuity procedure must not alter
+   portfolio or broker behavior.
+
 ## Output Shape
 
 Use this shape for daily maintenance summaries:
@@ -60,4 +78,3 @@ Stop and escalate before proceeding if the task needs:
 - Production notification side effects.
 - A change to `close_only`, workflow, storage schema, or database migrations
   outside an explicitly authorized scope.
-
